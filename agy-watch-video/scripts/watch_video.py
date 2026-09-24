@@ -30,7 +30,7 @@ import time
 import unicodedata
 from pathlib import Path
 
-SKILL_VERSION = "2026.09.24.3"
+SKILL_VERSION = "2026.09.24.4"
 SKILL_DIR = Path(__file__).resolve().parent.parent
 CACHE = Path(os.environ.get("AGY_WATCH_CACHE") or (Path.home() / ".cache" / "agy-watch-video"))
 VENV_DIR = SKILL_DIR / ".venv"
@@ -426,13 +426,33 @@ def measure(v: Video, fresh: bool = False) -> dict:
 def _measure_video(v: Video, pr: dict) -> dict:
     ffmpeg = need("ffmpeg")
     metafile = v.sub("measure", "frames.meta")
+    gridfile = metafile.parent / "grid.raw"
     chain = ("scale=320:-2:flags=bilinear,format=yuv420p,"
              "blackdetect=d=0.10:pix_th=0.10,freezedetect=n=-60dB:d=0.5,scdet=threshold=10,"
              "signalstats,blurdetect,blockdetect,cropdetect=limit=24:round=2:reset=0,"
              f"metadata=mode=print:file={metafile.name}")
-    # The meta file is named relative to ffmpeg's working folder, so no path ever goes through filtergraph quoting.
-    r = run([ffmpeg, "-hide_banner", "-nostats", "-v", "info", "-i", v.path, "-map", "0:v:0", "-vf", chain,
-             "-f", "null", "-"], timeout=max(300, (pr.get("duration") or 60) * 4), cwd=str(metafile.parent), check=False)
+    vd = pr.get("video") or {}
+    gcols, grows = grid_dims(vd.get("width"), vd.get("height"))
+    gstep = activity_step(vd.get("fps"), pr.get("duration"))
+    # The same decode also feeds the change grid: every frame (every few on long videos) at up to 640 px, the
+    # difference to the previous one (the largest of Y, U and V, so a change of colour counts as much as one of
+    # brightness), a 3x3 dilation so thin things count, then the mean per grid cell (one byte per cell and frame). Its
+    # frames line up with the metadata frames, which carry the real timestamps.
+    graph = (f"[0:v:0]split=2[m][g];[m]{chain}[mo];[g]" + (f"framestep={gstep}," if gstep > 1 else "")
+             + "scale='if(gte(iw,ih),min(640,iw),-2)':'if(gte(iw,ih),-2,min(640,ih))':flags=area,format=yuv444p,"
+             "tblend=all_mode=difference,extractplanes=y+u+v[gy][gu][gv];[gy][gu]blend=all_mode=lighten[gyu];"
+             f"[gyu][gv]blend=all_mode=lighten,dilation,scale={gcols}:{grows}:flags=area,format=gray[go]")
+    timeout = max(300, (pr.get("duration") or 60) * 4)
+    # The meta and grid files are named relative to ffmpeg's working folder, so no path goes through filtergraph quoting.
+    r = run([ffmpeg, "-hide_banner", "-nostats", "-v", "info", "-y", "-i", v.path, "-filter_complex", graph,
+             "-map", "[mo]", "-f", "null", "-", "-map", "[go]", "-fps_mode", "passthrough", "-f", "rawvideo",
+             gridfile.name],
+            timeout=timeout, cwd=str(metafile.parent), check=False)
+    grid_error = None
+    if r.returncode != 0:
+        grid_error = f"the change grid failed: {(r.stderr or '')[-200:]}"
+        r = run([ffmpeg, "-hide_banner", "-nostats", "-v", "info", "-i", v.path, "-map", "0:v:0", "-vf", chain,
+                 "-f", "null", "-"], timeout=timeout, cwd=str(metafile.parent), check=False)
     if r.returncode != 0:
         raise WatchError(f"video measurement failed: {(r.stderr or '')[-400:]}")
     err = r.stderr or ""
@@ -496,6 +516,15 @@ def _measure_video(v: Video, pr: dict) -> dict:
     for a, b in zip(bounds, bounds[1:]):
         if b - a > 0.04:
             shots.append({"start": round(a, 3), "end": round(b, 3), "duration": round(b - a, 3)})
+    try:
+        ftimes = [f["t"] for f in frames]
+        activity = {"error": grid_error} if grid_error else \
+            analyse_grid(gridfile.read_bytes(), gcols, grows, ftimes[gstep::gstep], cuts=cuts, dur=dur,
+                         src_fps=vd.get("fps"))
+    except OSError as e:
+        activity = {"error": f"the change grid could not be read: {e}"}
+    finally:
+        gridfile.unlink(missing_ok=True)
     return {
         "frames_analysed": len(frames), "cuts": cuts, "shots": shots,
         "avg_shot_s": round(sum(s["duration"] for s in shots) / len(shots), 2) if shots else None,
@@ -509,7 +538,275 @@ def _measure_video(v: Video, pr: dict) -> dict:
         "block_worst": _worst(frames, "lavfi.block"),
         "per_second": _per_second(frames, dur),
         "change": {"bin": bin_s, "sum": [round(x, 4) for x in csum], "max": [round(x, 3) for x in cmax]},
+        "activity": activity,
     }
+
+
+# ----------------------------------------------------------------------------------------------- local change grid
+
+ACT_MIN = 6          # the least rise of a cell over its frame's own level that counts (0-255, after dilation)
+ACT_BRIEF_S = 0.6    # a local change that starts and ends within this is a brief event: it can fall between samples
+ACT_BRIEF_PEAK = 18  # ... and it must be clearly stronger than ordinary movement (measured: a person walking, 7 to 16)
+ACT_JOIN_S = 0.3     # local changes this close in time and place belong to one event
+ACT_PAIR_S = 1.5     # something that shows and goes again within this is one brief event
+
+
+def grid_dims(w, h, long_side: int = 32) -> tuple:
+    """Columns and rows of the change grid, with cells roughly square in the displayed picture."""
+    w, h = max(1, int(w or 16)), max(1, int(h or 9))
+    if w >= h:
+        return long_side, max(6, round(long_side * h / w))
+    return max(6, round(long_side * w / h)), long_side
+
+
+def activity_step(src_fps, dur) -> int:
+    """Every frame; on videos over 20 minutes about 10 a second, which still catches 0.1 s events."""
+    return max(1, int(round((src_fps or 30) / 10))) if (dur or 0) > 1200 else 1
+
+
+def seek_time(t: float) -> float:
+    """A time just before a frame's timestamp, so that seeking there returns that frame and not the next one."""
+    return max(0.0, math.floor(t * 1000 - 0.5) / 1000)
+
+
+def _components(cells: list, cols: int) -> list:
+    """Groups of touching cells (8 neighbours)."""
+    left, out = set(cells), []
+    while left:
+        comp = {left.pop()}
+        stack = list(comp)
+        while stack:
+            c = stack.pop()
+            cx = c % cols
+            for dy in (-cols, 0, cols):
+                for dx in (-1, 0, 1):
+                    nb = c + dy + dx
+                    if nb in left and 0 <= cx + dx < cols:
+                        left.discard(nb)
+                        comp.add(nb)
+                        stack.append(nb)
+        out.append(comp)
+    return out
+
+
+def _box(cells, cols: int) -> tuple:
+    xs, ys = [c % cols for c in cells], [c // cols for c in cells]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _near(r1, r2, pad: float) -> bool:
+    return not (r1[2] + pad < r2[0] or r2[2] + pad < r1[0] or r1[3] + pad < r2[1] or r2[3] + pad < r1[1])
+
+
+def analyse_grid(data: bytes, cols: int, rows: int, times: list | None = None, cuts: list | None = None,
+                 dur: float | None = None, src_fps: float | None = None) -> dict:
+    """Where and when the picture changes locally. `data` holds one byte per grid cell and frame: the mean, after a 3x3
+    dilation, of the largest absolute Y, U or V difference to the previous frame; times[k] is the timestamp of the frame
+    that grid frame k changed into. A cell counts when it rises above its frame's own level (a camera move or a cut lifts
+    every cell) by more than its usual amount.
+
+    Events, with regions as fractions of the frame [x0, y0, x1, y1]:
+    - brief: something shows and goes again within ACT_PAIR_S, or changes for at most ACT_BRIEF_S, clearly stronger than
+      the movement around it (a pop-up, a flash of text, a glitch): the kind that falls between sampled frames;
+    - flicker: something that comes and goes in one place for longer (a blinking icon, a stuttering glitch);
+    - step: one strong change that stays (something appears, goes or jumps);
+    - motion: movement that lasts, with a track of where it is over time (for close-ups)."""
+    import itertools
+    import operator
+    size = cols * rows
+    n = len(data) // size if size else 0
+    step_s = 1.0 / (src_fps or 30)
+    times = list(times or [])
+    if len(times) < n:
+        last = times[-1] if times else 0.0
+        times += [last + step_s * (i + 1) for i in range(n - len(times))]
+    span = dur or (times[n - 1] if n else 0)
+    bin_s = 0.25 if span <= 600 else (0.5 if span <= 3600 else 1.0)
+    res = {"grid": [cols, rows], "frames": n, "bin": bin_s, "events": [], "brief_total": 0, "step_total": 0,
+           "sensitivity": f"a change filling about one cell of a {cols}x{rows} grid"}
+    if n < 3:
+        return res
+    frames = [data[i * size:(i + 1) * size] for i in range(n)]
+    meds = [sorted(f)[size // 2] for f in frames]
+    step = max(1, n // 3000)
+    thr = []
+    for c in range(size):
+        xs = sorted(frames[k][c] - meds[k] for k in range(0, n, step))
+        b = xs[len(xs) // 2]
+        mad = sorted(abs(x - b) for x in xs)[len(xs) // 2]
+        thr.append(max(ACT_MIN, b + max(ACT_MIN, 6 * mad)))
+
+    def similar(p, q):
+        return p <= 3 * max(q, ACT_MIN) and q <= 3 * max(p, ACT_MIN)
+    limits: dict = {}
+    comps = []
+    for k, f in enumerate(frames):
+        m = meds[k]
+        if max(f) - m <= ACT_MIN:
+            continue
+        lim = limits.get(m)
+        if lim is None:
+            lim = limits[m] = [m + x for x in thr]
+        hits = list(itertools.compress(range(size), map(operator.gt, f, lim)))
+        groups: list = []          # touching cells, then nearby parts of similar strength (a flat object shows two edges)
+        for comp in sorted(_components(hits, cols) if hits else [], key=len, reverse=True):
+            bx, pk = _box(comp, cols), max(f[c] - m for c in comp)
+            g = next((g for g in groups if _near(g[0], bx, 3) and similar(g[1], pk)), None)
+            if g:
+                g[0] = (min(g[0][0], bx[0]), min(g[0][1], bx[1]), max(g[0][2], bx[2]), max(g[0][3], bx[3]))
+                g[1] = max(g[1], pk)
+            else:
+                groups.append([bx, pk])
+        comps += [(k, g[0], g[1]) for g in groups]
+    res["active_frames"] = len({k for k, _, _ in comps})
+    clusters, live = [], []
+    for k, bx, peak in comps:
+        t = times[k]
+        still = []
+        for cl in live:
+            (clusters if t - times[cl["ks"][-1]] > ACT_JOIN_S else still).append(cl)
+        live = still
+        # join the nearest cluster of similar strength: a pop-up next to a moving person stays its own event
+        cands = [c for c in live if _near(c["last"], bx, 2) and similar(c["level"], peak)]
+        cl = min(cands, key=lambda c: abs(c["last"][0] - bx[0]) + abs(c["last"][1] - bx[1])) if cands else None
+        if cl is None:
+            cl = {"last": bx, "union": bx, "peak": peak, "peak_k": k, "ks": [], "level": float(peak), "track": [],
+                  "maxw": 0, "maxh": 0}
+            live.append(cl)
+        u = cl["union"]
+        cl.update(last=bx, union=(min(u[0], bx[0]), min(u[1], bx[1]), max(u[2], bx[2]), max(u[3], bx[3])),
+                  level=0.8 * cl["level"] + 0.2 * peak, maxw=max(cl["maxw"], bx[2] - bx[0] + 1),
+                  maxh=max(cl["maxh"], bx[3] - bx[1] + 1))
+        if peak > cl["peak"]:
+            cl["peak"], cl["peak_k"] = peak, k
+        if not cl["ks"] or cl["ks"][-1] != k:
+            cl["ks"].append(k)
+        tb = round(int(t / bin_s) * bin_s, 3)
+        entry = [tb, round(bx[0] / cols, 3), round(bx[1] / rows, 3), round((bx[2] + 1) / cols, 3),
+                 round((bx[3] + 1) / rows, 3), int(peak)]
+        if cl["track"] and cl["track"][-1][0] == tb:
+            prev = cl["track"][-1]
+            cl["track"][-1] = [tb, min(prev[1], entry[1]), min(prev[2], entry[2]), max(prev[3], entry[3]),
+                               max(prev[4], entry[4]), max(prev[5], entry[5])]
+        else:
+            cl["track"].append(entry)
+    clusters += live
+
+    def region(bx):
+        return [round(bx[0] / cols, 3), round(bx[1] / rows, 3), round((bx[2] + 1) / cols, 3), round((bx[3] + 1) / rows, 3)]
+    for cl in clusters:
+        ks = cl["ks"]
+        cl["start"], cl["end"] = times[ks[0]], times[ks[-1]]
+        if cl["end"] - cl["start"] <= ACT_BRIEF_S:
+            cl["kind"] = "brief" if len(ks) >= 2 else "step"
+        else:
+            # longer: movement changes nearly every frame and travels; a blink or a flickering element changes now and
+            # then, in one place
+            u = cl["union"]
+            in_place = u[2] - u[0] + 1 <= cl["maxw"] + 1 and u[3] - u[1] + 1 <= cl["maxh"] + 1
+            sparse = len(ks) / (ks[-1] - ks[0] + 1) <= 0.5
+            cl["kind"] = "flicker" if in_place and sparse else "motion"
+    # something that shows and goes again: two single changes in the same place, up to ACT_PAIR_S apart
+    steps = sorted((c for c in clusters if c["kind"] == "step"), key=lambda c: c["start"])
+    used = set()
+    for i, a_ in enumerate(steps):
+        if id(a_) in used:
+            continue
+        b_ = next((b2 for b2 in steps[i + 1:] if id(b2) not in used and 0 < b2["start"] - a_["start"] <= ACT_PAIR_S
+                   and _near(a_["union"], b2["union"], 1) and similar(a_["peak"], b2["peak"])), None)
+        if b_:
+            used |= {id(a_), id(b_)}
+            u, w_ = a_["union"], b_["union"]
+            a_.update(kind="brief", end=b_["end"], ks=a_["ks"] + b_["ks"], peak=max(a_["peak"], b_["peak"]),
+                      union=(min(u[0], w_[0]), min(u[1], w_[1]), max(u[2], w_[2]), max(u[3], w_[3])))
+            b_["kind"] = "merged"
+    motion = [c for c in clusters if c["kind"] == "motion"]
+
+    def part_of_motion(cl):
+        """A change at the same place and time as movement of similar strength belongs to that movement."""
+        r = region(cl["union"])
+        pad = 1.0 / cols
+        for m_ in motion:
+            for tb, x0, y0, x1, y1, pk in m_["track"]:
+                if cl["start"] - bin_s <= tb <= cl["end"] + bin_s and _near(r, [x0, y0, x1, y1], pad) and \
+                        pk >= 0.5 * cl["peak"]:
+                    return True
+        return False
+    events = []
+    for cl in clusters:
+        kind = cl["kind"]
+        if kind == "merged":
+            continue
+        if kind in ("brief", "step", "flicker") and (cl["peak"] < ACT_BRIEF_PEAK or part_of_motion(cl)
+                                                     or any(abs(cl["start"] - c) < 0.2 for c in cuts or [])):
+            continue                # ordinary small movement, part of a larger one, or the edge of a cut
+        ks = sorted(cl["ks"])
+        if kind == "brief":
+            # what appeared stays on screen from the first change until the last: look at a frame in between
+            look = times[(ks[0] + ks[-1] - 1) // 2 if ks[-1] - ks[0] > 1 else ks[0]]
+        elif kind == "flicker":
+            # the first time it shows: between its first change and the next
+            look = times[(ks[0] + ks[1] - 1) // 2 if ks[1] - ks[0] > 1 else ks[0]]
+        else:
+            look = times[cl["peak_k"]]
+        r = region(cl["union"])
+        ev = {"kind": kind, "start": round(cl["start"], 3), "end": round(cl["end"], 3), "t": seek_time(look),
+              "region": r, "area": round((r[2] - r[0]) * (r[3] - r[1]), 3), "peak": int(cl["peak"]), "changes": len(ks)}
+        if kind == "motion":
+            ev["track"] = cl["track"]
+        events.append(ev)
+    res["brief_total"] = sum(1 for e in events if e["kind"] in ("brief", "flicker"))
+    res["step_total"] = sum(1 for e in events if e["kind"] == "step")
+    short = sorted((e for e in events if e["kind"] != "motion"), key=lambda e: -e["peak"])[:300]
+    moving = sorted((e for e in events if e["kind"] == "motion"), key=lambda e: -e["peak"])[:200]
+    res["events"] = sorted(short + moving, key=lambda e: e["start"])
+    return res
+
+
+def activity_near(act: dict | None, t0: float, t1: float, max_area: float = 0.25) -> tuple | None:
+    """Where the strongest lasting movement is between t0 and t1: (x0, y0, x1, y1, strength), or None. Bands along an edge
+    of the frame (a camera move revealing new ground) and areas too big to enlarge are left out."""
+    act = act or {}
+    bs = act.get("bin", 0.25)
+    best = None
+    for e in act.get("events") or []:
+        if e.get("kind") != "motion" or e["end"] < t0 - bs or e["start"] > t1 + bs:
+            continue
+        for t, x0, y0, x1, y1, pk in e.get("track") or []:
+            if not (t0 - bs < t <= t1):
+                continue
+            w_, h_ = x1 - x0, y1 - y0            # a strip along an edge of the frame: a camera move revealing new ground
+            edge_band = ((y0 <= 0.001 or y1 >= 0.999) and (w_ > 0.5 or w_ >= 2.5 * h_)) or \
+                        ((x0 <= 0.001 or x1 >= 0.999) and (h_ > 0.5 or h_ >= 2.5 * w_))
+            if not edge_band and (x1 - x0) * (y1 - y0) <= max_area and (best is None or pk > best[4]):
+                best = (x0, y0, x1, y1, pk)              # the strongest movement at that moment
+    return best
+
+
+def pad_region(x0: float, y0: float, x1: float, y1: float, max_area: float = 0.35) -> str | None:
+    """A crop around a box (fractions), with room around it and at least a fifth of each side; None when the crop
+    would be so big that enlarging it gains little."""
+    mx, my = max(0.04, (x1 - x0) * 0.25), max(0.04, (y1 - y0) * 0.25)
+    x0, y0, x1, y1 = max(0.0, x0 - mx), max(0.0, y0 - my), min(1.0, x1 + mx), min(1.0, y1 + my)
+    w, h = max(0.2, x1 - x0), max(0.2, y1 - y0)
+    x0, y0 = min(x0, 1.0 - w), min(y0, 1.0 - h)
+    if w * h > max_area:
+        return None
+    return f"{x0:.3f},{y0:.3f},{w:.3f},{h:.3f}"
+
+
+def region_words(r) -> str:
+    """Where a box [x0, y0, x1, y1] sits, in words (top right, middle, bottom left ...)."""
+    cx, cy = (r[0] + r[2]) / 2, (r[1] + r[3]) / 2
+    v_ = "top" if cy < 0.34 else ("bottom" if cy > 0.66 else "middle")
+    h_ = "left" if cx < 0.34 else ("right" if cx > 0.66 else "")
+    return (f"{v_} {h_}".strip() if h_ else ("centre" if v_ == "middle" else v_))
+
+
+def cached_measure(v: Video) -> dict | None:
+    """The measurements if this video was already measured with this version; never measures (that can take minutes)."""
+    m = read_json(v.dir / "measure.json")
+    return m if m and m.get("version") == SKILL_VERSION else None
 
 
 def flash_windows(yavg: list, delta: float = 20.0) -> list:
@@ -1245,9 +1542,13 @@ RULES = """Rules:
 
 
 def view_block(files: list) -> str:
-    lines = "\n".join(f"- {p}" + (f"  (t={t:.2f}s)" if t is not None else "") for t, p in files)
+    """The files to open, each with its time and an optional note: [(t, path)] or [(t, path, note)]."""
+    lines = []
+    for f in files:
+        bits = ([f"t={f[0]:.2f}s"] if f[0] is not None else []) + ([f[2]] if len(f) > 2 and f[2] else [])
+        lines.append(f"- {f[1]}" + (f"  ({', '.join(bits)})" if bits else ""))
     return ("Call view_file on every one of these files, all of them in a single step (parallel calls), before you "
-            f"answer:\n{lines}")
+            "answer:\n" + "\n".join(lines))
 
 
 def S(desc: str, **kw) -> dict:
@@ -1304,12 +1605,14 @@ SCHEMA_AUDIO = O({
 })
 
 SCHEMA_DETAIL = O({
-    "frames": A("one entry for EVERY file, in time order", O({
+    "frames": A("one entry for every full frame, in time order (a close-up has no entry of its own)", O({
         "t": N("the frame's time in seconds, as given next to the file"),
         "what": S("what the frame shows"),
         "people": S("each person by id (P1, P2 ... the same across frames): where in the frame, what their hands do, what they hold"),
         "objects": S("vehicles, products and objects that matter, with their state (door open, bonnet open, on a lift, moving)"),
         "text": S("readable text exactly as written, with where it is; unreadable text marked unreadable"),
+        "closeup": S("what the close-up of this time shows (what hands hold, thin objects, small text); empty if this "
+                     "frame has no close-up"),
         "change": S("what changed since the previous frame; start for the first")})),
     "people": A("every person seen, even small or partly hidden", O({
         "id": S("P1, P2 ..."), "looks": S("clothes, colours, build, anything held or carried"),
@@ -1317,7 +1620,22 @@ SCHEMA_DETAIL = O({
     "camera": S("camera move across these frames, judged from how the scene's scale and position change"),
     "issues": A("visible problems with their time (glitches, blur, exposure, distractions); empty if none", O({
         "t": N("time in seconds"), "issue": S("what is wrong"), "evidence": S("what in the frame shows it")})),
+    "look_closer": A("up to 4 things too small or unclear to make out, that an enlarged crop could settle; empty if "
+                     "none", O({
+                         "t": N("the time of the frame to enlarge"), "what": S("what to look at, as a question"),
+                         "x": N("left edge of the area as a fraction of the frame width, 0 to 1"),
+                         "y": N("top edge of the area as a fraction of the frame height, 0 to 1"),
+                         "w": N("width of the area as a fraction of the frame width"),
+                         "h": N("height of the area as a fraction of the frame height")})),
     "uncertain": UNCERTAIN,
+})
+
+SCHEMA_CLOSER = O({
+    "items": A("one entry per close-up, in the order given", O({
+        "t": N("the close-up's time in seconds"), "asked": S("what was to be looked at, as given"),
+        "seen": S("exactly what the close-up shows"),
+        "answer": S("the answer to what was asked; unclear or unreadable if the close-up does not settle it"),
+        "clear": {"type": "boolean", "description": "true only if the close-up shows it clearly"}})),
 })
 
 SCHEMA_TEXT = O({
@@ -1444,13 +1762,20 @@ def prompt_audio(files: list, pr: dict, part: tuple | None, lang: str | None) ->
 
 def prompt_detail(files: list, pr: dict, goal: str, focus: str | None, step: float | None) -> str:
     t0, t1 = files[0][0], files[-1][0]
+    full = sum(1 for f in files if len(f) < 3 or not f[2])
     every = f"one every {step:.2f}s" if step else "at the times shown"
-    return (f"You are a senior video editor, cinematographer and VFX supervisor studying {len(files)} full-resolution "
+    close = ("\nSome frames come with a close-up: an enlarged crop, at the same time, of an area where the picture moved "
+             "or changed. Use the close-ups for small details (what hands hold, thin objects such as cables or hoses, "
+             "small text) and write what each shows under closeup, in the entry of the frame with the same time."
+             if full < len(files) else "")
+    return (f"You are a senior video editor, cinematographer and VFX supervisor studying {full} full-resolution "
             f"frames of a video, {every}, from {t0:.2f}s to {t1:.2f}s. The time of each frame is next to its file.\n\n"
             f"{view_block(files)}\n\n"
             "Study every frame. Track every person with an id across frames, including small actions: what their hands "
             "do and what they hold. Note vehicles and objects and their state, readable text, and what changes from "
-            f"frame to frame, including how the camera moves.\n{GOAL_FOCUS[goal]}"
+            f"frame to frame, including how the camera moves.{close}\nWhen something is too small or unclear to make "
+            "out, add it to look_closer with the frame's time and its area, so that it can be enlarged.\n"
+            f"{GOAL_FOCUS[goal]}"
             + (f"\nThe person asking wants to know about: {focus}" if focus else "")
             + f"\n\n{RULES}\n\nAnswer only in the requested JSON.")
 
@@ -1465,8 +1790,10 @@ def prompt_review(goal: str, facts: dict, focus: str | None) -> str:
     items = "\n".join(f"- {x}" for x in GOAL_CHECKLIST[goal])
     return ("You are the senior reviewer. Below are measured facts (ffmpeg) and the observations of earlier passes "
             "over the same video, as JSON. Use only these facts: do not add anything that is not in them. Trust them in "
-            "this order: measurements, then the text check, then the full-resolution frame passes, then the low-detail "
-            "overview, then the audio pass for anything visual. When the low-detail overview disagrees with the "
+            "this order: measurements, then the text check, then the closer looks, then the full-resolution frame "
+            "passes and their close-ups, then the low-detail overview, then the audio pass for anything visual. "
+            "brief_changes_measured lists short local changes that ffmpeg measured between the regular frames; each got "
+            "a frame of its own, so report what the frame passes saw there. When the low-detail overview disagrees with the "
             "full-resolution frames about a visual detail, follow the frames and do not repeat the overview's version. "
             "Measured black, frozen or flickering stretches are candidates, not verdicts: a still end card, a title hold or "
             "a still photo is intentional, and a cut or fade explains a brightness jump; call one a defect only when the "
@@ -1502,6 +1829,13 @@ def prompt_locate(files: list, question: str, transcript: str | None) -> str:
     return (f"Find where in this video the answer to a question can be seen or heard.\n\n{look}\n{tr}\n"
             f"Question: {question}\n\nGive up to 4 time ranges, best first, a few seconds each.\n\n{RULES}\n\n"
             "Answer only in the requested JSON.")
+
+
+def prompt_closer(files: list) -> str:
+    return ("Each file is an enlarged close-up of part of a video frame, at the time given, because something there was "
+            "too small to make out in the full frame. For each close-up, say exactly what it shows and answer what was "
+            "asked. If the close-up does not settle it, say unclear; never guess.\n\n"
+            f"{view_block(files)}\n\n{RULES}\n\nAnswer only in the requested JSON.")
 
 
 def prompt_compare(files: list) -> str:
@@ -1625,6 +1959,15 @@ def plan_watch(pr: dict, meas: dict, depth: str, goal: str, window: tuple | None
     anchors: list = []
     sampling = "none"
     uniform = False
+    act = vid.get("activity") or {}
+    brief_all = [e for e in act.get("events") or [] if e.get("kind") in ("brief", "flicker") and a <= e["t"] <= b]
+    # up to a quarter of the budget, strongest first, and always taken out of the cap (never on top of it): at least
+    # two regular frames stay for the first and the last
+    room = min(max(1, int(cap * 0.25)), max(0, cap - 2)) if fps else 0
+    brief = sorted(brief_all, key=lambda e: -e["peak"])[:room]
+    ev_times = sorted({e["t"] for e in brief})
+    full_cap = cap
+    cap = cap - len(ev_times)
     if has_video and fps and span > 0:
         anchors = [a] + [c + 0.1 for c in cuts if c + 0.1 < b]
         extras = []
@@ -1660,13 +2003,42 @@ def plan_watch(pr: dict, meas: dict, depth: str, goal: str, window: tuple | None
             sampling = ("the first frame of " + ("every shot" if len(anchors) <= cap * 0.4 else "shots spread over the range")
                         + ", the middle of long shots, the rest filling the biggest gaps (bigger where it moves)")
     times = [round(t, 3) for t in sorted(times)]
+    if ev_times and times:
+        # a brief change gets the exact frame it shows on, even between two regular samples
+        times = sorted(set(t for t in times if all(abs(t - e) > 0.03 for e in ev_times)) | set(ev_times))
+        sampling += (f", plus {len(ev_times)} frame{'' if len(ev_times) == 1 else 's'} on brief changes measured between "
+                     "them")
     skipped = 0
     if times and depth in ("standard", "deep"):
-        keep = {round(x, 3) for x in anchors} | {round(times[0], 3), round(times[-1], 3)}
+        keep = {round(x, 3) for x in anchors} | {round(times[0], 3), round(times[-1], 3)} | set(ev_times)
         times, skipped = drop_static(times, keep, ch, goal, max_gap=4.0 if depth == "standard" else 2.0)
         if skipped:
             sampling += f"; {skipped} frame{'' if skipped == 1 else 's'} of unchanged picture skipped"
     gaps = [y - x for x, y in zip([a] + times, times + [b])] if times else [span]
+    closeups = []
+    crop_cap = {"standard": 6, "deep": 12, "forensic": 24}.get(depth, 0)
+    if max_frames is not None:
+        crop_cap = min(crop_cap, max(1, max_frames // 6))
+    if times and crop_cap:
+        for e in brief:
+            r = pad_region(*e["region"])
+            if r and len(closeups) < crop_cap:
+                closeups.append({"t": e["t"], "region": r, "why": "a brief change", "where": region_words(e["region"])})
+        cands = []
+        for t in times:
+            if t in ev_times:
+                continue
+            nb = activity_near(act, t - 0.3, t + 0.3)
+            r = pad_region(*nb[:4]) if nb else None
+            if r:
+                cands.append((nb[4], t, r, region_words(nb[:4])))
+        sep = max(1.0, span / crop_cap / 2)
+        for _pk, t, r, where in sorted(cands, reverse=True):
+            if len(closeups) >= crop_cap:
+                break
+            if all(abs(t - c["t"]) >= sep for c in closeups):
+                closeups.append({"t": t, "region": r, "why": "the moving area", "where": where})
+        closeups.sort(key=lambda c: c["t"])
     batches = [times[i:i + DETAIL_BATCH] for i in range(0, len(times), DETAIL_BATCH)]
     audio_calls = int(has_audio) * max(1, int(math.ceil(span / AUDIO_CHUNK_S))) if span else int(has_audio)
     overview_calls = int(has_video) * max(1, int(math.ceil(span / (OVERVIEW_PART_S * 1.1))))
@@ -1677,6 +2049,9 @@ def plan_watch(pr: dict, meas: dict, depth: str, goal: str, window: tuple | None
         "detail_times": times, "detail_batches": len(batches), "detail_model": MODELS["deep"],
         "detail_fps": fps if uniform and not skipped else None, "sampling": sampling, "static_skipped": skipped,
         "largest_gap_s": round(max(gaps), 2) if gaps else None,
+        "events": [{"t": e["t"], "start": e["start"], "end": e["end"], "where": region_words(e["region"]),
+                    "kind": e["kind"], "region": e["region"], "peak": e["peak"]} for e in sorted(brief, key=lambda e: e["t"])],
+        "brief_changes_measured": len(brief_all), "closeups": closeups, "frame_cap": full_cap,
         "text_check": depth in ("deep", "forensic"), "cross_check": depth == "forensic",
         "review": depth != "quick", "review_model": MODELS["deep"],
         "estimated_calls": overview_calls + audio_calls + len(batches) * (2 if depth == "forensic" else 1)
@@ -1827,26 +2202,107 @@ def pass_audio(v: Video, plan: dict, lang: str | None, fresh: bool) -> dict:
             "parts": len(parts), "failed_parts": len(results) - len(ok)}
 
 
+def closeup_files(v: Video, plan: dict) -> dict:
+    """The planned close-ups as enlarged crops: {time: [(path, closeup)]}."""
+    out: dict = {}
+    for c in plan.get("closeups") or []:
+        try:
+            z = zoom_frames(v, [(c["t"], None)], c["region"], scale=3.0)
+        except WatchError as e:
+            log(f"close-up at {c['t']}s failed: {e}")
+            continue
+        out.setdefault(round(c["t"], 3), []).append((z[0][1], c))
+    return out
+
+
 def pass_detail(v: Video, plan: dict, focus: str | None, fresh: bool, model: str | None = None, tag: str = "detail") -> list:
     times = plan["detail_times"]
     if not times:
         return []
     frames = extract_frames(v, times)
-    batches = [frames[i:i + DETAIL_BATCH] for i in range(0, len(frames), DETAIL_BATCH)]
+    close = closeup_files(v, plan)
+    batches, cur, used = [], [], 0          # each frame with its close-ups; 12 frames and 16 files a call at most
+    for t, p in frames:
+        extra = close.get(round(t, 3), [])
+        if cur and (sum(1 for x in cur if x[2] is None) >= DETAIL_BATCH or used + 1 + len(extra) > DETAIL_BATCH + 4):
+            batches.append(cur)
+            cur, used = [], 0
+        cur += [(t, p, None)] + [(t, zp, c) for zp, c in extra]
+        used += 1 + len(extra)
+    if cur:
+        batches.append(cur)
     step = (1.0 / plan["detail_fps"]) if plan.get("detail_fps") else None
 
     def one(ib):
         i, batch = ib
-        shown = gemini_frames(v, batch)
-        files = [(t, str(p)) for t, p in shown]
+        shown = iter(gemini_frames(v, [(t, p) for t, p, c in batch if c is None]))
+        files, paths = [], []
+        for t, p, c in batch:
+            if c is None:
+                _, gp = next(shown)
+                files.append((t, str(gp)))
+                paths.append(gp)
+            else:
+                files.append((t, str(p), f"close-up of {c['why']} ({c['where']}), enlarged"))
+                paths.append(p)
         r = agy_call(v, f"{tag}{i:03d}", prompt_detail(files, v.probe(), plan["goal"], focus, step), SCHEMA_DETAIL,
-                     model or plan["detail_model"], [p for _, p in shown], fresh=fresh)
-        r = dict(r, times=[t for t, _ in batch])
+                     model or plan["detail_model"], paths, fresh=fresh)
+        r = dict(r, times=[t for t, _, c in batch if c is None], closeups=sum(1 for x in batch if x[2] is not None))
         if r.get("ok"):
             r["dropped_times"] = drop_bad_times(r["data"], batch[0][0] - 0.5, batch[-1][0] + 0.5, slack=0.0)
         return r
     with cf.ThreadPoolExecutor(max_workers=PARALLEL) as ex:
         return list(ex.map(one, enumerate(batches)))
+
+
+CLOSER_CAP = {"standard": 4, "deep": 8, "forensic": 16}
+
+
+def closer_requests(details: list, a: float, b: float, cap: int) -> list:
+    """What the frame passes asked to see closer: [{t, what, region}], without repeats, at most cap."""
+    reqs: list = []
+    for d in details:
+        if not d.get("ok"):
+            continue
+        for q in (d["data"].get("look_closer") or [])[:4]:
+            t = parse_ts(q.get("t")) if isinstance(q, dict) else None
+            try:
+                x, y, w, h = (float(q.get(k)) for k in ("x", "y", "w", "h"))
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if t is None or not (a - 0.5 <= t <= b + 0.5) or w <= 0 or h <= 0 or not (0 <= x < 1 and 0 <= y < 1):
+                continue
+            region = pad_region(x, y, min(1.0, x + w), min(1.0, y + h), max_area=0.5)
+            if region and not any(abs(t - r["t"]) < 0.3 and r["region"] == region for r in reqs):
+                reqs.append({"t": round(max(a, min(b, t)), 3), "what": str(q.get("what") or "What is here?")[:200],
+                             "region": region})
+    return reqs[:cap]
+
+
+def pass_closer(v: Video, reqs: list, fresh: bool, model: str | None = None) -> dict:
+    """Enlarged crops of what the frame passes could not make out, looked at again (Pro)."""
+    items, errors, crops = [], [], []
+    for q in reqs:
+        try:
+            crops.append((q, zoom_frames(v, [(q["t"], None)], q["region"], scale=3.0)[0][1]))
+        except WatchError as e:
+            errors.append(f"close-up at {q['t']}s: {e}")
+    for i in range(0, len(crops), DETAIL_BATCH):
+        chunk = crops[i:i + DETAIL_BATCH]
+        files = [(q["t"], str(p), f"look at: {q['what']}") for q, p in chunk]
+        r = agy_call(v, f"closer{i // DETAIL_BATCH:02d}", prompt_closer(files), SCHEMA_CLOSER, model or MODELS["deep"],
+                     [p for _, p in chunk], fresh=fresh)
+        if not r.get("ok"):
+            errors.append(f"closer look: {r.get('error')}")
+            continue
+        got = [x for x in (r["data"].get("items") or []) if isinstance(x, dict)]
+        for j, (q, p) in enumerate(chunk):
+            cand = got[j] if j < len(got) and abs((parse_ts(got[j].get("t")) or q["t"]) - q["t"]) <= 0.3 else \
+                next((x for x in got if abs((parse_ts(x.get("t")) or -9) - q["t"]) <= 0.3), None)
+            items.append({"t": q["t"], "asked": q["what"], "region": q["region"], "closeup": str(p),
+                          "seen": (cand or {}).get("seen"), "answer": (cand or {}).get("answer") or "no answer",
+                          "clear": bool((cand or {}).get("clear"))})
+    return {"ok": bool(items) or not reqs, "items": items, "errors": errors}
 
 
 def text_signature(lines: list) -> str:
@@ -2001,7 +2457,8 @@ def pass_review(v: Video, plan: dict, facts: dict, focus: str | None, fresh: boo
 # ----------------------------------------------------------------------------------------------- report
 
 def compact_facts(pr: dict, meas: dict, overview: dict | None, audio: dict | None, details: list, text: dict | None,
-                  platform: dict | None, errors: list | None = None) -> dict:
+                  platform: dict | None, errors: list | None = None, plan: dict | None = None,
+                  closer: dict | None = None) -> dict:
     """Everything the review pass may use, trimmed to what matters (no per-frame noise)."""
     vm = (meas or {}).get("video") or {}
     am = (meas or {}).get("audio") or {}
@@ -2029,6 +2486,11 @@ def compact_facts(pr: dict, meas: dict, overview: dict | None, audio: dict | Non
         f["detail_passes_full_resolution"] = dets
     if text and text.get("items"):
         f["text_check"] = [{k: i.get(k) for k in ("t", "text", "text_alt", "verified", "how")} for i in text["items"]]
+    if plan and plan.get("events"):
+        f["brief_changes_measured"] = [{"from": e["start"], "to": e["end"], "where": e["where"], "frame_at": e["t"]}
+                                       for e in plan["events"]]
+    if closer and closer.get("items"):
+        f["closer_looks"] = [{k: i.get(k) for k in ("t", "asked", "seen", "answer", "clear")} for i in closer["items"]]
     return f
 
 
@@ -2154,8 +2616,27 @@ def write_report_md(rep: dict) -> str:
     if det:
         L += ["## Frame by frame (full resolution)", "", "| Time | What | People | Text | Frame |", "|---|---|---|---|---|"]
         for f in det:
-            L.append(f"| {fmt_ts(f.get('t'))} | {_md(f.get('what'))} | {_md(f.get('people'))} | {_md(f.get('text'))} "
+            what = _md(f.get("what")) + (f" (close-up: {_md(f.get('closeup'))})" if (f.get("closeup") or "").strip() else "")
+            L.append(f"| {fmt_ts(f.get('t'))} | {what} | {_md(f.get('people'))} | {_md(f.get('text'))} "
                      f"| `{Path(f.get('frame') or '').name}` |")
+        L.append("")
+    evs = (rep.get("plan") or {}).get("events") or []
+    if evs:
+        L += ["## Brief changes between the regular frames (measured)", "",
+              "| When | Where | Seen in its own frame | Frame |", "|---|---|---|---|"]
+        for e in evs:
+            near = min(det, key=lambda f: abs((f.get("t") or 0) - e["t"])) if det else {}
+            seen = (near.get("closeup") or near.get("what")) if near and abs((near.get("t") or 0) - e["t"]) < 0.05 else None
+            where = e["where"] + (" (comes and goes)" if e.get("kind") == "flicker" else "")
+            L.append(f"| {fmt_ts(e['start'])} to {fmt_ts(e['end'])} | {where} | {_md(seen) or 'not read'} "
+                     f"| `{Path(near.get('frame') or '').name}` |")
+        L.append("")
+    cl = (rep.get("closer") or {}).get("items") or []
+    if cl:
+        L += ["## Closer looks", "", "| Time | Asked | Seen | Answer | Clear | Close-up |", "|---|---|---|---|---|---|"]
+        for i in cl:
+            L.append(f"| {fmt_ts(i.get('t'))} | {_md(i.get('asked'))} | {_md(i.get('seen'))} | {_md(i.get('answer'))} "
+                     f"| {'yes' if i.get('clear') else 'no'} | `{Path(i.get('closeup') or '').name}` |")
         L.append("")
     txt = rep.get("text") or {}
     if txt.get("items"):
@@ -2257,6 +2738,21 @@ def _spans(xs) -> str:
 
 # ----------------------------------------------------------------------------------------------- commands
 
+def between_frames_line(meas: dict | None, plan: dict) -> str:
+    """What the change grid saw between the regular frames, for the coverage header."""
+    act = ((meas or {}).get("video") or {}).get("activity") or {}
+    if not plan.get("detail_times"):
+        return "not at this depth"
+    if act.get("error") or not act.get("grid"):
+        return f"not measured ({act.get('error') or 'no change grid'}): brief changes between frames can be missed"
+    n, took = plan.get("brief_changes_measured") or 0, len(plan.get("events") or [])
+    grid = f"{act['grid'][0]}x{act['grid'][1]}"
+    if not n:
+        return f"every frame was measured on a {grid} change grid: no brief local change between the sampled frames"
+    return (f"every frame was measured on a {grid} change grid: {n} brief local change{'' if n == 1 else 's'} found, "
+            f"{took} given a frame of {'its' if took == 1 else 'their'} own" + ("" if took == n else " (the strongest)"))
+
+
 def resolve_window(start: float | None, end: float | None, dur: float) -> tuple:
     """(start, end) inside the video; an explicit 0 counts, and an empty range is an error."""
     a = max(0.0, start) if start is not None else 0.0
@@ -2303,6 +2799,11 @@ def cmd_watch(args) -> None:
     cross = []
     if plan["cross_check"] and plan["detail_times"]:
         cross = pass_detail(v, plan, args.focus, args.fresh, model=MODELS["fast"], tag="cross")
+    closer = None
+    reqs = closer_requests(details + cross, plan["window"][0], plan["window"][1], CLOSER_CAP.get(args.depth, 0))
+    if reqs:
+        log(f"closer look at {len(reqs)} thing{'' if len(reqs) == 1 else 's'} the frame passes could not make out")
+        closer = pass_closer(v, reqs, args.fresh)
     frames = [(t, frame_path(v, t)) for t in plan["detail_times"]]
     expect = [x.strip() for x in Path(args.expect).read_text(encoding="utf-8").splitlines() if x.strip()] \
         if args.expect else None
@@ -2316,8 +2817,9 @@ def cmd_watch(args) -> None:
                                                  for d in details if not d.get("ok")]
     early_errors += [f"measurement ({k}): {m_.get('error')}" for k, m_ in (meas or {}).items()
                      if isinstance(m_, dict) and m_.get("error")]
+    early_errors += (closer or {}).get("errors") or []
     facts = compact_facts(pr, meas, results.get("overview"), results.get("audio"), details + cross, text, platform,
-                          early_errors)
+                          early_errors, plan, closer)
     got_any = any(r and r.get("ok") for r in (results.get("overview"), results.get("audio"))) or any(d.get("ok") for d in details)
     review = None
     if plan["review"] and got_any:
@@ -2353,6 +2855,7 @@ def cmd_watch(args) -> None:
         if r and not r.get("ok"):
             errors.append(f"{k}: {r.get('error')}")
     errors += [f"detail from {(d.get('times') or ['?'])[0]}s: {d.get('error')}" for d in details if not d.get("ok")]
+    errors += (closer or {}).get("errors") or []
     if review and not review.get("ok"):
         errors.append(f"review: {review.get('error')}")
     ov, au = results.get("overview") or {}, results.get("audio") or {}
@@ -2371,7 +2874,12 @@ def cmd_watch(args) -> None:
         "Text check": (f"{(text or {}).get('frames_read', 0)} frames with distinct text, read by two models and checked with "
                        "Apple Vision" + (" and Tesseract Bengali" if tess else "; Bengali counts as verified only when the two models agree"))
         if text else "not at this depth (use --depth deep)",
-        "Not seen": "what happens between sampled frames; anything too small or blurred in the frames",
+        "Between frames": between_frames_line(meas, plan),
+        "Close-ups": (f"{sum(int(d.get('closeups') or 0) for d in details if d.get('ok'))} of moving areas and brief "
+                      f"changes, plus {len((closer or {}).get('items') or [])} closer looks the frame passes asked for")
+        if plan["detail_times"] else "none at this depth",
+        "Not seen": "local changes smaller or fainter than the change grid can measure between sampled frames, and "
+                    "anything still too small or blurred in a close-up",
     }
     if dropped:
         coverage["Dropped"] = f"{dropped} model observations with times outside the watched range"
@@ -2385,7 +2893,8 @@ def cmd_watch(args) -> None:
            "detail_frames": detail_rows,
            "detail_people": [p for d in details if d.get("ok") for p in (d["data"].get("people") or [])],
            "detail_issues": [i for d in details if d.get("ok") for i in (d["data"].get("issues") or [])],
-           "cross_check": [c.get("data") for c in cross if c.get("ok")], "text": text, "platform": platform,
+           "cross_check": [c.get("data") for c in cross if c.get("ok")], "closer": closer, "text": text,
+           "platform": platform,
            "review": rv, "evidence": evidence, "calls": USAGE.calls, "cost": USAGE.total(),
            "wall_seconds": round(time.time() - t0, 1), "errors": errors}
     name = f"watch-{args.goal}-{args.depth}-{key_of(window, args.focus, args.platform)}"
@@ -2457,12 +2966,22 @@ def inspect_window(v: Video, pr: dict, a: float, b: float, q: str, *, fps: float
     fps = fps or (8.0 if span <= 1.5 else 4.0 if span <= 4 else 2.0 if span <= 10 else max(0.5, 16 / span))
     n = max(2, min(24, int(span * fps) + 1))
     times = [a + span * i / (n - 1) for i in range(n)]
+    act = ((cached_measure(v) or {}).get("video") or {}).get("activity") or {}
+    measured = sorted(e["t"] for e in act.get("events") or [] if e.get("kind") in ("brief", "step") and a <= e["t"] <= b)
+    if measured and has_video:
+        # the exact frames of brief changes and appearances measured in this window, which can fall between samples
+        times = sorted(set(times) | set(measured[:6]))
     frames = extract_frames(v, times) if has_video else []
     media = gemini_frames(v, frames)
     if (region == "auto" or (region is None and not no_zoom and ZOOM_Q_RX.search(q))) and has_video:
         region = auto_region(v, frames, q, fresh)
         if region:
             log(f"auto zoom on {region} (x,y,w,h as fractions)")
+        else:
+            nb = activity_near(act, a, b)
+            region = pad_region(*nb[:4]) if nb else None
+            if region:
+                log(f"zoom on the moving area {region}: the subject box found nothing")
     elif region == "auto":
         region = None
     if region:
@@ -2753,7 +3272,7 @@ def _is_none(text: str) -> bool:
 
 def agreement_state(a: dict, b: dict, question: str = "") -> str:
     """"disagree" on a hard conflict: one finds it and the other does not, both give numbers that differ (in any script
-    or spelled out: ০১৬২৭ = 01627, three = 3), only one gives the number the question asks for, both give times more
+    or spelled out: ০১২৩৪ = 01234, three = 3), only one gives the number the question asks for, both give times more
     than 0.6 s apart, both name colours that differ, or one says nothing is there. "agree" when the shorter answer's
     words are mostly in the longer one. "unsure" when the wording differs too much to tell: a fact check decides."""
     if bool(a.get("found")) != bool(b.get("found")):
@@ -2982,9 +3501,22 @@ def cmd_qa(args) -> None:
     for k, e in failed.items():
         flags.insert(0, f"could not measure the {k}: {e}")
     wanted = int(bool(pr.get("video"))) + int(bool(pr.get("audio")))
+    act = vm.get("activity") or {}
+    evs = act.get("events") or []
+    local = {"grid": act.get("grid"), "error": act.get("error"),
+             "brief": [{"from": e["start"], "to": e["end"], "where": region_words(e["region"]), "frame_at": e["t"],
+                        "kind": e["kind"]} for e in evs if e["kind"] in ("brief", "flicker")][:30],
+             "appearances": [{"t": e["start"], "where": region_words(e["region"])} for e in evs if e["kind"] == "step"][:30],
+             "moving_areas": sum(1 for e in evs if e["kind"] == "motion")}
+    notes = []
+    if local["brief"]:
+        b0 = local["brief"][0]
+        notes.append(f"{len(local['brief'])} brief local change{'' if len(local['brief']) == 1 else 's'} (a pop-up, a "
+                     f"flash of text or a glitch), first {fmt_ts(b0['from'])} to {fmt_ts(b0['to'])} ({b0['where']}): look "
+                     f"at the frame at {b0['frame_at']} s (`frames VIDEO --at {b0['frame_at']}`)")
     out = {"ok": len(failed) < wanted or wanted == 0, "file": str(v.path), "probe": pr, "measurement_errors": failed,
-           "measure": {"video": {k: vm.get(k) for k in vm if k not in ("per_second", "change")}, "audio": am},
-           "platform": platform, "flags": flags}
+           "measure": {"video": {k: vm.get(k) for k in vm if k not in ("per_second", "change", "activity")}, "audio": am},
+           "local_changes": local, "platform": platform, "flags": flags, "notes": notes}
     emit(out)
     if args.strict and (flags or any(c["status"] == "fail" for c in (platform or {}).get("checks") or [])):
         sys.exit(2)
@@ -3122,6 +3654,10 @@ def cmd_doctor(args) -> None:
         want = ["scdet", "blackdetect", "freezedetect", "signalstats", "blurdetect", "blockdetect", "silencedetect",
                 "ebur128", "astats", "ssim", "tile", "volumedetect"]
         rep["ffmpeg_filters_missing"] = [f for f in want if not re.search(rf"\s{f}\s", filters)]
+        grid_missing = [f for f in ("tblend", "dilation", "extractplanes", "blend", "framestep")
+                        if not re.search(rf"\s{f}\s", filters)]
+        rep["change_grid"] = ("ok" if not grid_missing else
+                              f"unavailable (missing {', '.join(grid_missing)}): brief changes between frames can be missed")
     rep["ffprobe"] = "ok" if tool("ffprobe") else "missing"
     agy = tool("agy")
     rep["agy"] = agy or "missing: install from https://antigravity.google/download#antigravity-cli, then run `agy` once to sign in"
@@ -3183,6 +3719,248 @@ def smoke_test() -> dict:
     return {"ok": bool(res.get("ok")) and ("box" in heard.lower() if shutil.which("say") else bool(res.get("ok"))),
             "heard": heard, "image": (data or {}).get("image"), "seconds": round(time.time() - t0, 1),
             "error": res.get("error")}
+
+
+# ----------------------------------------------------------------------------------------------- self test
+
+TEXT_PNG_PY = r"""
+import sys
+from PIL import Image, ImageDraw, ImageFont
+text, out = sys.argv[1], sys.argv[2]
+try:
+    font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 34)
+except Exception:
+    font = ImageFont.load_default(size=34)
+w = int(font.getlength(text)) + 24
+im = Image.new("RGB", (w, 52), (0, 0, 0))
+ImageDraw.Draw(im).text((12, 6), text, fill=(255, 255, 255), font=font)
+im.save(out)
+"""
+
+SELFTEST_TEXT = "K7Q-4821"
+SELFTEST_COST: dict = {}
+SELFTEST_SPEECH = "Please call the front desk at nine thirty on Monday."
+_THIN_RX = re.compile(r"\b(rods?|lines?|sticks?|poles?|bars?|wires?|cables?|hoses?|pipes?|beams?|planks?|strips?|rails?)\b",
+                      re.I)
+
+
+def make_selftest_clips(d: Path) -> dict:
+    """Synthetic clips with known answers (ffmpeg; the text needs Pillow, the speech needs macOS `say`).
+
+    combo:  8 s, 1920x1080. A dark figure moves right carrying a thin rod (3 px); a red square shows for 3 frames at
+            2.33 s in the top right; the label K7Q-4821 shows from 5.2 to 5.6 s in the bottom right.
+    order:  6 s. A green square appears at 1 s, a yellow one at 3 s.
+    count:  3 s. Four blue squares.
+    speech: 5 s. A spoken sentence starting at 1 s.
+    """
+    ff = need("ffmpeg")
+    d.mkdir(parents=True, exist_ok=True)
+    out: dict = {}
+    noise = "noise=alls=6:allf=t+u"
+    label = d / "label.png"
+    py = venv_python()
+    if py and not label.exists():
+        r = subprocess.run([py, "-c", TEXT_PNG_PY, SELFTEST_TEXT, str(label)], capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            log(f"self test: no label (Pillow failed): {(r.stderr or '')[-200:]}")
+    has_label = label.exists()
+    combo = d / ("combo.mp4" if has_label else "combo-nolabel.mp4")
+    if not combo.exists():
+        cmd = [ff, "-hide_banner", "-v", "error", "-y",
+               "-f", "lavfi", "-i", "color=c=0x7a7a7a:s=1920x1080:r=30:d=8",
+               "-f", "lavfi", "-i", "color=c=0x3a3a3a:s=150x400:r=30:d=8",
+               "-f", "lavfi", "-i", "color=c=black:s=320x3:r=30:d=8",
+               "-f", "lavfi", "-i", "color=c=red:s=70x70:r=30:d=8",
+               "-f", "lavfi", "-i", "color=c=0x9a9a9a:s=260x160:r=30:d=8"]
+        graph = (f"[0:v]{noise}[bg];[bg][4:v]overlay=x=120:y=90[s];"
+                 "[s][1:v]overlay=x='200+t*150':y=420[f];[f][2:v]overlay=x='350+t*150':y=600[r];"
+                 "[r][3:v]overlay=x=1780:y=80:enable='between(t,2.33,2.43)'[c]")
+        if has_label:
+            cmd += ["-loop", "1", "-t", "8", "-i", str(label)]
+            graph += ";[c][5:v]overlay=x=1560:y=960:enable='between(t,5.2,5.6)'[d]"
+        cmd += ["-filter_complex", graph, "-map", "[d]" if has_label else "[c]", "-t", "8", "-c:v", "libx264",
+                "-pix_fmt", "yuv420p", "-crf", "18", str(combo)]
+        run(cmd, timeout=300)
+    out["combo"] = combo
+    out["label"] = has_label
+    order = d / "order.mp4"
+    if not order.exists():
+        run([ff, "-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x6e6e6e:s=1280x720:r=30:d=6",
+             "-f", "lavfi", "-i", "color=c=0x22b14c:s=120x120:r=30:d=6",
+             "-f", "lavfi", "-i", "color=c=0xffd200:s=120x120:r=30:d=6",
+             "-filter_complex", f"[0:v]{noise}[bg];[bg][1:v]overlay=x=300:y=300:enable='gte(t,1)'[g];"
+             "[g][2:v]overlay=x=860:y=300:enable='gte(t,3)'[o]", "-map", "[o]", "-t", "6", "-c:v", "libx264",
+             "-pix_fmt", "yuv420p", "-crf", "18", str(order)], timeout=300)
+    out["order"] = order
+    count = d / "count.mp4"
+    if not count.exists():
+        boxes = [(150, 150), (700, 120), (400, 450), (1000, 500)]
+        graph = f"[0:v]{noise}[b0]" + "".join(f";[b{i}][1:v]overlay=x={x}:y={y}[b{i + 1}]" for i, (x, y) in enumerate(boxes))
+        run([ff, "-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x6e6e6e:s=1280x720:r=30:d=3",
+             "-f", "lavfi", "-i", "color=c=0x1f4fd8:s=90x90:r=30:d=3", "-filter_complex", graph,
+             "-map", f"[b{len(boxes)}]", "-t", "3", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", str(count)],
+            timeout=300)
+    out["count"] = count
+    speech = d / "speech.mp4"
+    if not speech.exists() and shutil.which("say"):
+        aiff = d / "speech.aiff"
+        try:
+            run(["say", "-o", str(aiff), SELFTEST_SPEECH], timeout=60)
+            run([ff, "-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x404040:s=640x360:r=30:d=5",
+                 "-i", str(aiff), "-filter_complex", "[1:a]adelay=1000:all=1,apad[a]", "-map", "0:v", "-map", "[a]",
+                 "-t", "5", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(speech)], timeout=300)
+        except WatchError as e:
+            log(f"self test: no speech clip ({e})")
+    out["speech"] = speech if speech.exists() else None
+    return out
+
+
+def _rgb_at(v: Video, t: float, x: int, y: int, w: int, h: int) -> tuple:
+    """The mean colour of a box in the frame shown at time t."""
+    r = subprocess.run([need("ffmpeg"), "-hide_banner", "-v", "error", "-ss", f"{t:.3f}", "-i", str(v.path), "-frames:v", "1",
+                        "-vf", f"crop={w}:{h}:{x}:{y},scale=1:1:flags=area", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                       capture_output=True, timeout=60)
+    return tuple(r.stdout[:3]) if len(r.stdout) >= 3 else (0, 0, 0)
+
+
+def selftest_offline(clips: dict) -> list:
+    """Checks with known answers and no model: the change grid, the frame it picks, the plan and the close-ups."""
+    rows: list = []
+
+    def check(case, ok, detail):
+        rows.append({"case": case, "pass": bool(ok), "detail": detail})
+    v = Video(clips["combo"])
+    pr = v.probe(fresh=True)
+    m = measure(v, fresh=True)
+    act = (m.get("video") or {}).get("activity") or {}
+    ev = [e for e in act.get("events") or [] if e.get("kind") == "brief"]
+    blink = next((e for e in ev if 2.25 <= e["start"] <= 2.4), None)
+    check("a 3-frame red square is measured, in the right place",
+          blink and blink["region"][0] >= 0.85 and blink["region"][3] <= 0.2,
+          f"brief changes: {[(e['start'], e['end'], region_words(e['region'])) for e in ev]}")
+    rgb = _rgb_at(v, blink["t"], 1790, 90, 50, 50) if blink else (0, 0, 0)
+    check("the frame picked for it shows the square", rgb[0] > 180 and rgb[1] < 80 and rgb[2] < 80,
+          f"frame at {blink['t'] if blink else None}s, colour {rgb}")
+    lab = next((e for e in ev if 5.1 <= e["start"] <= 5.3), None)
+    if clips.get("label"):
+        check("a 0.4 s label is measured, in the right place",
+              lab and lab["region"][0] >= 0.75 and lab["region"][1] >= 0.8, f"label event: {lab}")
+    plan = plan_watch(pr, m, "standard", "general", None, False)
+    dts = plan["detail_times"]
+    check("a standard watch looks at the square's frame", any(2.333 <= t < 2.433 for t in dts), f"frames: {dts}")
+    if clips.get("label"):
+        check("... and at the label's frame", any(5.2 <= t < 5.6 for t in dts), f"frames: {dts}")
+    fig = [c for c in plan.get("closeups") or [] if c["why"] == "the moving area"]
+
+    def covers(c):
+        x, y, w, h = (float(q) for q in c["region"].split(","))
+        cx, cy = (275 + c["t"] * 150) / 1920, 620 / 1080          # the figure's centre at that time
+        return x <= cx <= x + w and y <= cy <= y + h
+    check("the close-ups follow the moving figure", fig and all(covers(c) for c in fig),
+          f"close-ups: {[(c['t'], c['region']) for c in fig]}")
+    vo = Video(clips["order"])
+    mo = measure(vo, fresh=True)
+    steps = [e for e in ((mo.get("video") or {}).get("activity") or {}).get("events") or [] if e.get("kind") == "step"]
+    check("two appearances are measured at 1 s and 3 s",
+          any(abs(e["start"] - 1.0) < 0.05 for e in steps) and any(abs(e["start"] - 3.0) < 0.05 for e in steps),
+          f"appearances: {[(e['start'], region_words(e['region'])) for e in steps]}")
+    if clips.get("speech"):
+        vs = Video(clips["speech"])
+        on = speech_onsets(vs, extract_audio(vs))
+        check("speech onset measured near 1 s", any(0.8 <= o <= 1.4 for o in on), f"onsets: {on[:5]}")
+    return rows
+
+
+def selftest_live(clips: dict, outdir: Path, fresh: bool = True) -> list:
+    """The same clips through the models, as a user would run them. Each command's output is kept in outdir."""
+    me = [sys.executable, str(Path(__file__).resolve())]
+    fr = ["--fresh"] if fresh else []
+    outdir.mkdir(parents=True, exist_ok=True)
+    exp = outdir.parent / "expected.txt"
+    atomic_write(exp, SELFTEST_TEXT + "\n")
+    jobs = {"watch": me + ["watch", str(clips["combo"]), "--depth", "standard", "--out", str(outdir)] + fr
+            + (["--expect", str(exp)] if clips.get("label") else [])}
+    jobs["verify-false"] = me + ["verify", str(clips["order"]), "The yellow square appears before the green square"] + fr
+    jobs["verify-true"] = me + ["verify", str(clips["order"]), "The green square appears before the yellow square"] + fr
+    jobs["count"] = me + ["ask", str(clips["count"]), "How many blue squares are there?", "--at", "1.5"] + fr
+    if clips.get("speech"):
+        jobs["speech"] = me + ["transcribe", str(clips["speech"]), "--lang", "en"] + fr
+
+    def one(item):
+        name, cmd = item
+        t0 = time.time()
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+        try:
+            data = json.loads(r.stdout)
+        except ValueError:
+            data = {"ok": False, "error": (r.stderr or r.stdout or "")[-300:]}
+        write_json(outdir / f"{name}.json", data)
+        return name, data, round(time.time() - t0, 1)
+    with cf.ThreadPoolExecutor(max_workers=3) as ex:
+        got = {n: (d, sec) for n, d, sec in ex.map(one, jobs.items())}
+    for d, _ in got.values():            # the commands ran in their own processes: add up what they spent
+        for k, val in (d.get("cost") or {}).items():
+            if isinstance(val, (int, float)):
+                SELFTEST_COST[k] = round(SELFTEST_COST.get(k, 0) + val, 1)
+    rows: list = []
+
+    def check(case, ok, detail, sec):
+        rows.append({"case": case, "pass": bool(ok), "detail": detail, "seconds": sec})
+    d, sec = got["watch"]
+    rep = read_json(Path(d["report_json"])) if d.get("report_json") else {}
+    det = (rep or {}).get("detail_frames") or []
+
+    def words(f):
+        return " ".join(str(f.get(k) or "") for k in ("what", "objects", "people", "closeup", "change", "text"))
+    red = [f for f in det if 2.3 <= (f.get("t") or 0) <= 2.45 and "red" in words(f).lower()]
+    check("watch sees the 3-frame red square", red, (red[0] if red else {}).get("what") or d.get("error"), sec)
+    thin = [f for f in det if _THIN_RX.search(words(f))]
+    check("watch sees the thin rod the figure carries", thin,
+          (thin[0].get("closeup") or thin[0].get("what")) if thin else "no frame mentions it", sec)
+    if clips.get("label"):
+        exp_rows = ((rep or {}).get("text") or {}).get("expected") or []
+        check(f"watch reads the 0.4 s label {SELFTEST_TEXT}", exp_rows and exp_rows[0].get("status") == "found",
+              exp_rows[0] if exp_rows else d.get("error"), sec)
+    for name, want in (("verify-false", "contradicted"), ("verify-true", "supported")):
+        d, sec = got[name]
+        check(f"verify: {'false' if want == 'contradicted' else 'true'} order claim is {want}",
+              d.get("verdict") == want, f"{d.get('verdict')}: {d.get('reason') or d.get('error')}", sec)
+    d, sec = got["count"]
+    ans = ((d.get("answers") or [{}])[0]) if d.get("ok") else {}
+    check("ask counts four blue squares", re.search(r"\b(4|four)\b", str(ans.get("short_answer") or ans.get("answer") or ""), re.I),
+          f"{ans.get('short_answer') or d.get('error')} ({ans.get('agreement')})", sec)
+    if "speech" in got:
+        d, sec = got["speech"]
+        segs = (read_json(Path(d["json"])) or {}).get("transcript") or [] if d.get("json") else []
+        text = " ".join(str(x.get("text") or "") for x in segs).lower()
+        start = segs[0].get("start") if segs else None
+        vs = Video(clips["speech"])
+        onset = next((o for o in speech_onsets(vs, extract_audio(vs)) if o >= 0.5), None)
+        check("transcribe hears the sentence, starting at the measured onset (within 0.3 s)",
+              "front desk" in text and "monday" in text and isinstance(start, (int, float)) and onset is not None
+              and abs(start - onset) <= 0.3, f"{text[:80]} (starts {start}, onset {onset})", sec)
+    return rows
+
+
+def cmd_selftest(args) -> None:
+    d = CACHE / "selftest"
+    clips = make_selftest_clips(d / "clips")
+    rows = [dict(r, stage="offline") for r in selftest_offline(clips)]
+    if args.live:
+        log("self test: running the models on the clips (about 20 calls, a few minutes)" if not args.cached else
+            "self test: checking the cached model answers again (no new calls)")
+        rows += [dict(r, stage="live") for r in
+                 selftest_live(clips, d / f"live-{time.strftime('%Y%m%d-%H%M%S')}", fresh=not args.cached)]
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    res = {"ok": all(r["pass"] for r in rows), "version": SKILL_VERSION, "passed": sum(r["pass"] for r in rows),
+           "total": len(rows), "results": rows, "cost": SELFTEST_COST or USAGE.total()}
+    jp = d / f"results-{stamp}.json"
+    write_json(jp, res)
+    md = ["# agy-watch-video self test", "", f"{res['passed']} of {res['total']} passed ({SKILL_VERSION})", "",
+          "| Stage | Check | Result | Detail |", "|---|---|---|---|"]
+    md += [f"| {r['stage']} | {r['case']} | {'pass' if r['pass'] else 'FAIL'} | {_md(r['detail'])[:220]} |" for r in rows]
+    atomic_write(jp.with_suffix(".md"), "\n".join(md) + "\n")
+    emit(dict(res, report_md=str(jp.with_suffix(".md"))))
 
 
 # ----------------------------------------------------------------------------------------------- main
@@ -3289,6 +4067,10 @@ def build_parser() -> argparse.ArgumentParser:
     fe = sub.add_parser("fetch", help="download a video URL with yt-dlp into the cache (ask the user first)")
     fe.add_argument("url")
     fe.add_argument("--confirmed", action="store_true", help="the user agreed to this download")
+    st = sub.add_parser("selftest", help="synthetic clips with known answers: measurement and planning; --live also "
+                                         "runs the models (about 20 calls)")
+    st.add_argument("--live", action="store_true", help="also run watch, verify, ask and transcribe on the clips")
+    st.add_argument("--cached", action="store_true", help="with --live: reuse cached model answers (no new calls)")
     ca = sub.add_parser("cache", help="list the cache, or --clear VIDEO (or a cache id from the list)")
     ca.add_argument("--clear")
     ca.add_argument("--older-than", type=float, metavar="DAYS", help="delete the cache of videos not used for DAYS days")
@@ -3299,7 +4081,7 @@ def main(argv=None) -> None:
     args = build_parser().parse_args(argv)
     handlers = {"doctor": cmd_doctor, "watch": cmd_watch, "ask": cmd_ask, "verify": cmd_verify, "transcribe": cmd_transcribe,
                 "frames": cmd_frames, "qa": cmd_qa, "compare": cmd_compare, "probe": cmd_probe, "usage": cmd_usage,
-                "fetch": cmd_fetch, "cache": cmd_cache}
+                "fetch": cmd_fetch, "cache": cmd_cache, "selftest": cmd_selftest}
     try:
         handlers[args.cmd](args)
     except WatchError as e:

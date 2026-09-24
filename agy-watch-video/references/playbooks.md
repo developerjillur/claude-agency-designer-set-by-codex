@@ -43,7 +43,9 @@ Look for, and report only with a frame that shows it:
 - physics: contact without support, objects passing through each other, liquids, gravity, shadows that disagree with
   the light;
 - object permanence: things that appear or vanish without cause;
-- flicker and popping, measured (`flicker_events` in the report).
+- flicker and popping, measured (`flicker_events` in the report), and brief local changes (`qa`'s `notes` and
+  `local_changes`, the report's "Brief changes between the regular frames"): a pop that lasts a few frames gets its
+  own frame and close-up, so the report says what showed there.
 
 False positives: real footage has motion blur, compression and rolling shutter. None of these is a generation
 artefact. In testing, a prompt that said "note every glitch" made Gemini 3.1 Pro report "extreme AI morphing" on real
@@ -57,6 +59,8 @@ Run `qa VIDEO --platform ... --strict` first (seconds: black and frozen frames, 
 `watch VIDEO --goal motion --depth deep --expect copy.txt` (every approved line is looked for on screen).
 
 Look for:
+- brief changes between frames that nobody designed (`qa` lists them with the frame to look at: `frames VIDEO --at T`):
+  a stray frame, a flash of the wrong text, an element that pops in for a moment;
 - when each element enters and leaves, and whether its easing is smooth (no jumps between frames);
 - overlaps and collisions, and text cut off by the frame or by other elements;
 - text size and legibility on a phone, and time on screen long enough to read;

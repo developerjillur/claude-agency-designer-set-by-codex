@@ -1,0 +1,673 @@
+{
+ "source": "live verify runs on an 8 s drone clip of a car workshop (2026-09-24), answers only",
+ "cases": {
+  "hose-true": {
+   "claim": "A worker is holding a hose",
+   "verdict": "supported",
+   "outputs": {
+    "neutral:gemini-3.8-flash-medium": {
+     "question": "What, if anything, is the young man in the black t-shirt carrying?",
+     "subject": "the young man in the black t-shirt"
+    },
+    "box:gemini-3.8-flash-medium": {
+     "boxes": [
+      {
+       "found": true,
+       "h": 0.187,
+       "t": 3.5,
+       "w": 0.063,
+       "x": 0.245,
+       "y": 0.725
+      },
+      {
+       "found": true,
+       "h": 0.2,
+       "t": 4.5,
+       "w": 0.072,
+       "x": 0.168,
+       "y": 0.745
+      },
+      {
+       "found": true,
+       "h": 0.215,
+       "t": 5.5,
+       "w": 0.075,
+       "x": 0.06,
+       "y": 0.76
+      }
+     ],
+     "subject": "young man in the black t-shirt"
+    },
+    "verify:gemini-3.8-flash-high": {
+     "answer": "As he walks away, the young man in the black t-shirt is holding a black hose in his right hand, dragging it along the ground behind him.",
+     "confidence": "high, the black hose is clearly visible held in his right hand as he walks away from t=4.50s to t=5.50s",
+     "found": true,
+     "moments": [
+      {
+       "t": 3.5,
+       "what": "A young man in a black t-shirt stands behind a white car near a black hose on the ground."
+      },
+      {
+       "t": 3.5,
+       "what": "Overview of the garage showing the man in the black t-shirt standing behind the white car."
+      },
+      {
+       "t": 3.75,
+       "what": "The man in the black t-shirt turns and steps across behind the white car."
+      },
+      {
+       "t": 4,
+       "what": "The man in the black t-shirt continues walking behind the white car with the black hose trailing near his feet."
+      },
+      {
+       "t": 4,
+       "what": "Overview showing the man in the black t-shirt walking behind the white car."
+      },
+      {
+       "t": 4.25,
+       "what": "The man in the black t-shirt moves past the rear corner of the white car."
+      },
+      {
+       "t": 4.5,
+       "what": "The man in the black t-shirt begins walking away holding the black hose in his right hand."
+      },
+      {
+       "t": 4.5,
+       "what": "Overview showing the man in the black t-shirt walking away behind the white car."
+      },
+      {
+       "t": 4.75,
+       "what": "The man in the black t-shirt walks away with his back facing the camera, holding the black hose in his right hand."
+      },
+      {
+       "t": 5,
+       "what": "The man in the black t-shirt continues walking away holding the black hose, which curves on the ground behind him."
+      },
+      {
+       "t": 5,
+       "what": "Overview showing the man in the black t-shirt walking away towards the black motorcycle holding the black hose."
+      },
+      {
+       "t": 5.25,
+       "what": "The man in the black t-shirt walks past the motorcycle, holding the black hose in his right hand."
+      },
+      {
+       "t": 5.5,
+       "what": "The man in the black t-shirt continues walking away next to the motorcycle, holding the black hose in his right hand."
+      },
+      {
+       "t": 5.5,
+       "what": "Overview showing the man in the black t-shirt walking further into the garage holding the black hose."
+      }
+     ],
+     "short_answer": "a black hose",
+     "unclear": [
+      "the specific type or function of the black hose"
+     ]
+    },
+    "verify:gemini-3.1-pro-high": {
+     "answer": "The young man in the black t-shirt is holding a black hose as he walks away.",
+     "confidence": "high, the black hose is clearly visible being held and pulled by the young man across the sequence of images",
+     "found": true,
+     "moments": [
+      {
+       "t": 3.5,
+       "what": "A young man in a black t-shirt is walking away holding a black hose in his right hand"
+      },
+      {
+       "t": 4,
+       "what": "The young man continues walking away, pulling the black hose"
+      },
+      {
+       "t": 4.5,
+       "what": "He is seen walking further, still holding the black hose"
+      },
+      {
+       "t": 5,
+       "what": "He continues to hold the black hose as he walks"
+      },
+      {
+       "t": 5.5,
+       "what": "He is now holding the black hose using his left hand"
+      }
+     ],
+     "short_answer": "a black hose",
+     "unclear": []
+    },
+    "judge:gemini-3.1-pro-high": {
+     "confidence": "high",
+     "reason": "Both independent viewers explicitly state that the young man in the black t-shirt is walking away holding a black hose.",
+     "verdict": "supported"
+    }
+   }
+  },
+  "bucket-false": {
+   "claim": "The young man is holding a red bucket",
+   "verdict": "contradicted",
+   "outputs": {
+    "neutral:gemini-3.8-flash-medium": {
+     "question": "What, if anything, is the young man in the black t-shirt holding as he walks away?",
+     "subject": "the young man in the black t-shirt"
+    },
+    "box:gemini-3.8-flash-medium": {
+     "boxes": [
+      {
+       "found": true,
+       "h": 0.187,
+       "t": 3.5,
+       "w": 0.065,
+       "x": 0.245,
+       "y": 0.725
+      },
+      {
+       "found": true,
+       "h": 0.197,
+       "t": 4.5,
+       "w": 0.077,
+       "x": 0.165,
+       "y": 0.745
+      },
+      {
+       "found": true,
+       "h": 0.218,
+       "t": 5.5,
+       "w": 0.073,
+       "x": 0.062,
+       "y": 0.76
+      }
+     ],
+     "subject": "young man in the black t-shirt"
+    },
+    "verify:gemini-3.8-flash-high": {
+     "answer": "The young man in the black t-shirt is carrying a black hose, holding it in his hand and pulling it along the ground.",
+     "confidence": "high, the black hose is clearly visible being held in his hand and trailing along the ground across multiple frames.",
+     "found": true,
+     "moments": [
+      {
+       "t": 3.5,
+       "what": "A young man wearing a black t-shirt, dark trousers, and sandals is walking in the garage forecourt near the rear of a white car, with a long black hose trailing on the ground behind him."
+      },
+      {
+       "t": 3.5,
+       "what": "Wide view of the auto workshop showing the young man in the black t-shirt walking past the white car with the black hose trailing on the ground."
+      },
+      {
+       "t": 3.75,
+       "what": "The young man in the black t-shirt continues walking leftward across the rear of the white car with the black hose trailing behind him."
+      },
+      {
+       "t": 4,
+       "what": "The young man in the black t-shirt walks to the left, pulling the black hose along the ground."
+      },
+      {
+       "t": 4,
+       "what": "Wide view showing the young man in the black t-shirt moving towards the black motorcycle while pulling the black hose."
+      },
+      {
+       "t": 4.25,
+       "what": "The young man in the black t-shirt turns away from the camera, with the black hose trailing behind his feet."
+      },
+      {
+       "t": 4.5,
+       "what": "The young man in the black t-shirt turns with his back to the camera, holding the black hose in his right hand."
+      },
+      {
+       "t": 4.5,
+       "what": "Wide view showing the young man in the black t-shirt holding the black hose as he heads towards the motorcycle."
+      },
+      {
+       "t": 4.75,
+       "what": "The young man in the black t-shirt is seen from behind, walking while holding the black hose in his right hand."
+      },
+      {
+       "t": 5,
+       "what": "The young man in the black t-shirt carries the black hose in his right hand toward the black motorcycle."
+      },
+      {
+       "t": 5,
+       "what": "Wide view showing the young man in the black t-shirt holding the black hose in his right hand as he approaches the motorcycle."
+      },
+      {
+       "t": 5.25,
+       "what": "The young man in the black t-shirt reaches the black motorcycle while holding the black hose in his right hand."
+      },
+      {
+       "t": 5.5,
+       "what": "The young man in the black t-shirt stands near the black motorcycle, holding the black hose in his right hand."
+      },
+      {
+       "t": 5.5,
+       "what": "Wide view showing the young man in the black t-shirt holding the black hose beside the black motorcycle."
+      }
+     ],
+     "short_answer": "a black hose",
+     "unclear": [
+      "any specific nozzle or attachment at the tip of the black hose",
+      "exact characters on the vehicle number plates"
+     ]
+    },
+    "verify:gemini-3.1-pro-high": {
+     "answer": "The young man in the black t-shirt is carrying a long black hose in his right hand.",
+     "confidence": "high",
+     "found": true,
+     "moments": [
+      {
+       "t": 3.5,
+       "what": "The young man in the black t-shirt is carrying a black hose in his right hand."
+      },
+      {
+       "t": 3.5,
+       "what": "The wide view shows the young man carrying the black hose."
+      },
+      {
+       "t": 3.75,
+       "what": "The young man continues to carry the black hose."
+      },
+      {
+       "t": 4,
+       "what": "The young man continues to carry the black hose."
+      },
+      {
+       "t": 4,
+       "what": "The wide view shows the young man carrying the black hose."
+      },
+      {
+       "t": 4.25,
+       "what": "The young man continues to carry the black hose."
+      },
+      {
+       "t": 4.5,
+       "what": "The young man continues to carry the black hose."
+      },
+      {
+       "t": 4.5,
+       "what": "The wide view shows the young man carrying the black hose."
+      },
+      {
+       "t": 4.75,
+       "what": "The young man continues to carry the black hose."
+      },
+      {
+       "t": 5,
+       "what": "The young man continues to carry the black hose."
+      },
+      {
+       "t": 5,
+       "what": "The wide view shows the young man carrying the black hose."
+      },
+      {
+       "t": 5.25,
+       "what": "The young man continues to carry the black hose."
+      },
+      {
+       "t": 5.5,
+       "what": "The young man continues to carry the black hose."
+      },
+      {
+       "t": 5.5,
+       "what": "The wide view shows the young man carrying the black hose."
+      }
+     ],
+     "short_answer": "a black hose",
+     "unclear": []
+    },
+    "judge:gemini-3.1-pro-high": {
+     "confidence": "high",
+     "reason": "The viewers state that the young man in the black t-shirt is carrying a black hose, not a red bucket, seen consistently from 3.5s to 5.25s.",
+     "verdict": "contradicted"
+    }
+   }
+  },
+  "ladder-false": {
+   "claim": "A person walks away carrying a red ladder",
+   "verdict": "contradicted",
+   "outputs": {
+    "neutral:gemini-3.8-flash-medium": {
+     "question": "What, if anything, is the person walking away carrying?",
+     "subject": "the person walking away"
+    },
+    "box:gemini-3.8-flash-medium": {
+     "boxes": [
+      {
+       "found": true,
+       "h": 0.108,
+       "t": 0,
+       "w": 0.047,
+       "x": 0.284,
+       "y": 0.778
+      },
+      {
+       "found": true,
+       "h": 0.194,
+       "t": 4,
+       "w": 0.05,
+       "x": 0.222,
+       "y": 0.728
+      },
+      {
+       "found": true,
+       "h": 0.227,
+       "t": 7.96,
+       "w": 0.048,
+       "x": 0.015,
+       "y": 0.758
+      }
+     ],
+     "subject": "the person walking away"
+    },
+    "verify:gemini-3.8-flash-high": {
+     "answer": "The person walking away from the rear tire of the white car is carrying a black hose (air hose).",
+     "confidence": "high, as the person is clearly seen holding and pulling the black hose in his hand as he stands up and walks away behind the car",
+     "found": true,
+     "moments": [
+      {
+       "t": 0,
+       "what": "A person in a black t-shirt is crouching by the rear right tire of the white car, holding a hose."
+      },
+      {
+       "t": 2,
+       "what": "The person starts standing up from next to the tire."
+      },
+      {
+       "t": 3,
+       "what": "The person is fully upright and turns to begin walking away."
+      },
+      {
+       "t": 4,
+       "what": "The person walks behind the car carrying a black hose in his hand."
+      },
+      {
+       "t": 5,
+       "what": "The person continues walking towards the motorcycle on the left while holding the black hose."
+      },
+      {
+       "t": 6,
+       "what": "The person stands on the left side near the motorcycle, still holding the black hose."
+      },
+      {
+       "t": 7.96,
+       "what": "The person remains standing on the left side holding the black hose."
+      }
+     ],
+     "short_answer": "a black hose",
+     "unclear": [
+      "specific nozzle or fitting attached at the tip of the hose"
+     ]
+    },
+    "verify:gemini-3.1-pro-high": {
+     "answer": "The person walking away from the car is carrying a black hose.",
+     "confidence": "high, as the person in the black shirt can be clearly seen holding the black hose while walking away from the right side of the car",
+     "found": true,
+     "moments": [
+      {
+       "t": 3,
+       "what": "The person in the black shirt stands up and turns to walk away, holding a black hose."
+      },
+      {
+       "t": 3.5,
+       "what": "He walks to the left, carrying the black hose."
+      },
+      {
+       "t": 4,
+       "what": "He continues walking away while carrying the black hose."
+      }
+     ],
+     "short_answer": "a black hose",
+     "unclear": []
+    },
+    "judge:gemini-3.1-pro-high": {
+     "confidence": "high",
+     "reason": "Both viewers saw the person carrying a black hose, which contradicts the claim that they were carrying a red ladder.",
+     "verdict": "contradicted"
+    }
+   }
+  },
+  "order-true": {
+   "claim": "The crouching mechanic stands up first and then walks away carrying a hose",
+   "verdict": "supported",
+   "outputs": {
+    "neutral:gemini-3.8-flash-medium": {
+     "question": "What does the crouching mechanic do, and what, if anything, is he carrying?",
+     "subject": "the crouching mechanic"
+    },
+    "box:gemini-3.8-flash-medium": {
+     "boxes": [
+      {
+       "found": true,
+       "h": 0.11,
+       "t": 0,
+       "w": 0.05,
+       "x": 0.284,
+       "y": 0.775
+      },
+      {
+       "found": true,
+       "h": 0.198,
+       "t": 4,
+       "w": 0.054,
+       "x": 0.222,
+       "y": 0.728
+      },
+      {
+       "found": true,
+       "h": 0.21,
+       "t": 7.96,
+       "w": 0.05,
+       "x": 0.015,
+       "y": 0.755
+      }
+     ],
+     "subject": "the crouching mechanic"
+    },
+    "verify:gemini-3.1-pro-high": {
+     "answer": "The mechanic is crouching by the rear right tire of the white car, holding a black hose to the wheel to presumably check the pressure or fill it with air. He then stands up and walks away while carrying the black hose. He is not carrying anything else.",
+     "confidence": "high",
+     "found": true,
+     "moments": [
+      {
+       "t": 0,
+       "what": "A mechanic is crouching by the rear right tire of the white car, holding a black hose to the wheel."
+      },
+      {
+       "t": 3,
+       "what": "The mechanic stands up, still holding the black hose."
+      },
+      {
+       "t": 4,
+       "what": "The mechanic starts walking away, carrying the black hose."
+      },
+      {
+       "t": 7.96,
+       "what": "The mechanic is standing next to a black motorcycle, still carrying the black hose in his hand."
+      }
+     ],
+     "short_answer": "fills tire and carries a black hose",
+     "unclear": [
+      "text on the license plate of the motorcycle",
+      "text on the sign on the left gate"
+     ]
+    },
+    "verifyr:gemini-3.8-flash-high": {
+     "answer": "From 0.00s to 2.00s, the mechanic (wearing a black shirt and dark pants) is crouching beside the right rear wheel of the white car, attending to the tire with a black hose. At 2.50s, he begins standing up and is fully upright by 3.00s. He then walks around the rear of the white car from the right side to the left side between 3.50s and 7.00s, stopping near a parked motorcycle on the left at 7.50s to 7.96s. He is carrying a black hose in his hand as he walks.",
+     "confidence": "high, the video frames clearly show the mechanic crouching by the right rear wheel, standing up, walking behind the car, and carrying a black hose.",
+     "found": true,
+     "moments": [
+      {
+       "t": 0,
+       "what": "A man in a black shirt and dark pants crouches beside the right rear wheel of the white car with a black hose on the ground."
+      },
+      {
+       "t": 0,
+       "what": "Wide context frame showing the garage entrance with the mechanic crouching on the right side of the white car."
+      },
+      {
+       "t": 0.5,
+       "what": "The mechanic remains crouching beside the right rear wheel."
+      },
+      {
+       "t": 1,
+       "what": "The mechanic remains crouching at the right rear wheel."
+      },
+      {
+       "t": 1.5,
+       "what": "The mechanic remains crouching at the right rear wheel."
+      },
+      {
+       "t": 2,
+       "what": "The mechanic remains crouching at the right rear wheel."
+      },
+      {
+       "t": 2,
+       "what": "Wide context view showing the mechanic still crouched on the right side of the white car."
+      },
+      {
+       "t": 2.5,
+       "what": "The mechanic begins to rise from his crouch."
+      },
+      {
+       "t": 3,
+       "what": "The mechanic is standing upright beside the white car, holding the black hose."
+      },
+      {
+       "t": 3.5,
+       "what": "The mechanic steps forward past the rear bumper of the white car holding the black hose."
+      },
+      {
+       "t": 4,
+       "what": "The mechanic walks past the rear of the white car holding the black hose in his left hand."
+      },
+      {
+       "t": 4,
+       "what": "Wide context frame showing the mechanic walking behind the white car carrying the hose."
+      },
+      {
+       "t": 4.5,
+       "what": "The mechanic walks across the rear of the white car, carrying the black hose."
+      },
+      {
+       "t": 5,
+       "what": "The mechanic moves towards the left rear corner of the white car holding the black hose."
+      },
+      {
+       "t": 5.5,
+       "what": "The mechanic walks past the left rear corner of the white car carrying the black hose."
+      },
+      {
+       "t": 6,
+       "what": "The mechanic turns toward the left side of the white car, pulling the black hose along."
+      },
+      {
+       "t": 6,
+       "what": "Wide context frame showing the mechanic on the left side of the white car."
+      },
+      {
+       "t": 6.5,
+       "what": "The mechanic steps toward the motorcycle on the left, holding the black hose."
+      },
+      {
+       "t": 7,
+       "what": "The mechanic stands beside the left side of the white car, holding the hose."
+      },
+      {
+       "t": 7.5,
+       "what": "The mechanic turns to face right/forward beside the motorcycle, holding the hose."
+      },
+      {
+       "t": 7.96,
+       "what": "The mechanic stands on the left side of the white car, holding the black hose."
+      },
+      {
+       "t": 7.96,
+       "what": "Wide context frame showing the mechanic standing on the left side of the garage entrance."
+      }
+     ],
+     "short_answer": "Stands, walks away, carrying a black hose",
+     "unclear": [
+      "The exact fitting or nozzle at the tip of the black hose is unclear.",
+      "The exact manipulation done at the wheel while crouching is unclear due to distance and angle."
+     ]
+    },
+    "judge:gemini-3.1-pro-high": {
+     "confidence": "high",
+     "reason": "Both viewers explicitly state that the mechanic crouches by the car's wheel (t=0 to 2.00s), stands up (t=2.50s to 3.00s), and then walks away while carrying a black hose.",
+     "verdict": "supported"
+    }
+   }
+  },
+  "order-false": {
+   "claim": "The mechanic first walks over from the motorcycle and only then crouches down at the white car's tyre",
+   "verdict": "contradicted",
+   "outputs": {
+    "neutral:gemini-3.8-flash-medium": {
+     "question": "In what order does the mechanic walk over from the motorcycle and crouch down at the white car's tyre?",
+     "subject": "the mechanic"
+    },
+    "verify:gemini-3.1-pro-high": {
+     "answer": "The files show a mechanic crouching by the white car's tyre at the start, and then standing up and walking towards the motorcycle. They do not show him walking from the motorcycle to the white car.",
+     "confidence": "high",
+     "found": false,
+     "moments": [
+      {
+       "t": 0,
+       "what": "A person in a black shirt is crouching by the left front tyre of the white car on the left."
+      },
+      {
+       "t": 2.5,
+       "what": "The person in the black shirt stands up and walks towards the motorcycle on the left."
+      },
+      {
+       "t": 7.96,
+       "what": "The person in the black shirt is standing by the motorcycle."
+      }
+     ],
+     "short_answer": "this does not happen",
+     "unclear": [
+      "number plates",
+      "small text on signs"
+     ]
+    },
+    "verifyr:gemini-3.8-flash-high": {
+     "answer": "The files do not show the mechanic walking over from the motorcycle and crouching down at the white car's tyre. Instead, in chronological order from 0.00s to 7.96s, the opposite sequence occurs: the person in the black t-shirt is already crouched beside the white car's tyre from 0.00s to 2.50s, stands up at 3.00s, and then walks away from the car over to the motorcycle on the left between 3.50s and 7.96s.",
+     "confidence": "high, verified all 17 frames in chronological order from 0.00s to 7.96s",
+     "found": false,
+     "moments": [
+      {
+       "t": 0,
+       "what": "A person in a black t-shirt is already crouched down beside the rear right tyre of the white car."
+      },
+      {
+       "t": 2.5,
+       "what": "The person in the black t-shirt remains crouched down beside the tyre of the white car."
+      },
+      {
+       "t": 3,
+       "what": "The person in the black t-shirt stands up next to the white car."
+      },
+      {
+       "t": 4,
+       "what": "The person in the black t-shirt walks away from the white car towards the motorcycle on the left."
+      },
+      {
+       "t": 6,
+       "what": "The person in the black t-shirt reaches the motorcycle on the far left."
+      },
+      {
+       "t": 7.96,
+       "what": "The person in the black t-shirt remains standing by the motorcycle on the left."
+      }
+     ],
+     "short_answer": "Does not happen; reverse occurs",
+     "unclear": [
+      "Characters on vehicle number plates are blurred or unreadable.",
+      "Smaller phone numbers and addresses on the workshop banner are unreadable."
+     ]
+    },
+    "judge:gemini-3.1-pro-high": {
+     "confidence": "high",
+     "reason": "Both viewers state that the mechanic starts crouched by the white car's tyre (0.00s to 2.50s) and then walks over to the motorcycle (3.50s to 7.96s), which is the exact opposite of the sequence described in the claim.",
+     "verdict": "contradicted"
+    }
+   }
+  }
+ }
+}

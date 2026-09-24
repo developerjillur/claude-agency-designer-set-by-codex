@@ -49,6 +49,15 @@ FAKE_AGY = textwrap.dedent(r'''
         env["denied_actions"] = [{"action": "read_file", "display_name": "ViewFile"}]
     elif mode == "denied_cmd":
         env["denied_actions"] = [{"action": "command", "display_name": "RunCommand"}]
+    elif mode == "replay":
+        with open(os.environ["FAKE_AGY_REPLAY"]) as f:
+            rec = json.load(f)["cases"][os.environ["FAKE_AGY_CASE"]]["outputs"]
+        key = os.path.basename(args[args.index("--json-schema") + 1]).split("-")[0] + ":" + args[args.index("--model") + 1]
+        if key in rec:
+            env["structured_output"] = rec[key]
+        else:
+            env["status"] = "ERROR"
+            env["error"] = "no recorded output for " + key
     elif mode == "error":
         env["status"] = "ERROR"
         env["error"] = "429 RESOURCE_EXHAUSTED"
@@ -75,6 +84,11 @@ FAKE_AGY = textwrap.dedent(r'''
             out.update({"answer": "a black hose", "short_answer": "a black hose", "found": True, "confidence": "high"})
         if "question" in out:
             out["question"] = "What, if anything, is he holding?"
+        if mode == "closer" and "look_closer" in out:
+            out["look_closer"] = [{"t": 1.0, "what": "What is in the hand?", "x": 0.4, "y": 0.4, "w": 0.1, "h": 0.1}]
+        if mode == "closer" and "items" in out and '"seen"' in schema_text:
+            out["items"] = [{"t": 1.0, "asked": "What is in the hand?", "seen": "a hand holding a black hose",
+                             "answer": "a black hose", "clear": True}]
         env["structured_output"] = out
     print("notice: something first")
     print(json.dumps(env))
@@ -147,23 +161,23 @@ class AgreementTests(unittest.TestCase):
 
     def test_digits_in_any_script_agree(self):
         # Measured: Pro wrote Bengali digits, Flash wrote Latin ones, for the same phone numbers.
-        self.assertTrue(w.answers_agree({"found": True, "short_answer": "49.00s, ০১৬২৭-১৫৪৬৪৯ and ০১৮৫৬-০৩৮৪৮০"},
-                                        {"found": True, "short_answer": "49.00s; 01627-154649 and 01856-038480"}))
-        self.assertFalse(w.answers_agree({"found": True, "short_answer": "০১৬২৭-১৫৪৬৪৯"},
-                                         {"found": True, "short_answer": "01917-181199"}))
+        self.assertTrue(w.answers_agree({"found": True, "short_answer": "49.00s, ০১৭০০-১২৩৪৫৬ and ০১৯০০-৬৫৪৩২১"},
+                                        {"found": True, "short_answer": "49.00s; 01700-123456 and 01900-654321"}))
+        self.assertFalse(w.answers_agree({"found": True, "short_answer": "০১৭০০-১২৩৪৫৬"},
+                                         {"found": True, "short_answer": "01800-111222"}))
 
     def test_different_counts_and_colours_disagree(self):
         """Found in review: half the words in common used to be enough."""
         self.assertFalse(w.answers_agree({"found": True, "short_answer": "3 people"}, {"found": True, "short_answer": "4 people"}))
         self.assertTrue(w.answers_agree({"found": True, "short_answer": "three people"}, {"found": True, "short_answer": "3 people"}))
         self.assertFalse(w.answers_agree({"found": True, "short_answer": "a red car"}, {"found": True, "short_answer": "a blue car"}))
-        self.assertFalse(w.answers_agree({"found": True, "short_answer": "01627-154649"},
-                                         {"found": True, "short_answer": "01627-154648"}))
+        self.assertFalse(w.answers_agree({"found": True, "short_answer": "01700-123456"},
+                                         {"found": True, "short_answer": "01700-123455"}))
 
     def test_bengali_words_stay_whole(self):
-        self.assertEqual(w.tokens("হাইব্রিড সলিউশন"), ["হাইব্রিড", "সলিউশন"])
-        self.assertTrue(w.answers_agree({"found": True, "short_answer": "হাইব্রিড সলিউশন"},
-                                        {"found": True, "short_answer": "সাইনে লেখা হাইব্রিড সলিউশন"}))
+        self.assertEqual(w.tokens("সবুজ বাগান"), ["সবুজ", "বাগান"])
+        self.assertTrue(w.answers_agree({"found": True, "short_answer": "সবুজ বাগান"},
+                                        {"found": True, "short_answer": "সাইনে লেখা সবুজ বাগান"}))
 
     def test_found_mismatch(self):
         self.assertFalse(w.answers_agree({"found": True, "short_answer": "yes"}, {"found": False, "short_answer": "yes"}))
@@ -218,6 +232,86 @@ class RegionTests(unittest.TestCase):
             w.parse_region("somewhere", 100, 100)
 
 
+def grid(n, cols, rows, base=2, marks=None):
+    """n frames of a cols x rows change grid at `base`, with {(frame, col, row): value}."""
+    out = bytearray([base] * (n * cols * rows))
+    for (k, c, r), val in (marks or {}).items():
+        out[k * cols * rows + r * cols + c] = val
+    return bytes(out)
+
+
+T30 = [(k + 1) / 30 for k in range(300)]
+
+
+class GridTests(unittest.TestCase):
+    """The change grid: brief events between frames, appearances, movement and its track."""
+
+    def test_a_blink_is_one_brief_event_with_a_frame_in_between(self):
+        marks = {(k, 7, r): 60 for k in (40, 43) for r in (0, 1)}
+        a = w.analyse_grid(grid(90, 8, 6, marks=marks), 8, 6, T30[:90])
+        ev = [e for e in a["events"] if e["kind"] == "brief"]
+        self.assertEqual(len(ev), 1)
+        self.assertEqual((ev[0]["start"], ev[0]["end"]), (round(T30[40], 3), round(T30[43], 3)))
+        self.assertTrue(T30[40] - 0.001 <= ev[0]["t"] < T30[43] - 0.01)      # a frame on which it shows
+        self.assertEqual(w.region_words(ev[0]["region"]), "top right")
+
+    def test_a_label_shown_for_a_second_pairs_up(self):
+        marks = {(k, c, 5): 90 for k in (30, 60) for c in (5, 6)}
+        a = w.analyse_grid(grid(120, 8, 6, marks=marks), 8, 6, T30[:120])
+        ev = [e for e in a["events"] if e["kind"] == "brief"]
+        self.assertEqual(len(ev), 1)
+        self.assertAlmostEqual(ev[0]["end"] - ev[0]["start"], 1.0, places=2)
+        self.assertEqual(w.region_words(ev[0]["region"]), "bottom right")
+
+    def test_something_that_appears_and_stays_is_a_step(self):
+        a = w.analyse_grid(grid(60, 8, 6, marks={(20, 3, 3): 80}), 8, 6, T30[:60])
+        self.assertEqual([e["kind"] for e in a["events"]], ["step"])
+
+    def test_weak_changes_are_not_events(self):
+        a = w.analyse_grid(grid(60, 8, 6, marks={(20, 3, 3): 14, (23, 3, 3): 14}), 8, 6, T30[:60])
+        self.assertEqual(a["events"], [])
+
+    def test_a_camera_move_lifts_every_cell_and_is_no_event(self):
+        marks = {(k, c, r): 40 for k in range(20, 26) for c in range(8) for r in range(6)}
+        self.assertEqual(w.analyse_grid(grid(60, 8, 6, marks=marks), 8, 6, T30[:60])["events"], [])
+
+    def test_movement_has_a_track_and_a_pop_up_beside_it_stays_its_own_event(self):
+        marks = {(k, min(7, k // 12), 3): 22 for k in range(90)}         # one cell further every 12 frames
+        marks.update({(50, 6, 3): 95, (53, 6, 3): 95})                     # a strong pop-up two cells ahead
+        a = w.analyse_grid(grid(90, 8, 6, marks=marks), 8, 6, T30[:90])
+        kinds = sorted(e["kind"] for e in a["events"])
+        self.assertEqual(kinds, ["brief", "motion"])
+        near = w.activity_near(a, 1.0, 1.2)
+        self.assertTrue(near and near[0] <= 0.3 < near[2])
+
+    def test_fast_blinking_in_one_place_is_a_flicker_with_a_frame(self):
+        """Found in review: blinks less than 0.3 s apart joined into one long cluster and were called movement."""
+        marks = {(k, 2, 2): 60 for k in (10, 13, 20, 23, 30, 33)}
+        a = w.analyse_grid(grid(60, 8, 6, marks=marks), 8, 6, T30[:60])
+        self.assertEqual([e["kind"] for e in a["events"]], ["flicker"])
+        e = a["events"][0]
+        self.assertTrue(T30[10] - 0.001 <= e["t"] < T30[13] - 0.01)        # while it shows the first time
+        pr = {"duration": 2.0, "video": {"width": 1280, "height": 720}, "audio": None}
+        p = w.plan_watch(pr, {"video": {"activity": a}}, "standard", "general", None, True)
+        self.assertIn(e["t"], p["detail_times"])
+
+    def test_a_band_along_the_edge_is_no_close_up(self):
+        act = {"bin": 0.25, "events": [{"kind": "motion", "start": 0, "end": 2, "peak": 40,
+                                        "track": [[0.5, 0.0, 0.0, 0.9, 0.15, 40]]}]}
+        self.assertIsNone(w.activity_near(act, 0.3, 0.7))
+
+    def test_seek_time_lands_on_the_frame(self):
+        self.assertEqual(w.seek_time(71 / 30), 2.366)
+        self.assertEqual(w.seek_time(2.4), 2.399)
+        self.assertEqual(w.seek_time(0.0), 0.0)
+
+    def test_grid_shape_follows_the_picture(self):
+        self.assertEqual(w.grid_dims(1920, 1080), (32, 18))
+        self.assertEqual(w.grid_dims(1080, 1920), (18, 32))
+        self.assertEqual(w.activity_step(30, 60), 1)
+        self.assertEqual(w.activity_step(30, 3600), 3)
+
+
 class PlanTests(unittest.TestCase):
     PR = {"duration": 8.0, "video": {"width": 1080, "height": 840}, "audio": {"codec": "aac"}}
 
@@ -246,6 +340,26 @@ class PlanTests(unittest.TestCase):
         self.assertLessEqual(len(p["detail_times"]), 36)
         self.assertGreater(max(p["detail_times"]), 590)
         self.assertLess(p["largest_gap_s"], 26)
+
+    def test_brief_changes_get_their_own_frames_and_close_ups(self):
+        act = {"bin": 0.25, "events": [
+            {"kind": "brief", "start": 2.333, "end": 2.433, "t": 2.366, "region": [0.9, 0.05, 0.97, 0.17], "peak": 60},
+            {"kind": "motion", "start": 0.0, "end": 8.0, "t": 4.0, "region": [0.1, 0.4, 0.8, 0.8], "peak": 30,
+             "track": [[round(i * 0.25, 2), 0.1 + i * 0.02, 0.4, 0.18 + i * 0.02, 0.8, 30] for i in range(32)]}]}
+        p = w.plan_watch(self.PR, {"video": {"activity": act}}, "standard", "general", None, False)
+        self.assertIn(2.366, p["detail_times"])
+        self.assertEqual(p["events"][0]["where"], "top right")
+        self.assertEqual({c["why"] for c in p["closeups"]}, {"a brief change", "the moving area"})
+        self.assertIn("brief change", p["sampling"])
+
+    def test_brief_frames_never_exceed_the_budget(self):
+        """Found in review: with --max-frames 2 a brief change came on top of the budget."""
+        act = {"bin": 0.25, "events": [{"kind": "brief", "start": 2.3, "end": 2.4, "t": 2.366,
+                                        "region": [0.9, 0.05, 0.97, 0.17], "peak": 60}]}
+        for mf in (2, 3, 4):
+            p = w.plan_watch(self.PR, {"video": {"activity": act}}, "standard", "general", None, True, max_frames=mf)
+            self.assertLessEqual(len(p["detail_times"]), mf)
+        self.assertIn(2.366, p["detail_times"])
 
     def test_busy_promo_sees_the_hook_and_the_end_card(self):
         pr = {"duration": 60.0, "video": {"width": 1080, "height": 1920}, "audio": None}
@@ -762,6 +876,59 @@ class FfmpegTests(unittest.TestCase):
         self.assertEqual(out["neutral_question"], w.GENERIC_ORDER_Q)
         self.assertNotIn("bars", out["neutral_question"])
         self.assertIsNone(out["zoom_region"])
+
+    def test_measure_has_the_change_grid(self):
+        m = w.measure(w.Video(self.clip))
+        act = m["video"]["activity"]
+        self.assertEqual(act["grid"], [32, 18])
+        self.assertGreater(act["frames"], 50)
+
+    def test_close_ups_go_with_their_frame(self):
+        log = self._fake()
+        plan = {"detail_times": [0.5, 1.0], "detail_fps": None, "goal": "general", "detail_model": w.MODELS["deep"],
+                "closeups": [{"t": 1.0, "region": "0.3,0.3,0.3,0.3", "why": "the moving area", "where": "centre"}]}
+        try:
+            res = w.pass_detail(w.Video(self.clip), plan, None, True)
+        finally:
+            for k in ("AGY_BIN", "FAKE_AGY_LOG"):
+                os.environ.pop(k, None)
+        self.assertEqual(res[0]["closeups"], 1)
+        self.assertEqual(res[0]["times"], [0.5, 1.0])
+        args = json.loads(log.read_text().splitlines()[-1])
+        self.assertIn("close-up of the moving area (centre), enlarged", args[args.index("-p") + 1])
+
+    def test_watch_takes_a_closer_look_when_asked(self):
+        self._fake()
+        os.environ["FAKE_AGY_MODE"] = "closer"
+        try:
+            out = self._run(["watch", str(self.clip), "--depth", "standard", "--fresh", "--out", str(Path(TMP) / "rep2")])
+        finally:
+            os.environ["FAKE_AGY_MODE"] = "ok"
+        rep = json.loads(Path(out["report_json"]).read_text())
+        self.assertEqual(rep["closer"]["items"][0]["answer"], "a black hose")
+        self.assertIn("## Closer looks", Path(out["report_md"]).read_text())
+
+    def test_recorded_live_verify_runs_replay_to_the_same_verdicts(self):
+        """Real model answers from five live verify runs: the logic after the models must reach the live verdicts."""
+        fixture = Path(__file__).resolve().parent / "fixtures" / "live-verify.json"
+        for case, spec in json.loads(fixture.read_text())["cases"].items():
+            with self.subTest(case=case):
+                self._fake()
+                os.environ.update({"FAKE_AGY_MODE": "replay", "FAKE_AGY_REPLAY": str(fixture), "FAKE_AGY_CASE": case})
+                try:
+                    out = self._run(["verify", str(self.clip), spec["claim"], "--at", "1.5", "--fresh"])
+                finally:
+                    for k in ("FAKE_AGY_REPLAY", "FAKE_AGY_CASE"):
+                        os.environ.pop(k, None)
+                    os.environ["FAKE_AGY_MODE"] = "ok"
+                self.assertEqual(out["verdict"], spec["verdict"], out.get("reason"))
+                self.assertEqual(out["agreement"], "agree")
+                self.assertEqual(bool(out["order_check"]), case.startswith("order"))
+
+    def test_the_offline_self_test_passes(self):
+        clips = w.make_selftest_clips(Path(TMP) / "selftest")
+        failed = [r for r in w.selftest_offline(clips) if not r["pass"]]
+        self.assertEqual(failed, [])
 
     def test_audio_and_onsets(self):
         wav = w.extract_audio(self.v)

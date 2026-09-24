@@ -19,17 +19,27 @@ reads a compact report and checks the frames that matter with its own eyes. The 
 | The video (a small proxy without audio: 1280 px, less for long videos) | about 1 frame per second at low detail (about 70 tokens a frame) | the story, shots, camera moves, who appears when |
 | Sharp frames extracted by ffmpeg, each listed with its time | each frame at full detail (up to about 1,100 tokens) | people, hands, objects, text, small actions |
 | Zoom crops of a region | the detail enlarged | small text, thin objects, what someone holds |
+| Close-ups picked by measurement: the moving area, a brief change | an enlarged crop next to its frame | what hands hold, thin objects, a pop-up |
 | The soundtrack as 16 kHz WAV, in parts of 5 minutes | real audio | transcript, speakers, sounds, music |
 
 A video file never carries its audio to Gemini, and at 1 frame per second a model misses thin objects and small text
 and invents details. Sharp frames, zoom, two models, OCR and ffmpeg measurements are what make the reports accurate.
+
+No model sees every frame, but ffmpeg measures every frame: a change grid (32 cells across) records where the picture
+changes, frame by frame, with no model call. From it the skill knows where the movement is and when something shows
+for a moment between two sampled frames (a pop-up, a flash of text, a glitch), and gives that moment a frame of its
+own and a close-up.
 
 ## 1. Preflight (once per machine, and after an agy update)
 
 1. `doctor`: needs `ready: true` (ffmpeg with its analysis filters, agy signed in, the three models available).
 2. `doctor --setup`: installs Pillow into the skill's own `.venv` for time labels on the contact sheets.
 3. `doctor --smoke`: one real call with a 4 s clip that must see the picture and hear "Seven blue boxes".
-4. `usage` shows the agy quota (five-hour and weekly limits). Check it before a deep run on a long video.
+4. `selftest --live` (after installing or updating agy, about 20 calls): synthetic clips with known answers (a red square
+   shown for 3 frames, a 0.4 s label, a thin rod carried by a moving figure, the order of two appearances, a count, a
+   spoken sentence) go through `watch`, `verify`, `ask` and `transcribe`, and every answer is checked. `selftest` alone
+   checks the measurements and the plan in seconds, with no model.
+5. `usage` shows the agy quota (five-hour and weekly limits). Check it before a deep run on a long video.
 
 ## 2. Pick the command
 
@@ -47,6 +57,7 @@ and invents details. Sharp frames, zoom, two models, OCR and ffmpeg measurements
 | What changed between two versions | `compare A.mp4 B.mp4` |
 | Frames or a contact sheet for your own eyes | `frames VIDEO --fps 2 --sheet` or `--at 3.5,7 --zoom lower-third` |
 | A video from a URL | ask the user first, then `fetch URL --confirmed` (yt-dlp), then use the local file |
+| Is the skill working on this machine? | `selftest` (seconds, no model), `selftest --live` (known answers through the models) |
 
 Add `--goal` to `watch` so the review uses the right checklist (`references/playbooks.md`): `promo` (ads, reels,
 promos), `ai-video` (generated clips), `motion` (motion graphics and renders), `screen` (screen and bug recordings),
@@ -79,7 +90,8 @@ user wants to know, and `--platform` for delivery checks. For a part of a long v
   subject, the region is enlarged, and both models look at the zoom plus a few full frames. In testing, a thin hose in
   a worker's hand was missed by both models on full frames and found by both on the zoom.
 - The window gets 8 frames a second when it is short (about 1.5 s or less), 4 up to 4 s and 2 up to 10 s. `--fps`
-  overrides it.
+  overrides it. When the video was measured before (`watch` or `qa`), the exact frames of brief changes and
+  appearances inside the window are added, and a failed subject box falls back to the measured moving area.
 - Questions about speech or sound add the audio of the window.
 
 ## 5. Accuracy rules
@@ -90,12 +102,21 @@ user wants to know, and `--platform` for delivery checks. For a part of a long v
   things seen through backlight (a green window read as a hi-vis vest), fast actions between frames, camera motion
   judged from sparse frames (a push-in called a static hover), and identity swaps between batches. A prompt that asks
   it to hunt for glitches produces glitches, so the skill's prompts never do that.
+- Between sampled frames: a brief local change the change grid measures (strong enough to stand out from the movement
+  around it, from a few frames up to 1.5 s) gets a frame of its own and a close-up, and the report lists each one with
+  what was seen there ("Brief changes between the regular frames"). A change smaller than about one cell (3% of the
+  width) or fainter than the grid can measure can still pass unseen: for a moment that matters, `ask --at` looks at 8
+  frames a second.
+- Thin and small things: at standard and deeper, frames come with close-ups of the moving area (the person and what
+  they carry), and the frame passes list what they could not make out (`look_closer`); the skill enlarges those areas
+  and asks Pro again ("Closer looks"). In testing, the close-up of the moving area showed a worker's thin hose from his
+  hand to the tyre, with no model call spent on finding him.
 - Measurements (ffmpeg) beat models. The text check beats the frame passes, and full-resolution frames beat the
   low-detail overview. Audio beats the overview for speech.
 - Apple Vision OCR confirms Latin, CJK, Cyrillic and many other scripts but cannot read Bengali. Bengali text counts
   as verified when two models read it the same way, or when Tesseract with its Bengali data (if installed) agrees.
-- `ask` and `verify` count two answers as agreeing only when every number matches exactly (in any script: ০১৬২৭ =
-  01627), their colours match and their times are within 0.6 s. "3 people" against "4 people" is a disagreement.
+- `ask` and `verify` count two answers as agreeing only when every number matches exactly (in any script: ০১২৩৪ =
+  01234), their colours match and their times are within 0.6 s. "3 people" against "4 people" is a disagreement.
   When the wording differs too much to tell ("a man and a woman" against "2 people"), one text-only call compares the
   facts; `agreement_how` says which way it was decided.
 - Transcript times come from Gemini, then are snapped to measured speech onsets. In testing that moved them from about
@@ -114,14 +135,20 @@ is cached. Times measured on an 8 s clip:
 | `ask` with zoom and two models | 3 | 1 to 3 minutes |
 | `transcribe` | 1 per 5 minutes of audio, in parallel | |
 | `qa` | none | seconds |
+| `selftest --live` | about 20 | 5 to 10 minutes |
+
+The change grid comes from the same ffmpeg pass as the other measurements (every frame, every few on videos over 20
+minutes), so it costs seconds and no call. Close-ups add at most 6 images at standard (12 deep, 24 forensic), and
+closer looks at most one Pro call.
 
 Frames always cover the whole range, from the first frame to the last. When they fit the budget (standard at most 36,
 deep 96, forensic 192), sampling is uniform plus the first frame of every shot. When they do not, the first frames of
 shots are spread over the range, the middle of long shots is added, and the rest fill the biggest gaps, weighted towards
 motion. Promos also get the hook and the end card densely; motion and AI-video goals get frames around flicker.
 Frames of an unchanged picture (a hold, a still screen) are skipped. `--max-frames` sets a lower budget, and the report
-states the largest gap between frames. The overview of a long video runs in 20-minute parts in parallel. Watch the whole thing quickly, then go deep on the parts that matter with
-`--from/--to` or `ask`.
+states the largest gap between frames, and brief changes measured between frames get frames of their own (up to a
+quarter of the budget). The overview of a long video runs in 20-minute parts in parallel. Watch the whole thing
+quickly, then go deep on the parts that matter with `--from/--to` or `ask`.
 
 ## 7. Safety, privacy and terms
 
@@ -165,6 +192,7 @@ states the largest gap between frames. The overview of a long video runs in 20-m
 | an m4a or AAC file | agy refuses `audio/mp4a-latm`; the skill always converts to WAV |
 | a file over 100 MB | agy refuses it; the skill sends a proxy, so pass the original path to the skill |
 | a pass failed | the report lists it under "Failed passes"; the other passes still count |
+| `the change grid failed` in the measurements | ffmpeg lacks a filter it needs (or is older than 5.1); the other measurements still run, and the coverage header says brief changes can be missed |
 
 ## References
 

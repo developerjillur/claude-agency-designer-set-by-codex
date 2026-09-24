@@ -21,7 +21,7 @@ or clock form (`0:12.5`, `1:02:03`). A path can be any video or audio file ffmpe
 ## Cache layout
 
 `<cache>/v/<first 16 hex of the file's SHA-256>/`:
-`source.json`, `probe.json`, `measure.json` (+ `measure/frames.meta`), `media/` (proxy video, WAV and audio parts),
+`source.json`, `probe.json`, `measure.json` (+ `measure/frames.meta`; the raw change grid is deleted once read), `media/` (proxy video, WAV and audio parts),
 `frames/` (clean sharp frames `f_<ms>.jpg`), `frames_g/` (with a time bar, only with `AWV_TIME_BARS=1`), `zoom/`,
 `sheets/`, `passes/` (every Gemini result, keyed by model, prompt, schema and media), `reports/`, `onsets-*.json`.
 `<cache>/stage/` holds, for the length of one call, hardlinks to that call's media: the only folder agy may read.
@@ -33,7 +33,9 @@ A file is recognised again by path, size and modification time (`index.json`), t
 
 Checks ffmpeg (and the filters scdet, blackdetect, freezedetect, signalstats, blurdetect, blockdetect, silencedetect,
 ebur128, astats, ssim, tile, volumedetect), ffprobe, agy, sign-in (via `agy models`), the three models, OCR (Apple
-Vision helper compiled from `scripts/ocr.swift` with swiftc), Pillow for time labels, and yt-dlp.
+Vision helper compiled from `scripts/ocr.swift` with swiftc), Pillow for time labels, and yt-dlp. `change_grid`
+reports the filters the change grid needs (tblend, dilation, extractplanes, blend, framestep); without them the other
+measurements still run.
 - `--setup` creates the skill's `.venv` and installs Pillow (pinned to 11.3.0).
 - `--smoke` makes a 4 s test clip (test pattern plus the spoken words "Seven blue boxes" on macOS) and runs one real
   call that must describe the picture and hear the words: `smoke: {ok, heard, image, seconds}`.
@@ -61,10 +63,30 @@ Output: `ready` (bool) and one field per check. Exit 1 when not ready.
 | `--fresh` | ignore every cached pass |
 | `--dry-run` | print the plan (frames, batches, models, estimated calls) and stop |
 
-Passes: measurements (ffmpeg) → in parallel the overview (proxy video; 20-minute parts for long videos), audio (WAV
-parts) and frame batches (12 sharp frames per call, each listed with its time) → the second-model cross-check
-(forensic) → the text check (deep, forensic, or with `--expect`) → the review (Pro, facts only, trimmed to 150 KB in
-bytes, with the failed passes listed so it marks what they would have answered as unclear).
+Passes: measurements (ffmpeg, with the change grid) → in parallel the overview (proxy video; 20-minute parts for long
+videos), audio (WAV parts) and frame batches (up to 12 sharp frames per call, each listed with its time, with their
+close-ups: 16 files a call at most) → the second-model cross-check (forensic) → the closer looks (Pro, when the frame
+passes asked for them) → the text check (deep, forensic, or with `--expect`) → the review (Pro, facts only, trimmed to
+150 KB in bytes, with the failed passes listed so it marks what they would have answered as unclear).
+
+The change grid: the same ffmpeg pass that measures cuts and brightness also takes, for every frame (about 10 a second
+on videos over 20 minutes), the difference to the previous frame at up to 640 px (the largest of the Y, U and V
+changes, so a change of colour counts), dilated so thin things register, averaged over a grid of 32 cells on the long
+side. A cell counts when it rises above its frame's own level (so a camera move or a cut does not). From this come:
+- brief changes: something that shows and goes again within 1.5 s, or changes for at most 0.6 s, clearly stronger than
+  the movement around it (a pop-up, a flash of text, a glitch). Each gets a frame of its own, chosen between its first
+  and last change so it shows the thing, and a close-up. Up to a quarter of the frame budget, strongest first, taken
+  out of the budget (two regular frames always stay);
+- flickers: something that comes and goes in one place for longer (a blinking icon, a stuttering glitch), changing in
+  at most half of the frames: treated like a brief change, with a frame from the first time it shows;
+- appearances (one strong change that stays): listed for `qa` and used by `ask`;
+- moving areas with a track of where they are over time: at standard and deeper, up to 6 sampled frames (12 deep, 24
+  forensic) get a close-up of the strongest compact moving area at that moment (the person and what they carry). Bands
+  along an edge of the frame (a camera move revealing new ground) never get one.
+
+Closer looks: each frame batch may list up to 4 things too small or unclear to make out (`look_closer`, with a time and
+an area). The skill enlarges those areas 3 times from the full-resolution video and asks Pro what each shows and to
+answer the question (at most 4 at standard, 8 deep, 16 forensic).
 
 The text check reads one frame per distinct text on screen (Apple Vision boxes find where the text changes; up to 24
 frames), by two models, and checks each reading against Apple Vision (Latin, CJK, Cyrillic and more) or Tesseract's
@@ -75,19 +97,25 @@ uniform plus the first frame of every shot. Otherwise: the first frames of shots
 budget), the middle of long shots (10%), the goal's extras, and the rest filling the biggest gaps, weighted towards
 motion. Promos add the first 3 s and the last 3 s every 0.5 s; motion and ai-video add frames around flicker. At
 standard and deep, frames of an unchanged picture are skipped (at least one every 4 s or 2 s is kept; screen recordings
-keep smaller changes). `plan.largest_gap_s` and the coverage header give the biggest gap. Model observations with times
-outside the watched range are dropped and counted.
+keep smaller changes), but never a brief-change frame. `plan.largest_gap_s` and the coverage header give the biggest
+gap. Model observations with times outside the watched range are dropped and counted.
 
 Output: `report_md`, `report_json`, `verdict` (`ready`, `fix first`, `not usable`, `insufficient data`; none for
 quick), `summary`,
 `contact_sheet`, `cost` (`calls`, `cached`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `model_seconds`),
 `wall_seconds`, `errors` (failed passes; the rest still count).
 
-`report_json` holds `coverage` (what was watched, how, and what was not seen), `probe`, `measure`, `plan`, `overview`, `audio` (with `transcript` items `start`, `start_model`,
-`end`, `speaker`, `text`, and `time_shifts`), `detail_frames` (per frame: `t`, `what`, `people`, `objects`, `text`,
-`change`, `frame`), `detail_people`, `cross_check`, `text` (`items`: `t`, `text`, `text_alt`, `ocr`, `unreadable`,
+`report_json` holds `coverage` (what was watched, how, what the change grid found between frames, the close-ups, and
+what was not seen), `probe`, `measure` (with `video.activity`: `grid`, `events` of kind `brief`, `flicker`, `step` or
+`motion`
+with `start`, `end`, the frame to look at `t`, `region` as fractions [x0, y0, x1, y1], `peak`, and a `track` for
+motion), `plan` (with `events`, `closeups`, `brief_changes_measured`), `overview`, `audio` (with `transcript` items
+`start`, `start_model`, `end`, `speaker`, `text`, and `time_shifts`), `detail_frames` (per frame: `t`, `what`,
+`people`, `objects`, `text`, `closeup`, `change`, `frame`), `detail_people`, `cross_check`, `closer` (`items`: `t`,
+`asked`, `seen`, `answer`, `clear`, `closeup`), `text` (`items`: `t`, `text`, `text_alt`, `ocr`, `unreadable`,
 `verified`, `how`), `platform`, `review` (`summary`, `timeline`, `people`, `goal_review`, `issues`, `conflicts`,
-`verdict`, `top_fixes`, `uncertain`), `evidence`, `calls`, `cost`, `errors`.
+`verdict`, `top_fixes`, `uncertain`), `evidence`, `calls`, `cost`, `errors`. The report adds "Brief changes between
+the regular frames (measured)" and "Closer looks" sections.
 
 ## ask
 
@@ -99,10 +127,13 @@ quick), `summary`,
   cached transcript), which returns up to `--max-windows` ranges (default 2). Once a window is answered with both
   models agreeing, the later windows are skipped unless `--all-windows`.
 - Frames: 8 a second for windows up to 1.5 s, 4 up to 4 s, 2 up to 10 s, then 16 across the window; 2 to 24 frames.
+  When the video was already measured (`watch` or `qa`), the exact frames of up to 6 brief changes and appearances in
+  the window are added.
 - Zoom: `--region auto`, a word (`left`, `right`, `top`, `bottom`, `center`, `top-left`, `top-right`, `bottom-left`,
   `bottom-right`, `upper-third`, `middle-third`, `lower-third`) or `x,y,w,h` in pixels or fractions. Questions about
   hands, objects, text, numbers, logos and screens zoom automatically unless `--no-zoom`: a quick model boxes the
-  subject in three frames, and the union of the boxes plus a margin is enlarged up to 2x.
+  subject in three frames, and the union of the boxes plus a margin is enlarged up to 2x. When the box finds nothing and
+  the video was measured, the strongest moving area in the window is enlarged instead.
 - Audio: added for questions about speech or sound, or with `--audio`.
 - Models: Pro and Flash in parallel, compared (`--quick` for one; `--model` sets the first).
 
@@ -172,9 +203,12 @@ No model. Output: `probe`, `measure` (`video`: cuts, shots, average shot length,
 flash risk (more than 3 flashes in a second), letterbox bars, luma, saturation, blur, blockiness; `audio`: integrated loudness, true peak, loudness range, peak, RMS, flat factor, silence,
 silent share), `platform` (checks for aspect, resolution, frame rate, duration, loudness, true peak, codec, fast start,
 and text inside the safe zones from Apple Vision text boxes on 8 frames), `measurement_errors`, and `flags`
-(plain-language problems, including HDR input). A flash is a pair of opposite brightness jumps within half a second;
-more than three in a second is flagged. `ok` is false when nothing could be measured. `--strict` exits 2 when any flag
-or platform check fails.
+(plain-language problems, including HDR input), `local_changes` (from the change grid: `brief` changes with `from`,
+`to`, `where` and `frame_at`, `appearances` with `t` and `where`, the number of `moving_areas`), and `notes` (brief
+changes to look at: in a render or an AI clip they are often pops and glitches; in footage, anything from a bird to a
+reflection). A flash is a pair of opposite brightness jumps within half a second; more than three in a second is
+flagged. `ok` is false when nothing could be measured. `--strict` exits 2 when any flag or platform check fails; notes
+never fail it.
 
 ## compare
 
@@ -187,6 +221,25 @@ counts. Identical pictures stop early with `identical: true` and no model call. 
 of the most changed moments (or 5 even ones when nothing changed), go to Pro in pairs. Output: `identical`,
 `ssim_mean`, `changed_windows` (`start`, `end`, `lowest_ssim`, most changed first), `compared_times`, `result`
 (`summary`, `differences[]` with `t`, `a`, `b`, `kind`; `same`; `uncertain`), `cost`.
+
+## selftest
+
+`selftest [--live]`
+
+Makes synthetic clips with known answers in `<cache>/selftest/clips/` (ffmpeg; the label needs Pillow from
+`doctor --setup`, the speech needs macOS `say`):
+- `combo.mp4` (8 s, 1920x1080): a dark figure moves right carrying a thin 3 px rod; a red square shows for 3 frames at
+  2.33 s in the top right; the label `K7Q-4821` shows from 5.2 to 5.6 s in the bottom right;
+- `order.mp4`: a green square appears at 1 s, a yellow one at 3 s (green on grey differs mostly in colour);
+- `count.mp4`: four blue squares; `speech.mp4`: a spoken sentence from 1 s.
+
+Without `--live` (seconds, no model): the square and the label are measured in the right place, the frame picked for
+the square shows it, a standard watch includes both moments, the close-ups follow the moving figure, both appearances
+are measured, and the speech onset is found. With `--live` (about 20 calls, 5 to 10 minutes): `watch` sees the red
+square and the thin rod and reads the label (`--expect`), `verify` contradicts the false order claim and supports the
+true one, `ask` counts four squares, and `transcribe` hears the sentence starting at the measured onset (within 0.3 s).
+Output: `ok`, `passed`, `total`, `results[]` (`stage`, `case`, `pass`, `detail`, `seconds`), `cost`, and a Markdown
+table at `report_md` (`<cache>/selftest/results-<time>.md`). Exit 1 when a check fails.
 
 ## probe, usage, fetch, cache
 

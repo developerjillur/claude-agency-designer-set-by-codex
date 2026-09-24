@@ -24,8 +24,10 @@ with the Codex CLI on a ChatGPT plan, and watch, transcribe and check videos wit
 - **Never two designs alike.** A design ledger rejects a layout recipe too close to a client's recent work.
 - **Video claims are checked, not trusted.** Detail comes from sharp full-resolution frames and zoom, never from the
   low-detail video stream; two Gemini models answer every question and must agree on every number and colour; a claim
-  is verified with a neutral question that hides it, then judged. Measured QA (cuts, black and frozen frames, flashes,
-  loudness, platform specs and safe zones) needs no model at all.
+  is verified with a neutral question that hides it, then judged. ffmpeg measures every frame on a change grid, so a
+  pop-up that shows between two sampled frames still gets a frame and a close-up, and the moving person gets a
+  close-up of what they carry. Measured QA (cuts, black and frozen frames, flashes, loudness, platform specs and safe
+  zones) needs no model at all.
 - **Global by default.** Place, people, language, digits and currency come from the client's market.
 
 ## Requirements
@@ -86,6 +88,9 @@ python3 -m unittest discover -s ~/.claude/skills/codex-imagegen/tests
 python3 -m unittest discover -s ~/.claude/skills/agy-watch-video/tests
 CODEX_DESIGN_PATTERNS=1 python3 -m unittest discover -s ~/.claude/skills/codex-design/tests -p "test_patterns.py"
 ```
+
+The video skill also checks itself against synthetic clips with known answers: `watch_video.py selftest` (seconds, no
+model) and `watch_video.py selftest --live` (about 20 real calls; run it after installing or updating agy).
 
 The last one renders the whole pattern library (26 patterns on their presets) and fails on any error or warning.
 

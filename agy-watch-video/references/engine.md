@@ -94,6 +94,35 @@ Flash 3.7.
 Lessons built into the skill: detail comes from sharp frames and zoom, never from the video file; prompts stay
 neutral; two models are compared; small text is read twice and checked; Claude verifies with its own eyes.
 
+## 5a. Between the frames: the change grid
+
+No model sees every frame, so ffmpeg does. In the same pass as the other measurements, every frame is compared with
+the previous one at up to 640 px (the largest of the Y, U and V differences), dilated 3x3 so a thin line registers,
+and averaged into a grid of 32 cells on the long side. A cell counts when it rises above its own frame's level by more
+than 6 (of 255) and by more than six times its usual spread, so a camera move or a cut, which lifts every cell, does
+not count. Grid frames are matched to the real frame timestamps (`-fps_mode passthrough`): with a resampled grid the
+frame chosen for a 3-frame event was once one frame late, after the event had ended.
+
+Measured calibration (2026-09-24):
+
+| Clip | What the grid saw |
+|---|---|
+| a red 48 px square for 3 frames on grey noise | one brief change, 2.333 to 2.433 s, top right, strength 38 to 70; the frame chosen (2.366 s) shows it |
+| a white-on-black label for 0.43 s next to a moving figure | appear and disappear 0.43 s apart, paired into one brief change (strength 95); kept apart from the figure because it is more than 3 times stronger |
+| a green square appearing on grey (similar brightness) | missed on brightness alone; found once the colour planes counted |
+| an 8 s drone push-in over a workshop | a worker walking: strength 7 to 100, one moving area tracked from the bottom left towards the left edge; 58 short flickers of movement before the rules below, 0 brief changes after |
+| a flat dark block moving slowly | only its two edges change (strength about 13): merged into one moving area |
+
+Rules that came from these: a brief change needs a strength of at least 18 (ordinary movement of a person measured 7
+to 16) and must not sit at the same place and time as movement at least half as strong; appear and disappear pairs up
+to 1.5 s apart are one event; parts of similar strength within 3 cells in one frame are one object; changes that
+keep coming and going in one place, in at most half of the frames, are a flicker (a blinking icon), not movement. The close-up of
+the drone clip's moving area at 4 s showed the worker and the thin hose from his hand to the tyre, found without a
+model call.
+
+Limits: a change filling well under one cell (about 3% of the width), or fainter than the threshold, is not measured;
+videos over 20 minutes are measured about 10 times a second, which still catches 0.1 s but can miss a single frame.
+
 ## 6. Limits and failure modes
 
 - `view_file` refuses files over 100 MB (the skill sends a proxy of at most 1280 px).
@@ -103,6 +132,8 @@ neutral; two models are compared; small text is read twice and checked; Claude v
 - Prompts are cut at about 192 KB (reported): the review pass trims its facts to 150 KB, counted in bytes (Bengali
   letters take three).
 - There has been no default print timeout since 1.2.6: the skill always passes `--print-timeout`.
+- The agent can reach for tools on its own: in a live run, Flash tried to run a command while rewriting a claim (a
+  text-only task). A denied run is never kept; it is retried with a stricter prompt, then the sibling model.
 - Gemini's audio times drift on long files (a report of -157 s over 11:49): audio goes in 5-minute parts, and each part
   is aligned to measured speech onsets.
 

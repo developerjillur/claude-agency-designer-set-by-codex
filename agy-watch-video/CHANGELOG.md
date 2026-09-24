@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026.09.24.4
+
+What models miss between frames and on thin things, now measured instead of hoped for.
+
+- **A change grid on every frame.** The ffmpeg measurement pass also records, for every frame, where the picture
+  changes: the largest Y, U or V difference to the previous frame, dilated so thin things register, on a grid of 32
+  cells across. It runs in the same decode as the other measurements, costs seconds and no model call, and lines up
+  with the real frame timestamps.
+- **Brief changes get their own frame.** Something that shows for a moment between two sampled frames (a pop-up, a
+  flash of text, a glitch) is measured with its time and place. `watch` gives it a frame chosen while it shows, plus a
+  close-up, and the report lists each one with what was seen there. `ask` and `verify` add those frames inside their
+  window. `qa` lists them under `local_changes` and `notes`, and never fails `--strict` on them.
+- **Close-ups of the moving area.** At standard and deeper, sampled frames come with an enlarged crop of the strongest
+  compact moving area at that moment: the person and what they carry. In testing, the close-up of a drone clip showed
+  a worker's thin hose from his hand to the tyre, with no model call spent finding him. Bands along the frame's edge
+  (a camera move revealing new ground) never get one.
+- **Closer looks.** The frame passes list what they could not make out (`look_closer`, with a time and an area). The
+  skill enlarges those areas three times from the full-resolution video and asks Pro again.
+- **`ask` zoom fallback.** When the subject box finds nothing, the measured moving area in the window is enlarged.
+- **`selftest`.** Synthetic clips with known answers: a red square shown for 3 frames, a 0.4 s label, a thin rod
+  carried by a moving figure, the order of two appearances (one differing mostly in colour), four squares to count and
+  a spoken sentence. Offline it checks the measurements, the frame chosen and the plan in seconds. With `--live` it
+  runs `watch`, `verify`, `ask` and `transcribe` and checks every answer (about 20 calls); `--cached` re-checks the
+  last answers without new calls. First live run: 15 of 15 passed. `watch` saw the 3-frame square, read the 0.4 s
+  label exactly and saw the thin rod.
+- **Replayed live answers.** Five real verify runs are kept as a fixture (answers only, no paths or plates), and the
+  tests replay them through the logic after the models, which must reach the live verdicts.
+- **Found while building it:** a resampled grid picked a frame one frame late for a 3-frame event, and a colour change
+  with little brightness change (green on grey) went unmeasured. A code review then found that fast blinking in one
+  place (blinks under 0.3 s apart) was called movement and got no frame (now a `flicker`, with its own frame), and
+  that `--max-frames 2` with a brief change gave 3 frames (brief frames now always come out of the budget). Thin strips
+  along an edge of the frame (a camera move revealing new ground) no longer get close-ups. All are fixed and tested.
+  The test data no longer carries a client's real phone numbers or name.
+- **Tests.** 97 offline tests (grid events, pairing, flicker, pop-up against movement, camera moves, the frame budget,
+  close-ups, closer looks, the replay and the offline self test).
+
 ## 2026.09.24.3
 
 A full review (code, silent failures, security, and a gap analysis against professional video QA), with every finding
