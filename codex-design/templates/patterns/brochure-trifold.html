@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tri-fold brochure A4</title>
+<!-- Pattern: tri-fold (roll fold) brochure, A4 landscape, two sides. Preset trifold-a4 (297 x 210 mm, 3 mm bleed).
+     Render: design.py render --html brochure-trifold.html --preset trifold-a4 --pages 2 --out out/brochure.pdf --preview
+     Side 1, outside, left to right: fold-in flap 97 mm | back 100 mm | front cover 100 mm.
+     Side 2, inside, left to right: 100 mm | 100 mm | 97 mm (the back of the flap).
+     The reader sees the cover, then the flap with the inside-left panel, then the whole inside. The folds sit at 97
+     and 197 mm (outside) and 100 and 200 mm (inside); the checks keep text 4 mm from them (the overlay draws them).
+     Panel backgrounds that touch the paper edge run into the bleed; text stays in its panel (8 mm padding).
+     For US Letter use trifold-letter (panels 3.625 / 3.6875 / 3.6875 in) and change the column widths. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  body { color: var(--print-black); }
+  .panels { position: absolute; inset: var(--bleed); display: grid; }
+  .outside .panels { grid-template-columns: 97mm 100mm 100mm; }
+  .inside .panels { grid-template-columns: 100mm 100mm 97mm; }
+  .panel { position: relative; padding: 9mm 8mm; display: flex; flex-direction: column; }
+  /* backgrounds in bleed coordinates: they reach the paper edge on the outer sides */
+  .bg { position: absolute; top: 0; bottom: 0; }
+  .outside .bg.flap { left: 0; width: calc(var(--bleed) + 97mm); background: var(--paper); }
+  .outside .bg.back { left: calc(var(--bleed) + 97mm); width: 100mm; background: var(--sand); }
+  /* the dark cover wraps 3 mm round its fold onto the back: a fold drifts about 1 mm, and a paper-coloured sliver
+     on the cover's edge shows far more than a thin dark edge on the back */
+  .outside .bg.cover { left: calc(var(--bleed) + 194mm); right: 0; background: var(--primary); }
+  .inside .bg.story { left: 0; width: calc(var(--bleed) + 100mm); background: var(--paper); }
+  .inside .bg.roasts { left: calc(var(--bleed) + 100mm); width: 100mm; background: var(--sand); }
+  .inside .bg.brew { left: calc(var(--bleed) + 200mm); right: 0; background: var(--paper); }
+  .label { margin: 0 0 4mm; font: 700 8pt/1 var(--font-text); letter-spacing: .12em; text-transform: uppercase; color: var(--primary); }
+  h2 { margin: 0 0 5mm; font: 800 20pt/1.05 var(--font-display); letter-spacing: -0.015em; color: var(--primary); text-wrap: balance; }
+  p, li { font: 500 9.5pt/1.45 var(--font-text); text-wrap: pretty; }
+  p { margin: 0 0 3mm; }
+  ul, ol { margin: 0; padding: 0; list-style: none; }
+  .ticks li { position: relative; padding-left: 5mm; margin-bottom: 2.5mm; }
+  .ticks li::before { content: ""; position: absolute; left: 0; top: 0.55em; width: 2.2mm; height: 0.9mm; background: var(--accent); }
+  .bottom { margin-top: auto; }
+  /* cover */
+  .cover { color: var(--paper); }
+  .cover .lockup { display: flex; align-items: center; gap: 3mm; }
+  .cover .lockup img { height: 8mm; width: auto; }
+  .cover .wordmark { width: 30mm; aspect-ratio: 971 / 162; background: var(--paper);
+    -webkit-mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat left center / contain;
+    mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat left center / contain; }
+  .cover h1 { margin: 16mm 0 0; font: 800 30pt/0.98 var(--font-display); letter-spacing: -0.02em; text-wrap: balance; }
+  .cover .sub { margin-top: 5mm; max-width: 26ch; color: var(--paper); }
+  .branch-art { position: absolute; right: -14mm; bottom: -10mm; width: 104mm; height: auto; }
+  .branch-art .branch { fill: none; stroke: var(--sand); stroke-width: 12; stroke-linecap: round; }
+  .branch-art .leaf { fill: #6F9E6B; } .branch-art .rib { fill: none; stroke: #4F7C4D; stroke-width: 4; stroke-linecap: round; }
+  .branch-art .ripe { fill: #C0392B; } .branch-art .deep { fill: #9E2A22; } .branch-art .gold { fill: var(--accent); }
+  .branch-art .navel { fill: rgb(40 10 6 / .55); }
+  /* back */
+  .contact p { margin: 0 0 4mm; }
+  .contact b { display: block; font: 700 8pt/1.2 var(--font-text); letter-spacing: .12em; text-transform: uppercase; color: var(--primary); }
+  .qr { display: flex; align-items: center; gap: 4mm; }
+  .qr img { width: 20mm; height: 20mm; }
+  .qr p { margin: 0; font: 700 8pt/1.35 var(--font-text); }
+  .mark { width: 11mm; height: auto; margin-top: 8mm; }
+  /* inside */
+  .roast { display: grid; grid-template-columns: 18mm 1fr; column-gap: 4mm; align-items: center; }
+  .roast h3 { margin: 0 0 1mm; font: 800 11pt/1.2 var(--font-display); }
+  .roast p { margin: 0; }
+  .steps { flex: 1; display: flex; flex-direction: column; justify-content: space-evenly; }
+  .steps li { display: grid; grid-template-columns: 11mm 1fr; align-items: start; }
+  .steps b { font: 800 20pt/1 var(--font-display); color: var(--primary); }
+  .steps h3 { margin: 0 0 1mm; font: 800 11pt/1.2 var(--font-display); }
+  .steps p { margin: 0; }
+  .note { border-top: 0.75pt solid var(--print-black); padding-top: 3mm; }
+  /* a pull-stat: one number the panel is about */
+  .stat { margin-top: auto; margin-bottom: 8mm; display: grid; grid-template-columns: auto 1fr; column-gap: 4mm; align-items: end; }
+  .stat b { font: 800 90pt/0.78 var(--font-display); letter-spacing: -0.04em; color: var(--primary); }
+  .stat p { margin: 0 0 1mm; font-weight: 700; }
+  .stat + p { margin: 0; }
+  /* the roasting week, as a small timeline */
+  .week { margin: auto 0 0; padding: 0; list-style: none; border-left: 0.75mm solid var(--accent); }
+  .week li { position: relative; padding: 0 0 5mm 6mm; }
+  .week li:last-child { padding-bottom: 0; }
+  .week li::before { content: ""; position: absolute; left: -2.05mm; top: 0.2em; width: 3.4mm; height: 3.4mm; border-radius: 50%;
+    background: var(--paper); border: 0.75mm solid var(--accent); }
+  .week b { display: block; font: 700 8pt/1.4 var(--font-text); letter-spacing: .12em; text-transform: uppercase; color: var(--primary); }
+  .roasts-list { flex: 1; display: flex; flex-direction: column; justify-content: space-evenly; }
+  .roast { margin-bottom: 0; }
+  .roast svg { width: 18mm; height: 18mm; }
+  .roasts-list + p { margin: 0; text-wrap: balance; }
+</style>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="cup" viewBox="0 0 120 120">
+      <circle cx="60" cy="60" r="56" fill="#F3F1EC"/>
+      <rect x="88" y="53" width="28" height="14" rx="7" fill="#FBFAF7" transform="rotate(38 60 60)"/>
+      <circle cx="60" cy="60" r="40" fill="#FBFAF7" stroke="#D9D4CA" stroke-width="1.2"/>
+      <circle cx="60" cy="60" r="32" style="fill: var(--roast)"/>
+    </symbol>
+  </svg>
+
+  <section class="page outside">
+    <div class="bg flap"></div><div class="bg back"></div><div class="bg cover"></div>
+    <div class="panels">
+      <div class="panel">
+        <p class="label">For cafés and offices</p>
+        <h2>Wholesale, roasted to order</h2>
+        <p>We roast in small batches each week and deliver within the city, so your beans are never older than seven days.</p>
+        <ul class="ticks">
+          <li>Blends built with your team</li>
+          <li>Grinder set-up and barista training</li>
+          <li>Weekly or fortnightly delivery</li>
+        </ul>
+        <div class="stat"><b>7</b><p>days, at most, between our roaster and your grinder</p></div>
+        <p>Talk to us: wholesale@tidewater.example</p>
+      </div>
+      <div class="panel contact">
+        <p class="label">Visit</p>
+        <p><b>Roastery and shop</b>12 Harbour Street</p>
+        <p><b>Open</b>Tuesday to Sunday, 08:00–17:00<br>Tastings Saturday 09:00–13:00</p>
+        <p><b>Online</b>tidewater.example<br>hello@tidewater.example</p>
+        <div class="qr bottom"><img src="https://codex-design.invalid/patterns/assets/qr-tastings.svg" alt="QR code: tidewater.example/tastings"><p>Scan to book<br>a tasting</p></div>
+        <img class="mark logo" src="https://codex-design.invalid/sample-brand/logo-mark.svg" alt="Tidewater">
+      </div>
+      <div class="panel cover">
+        <div class="lockup logo"><img src="https://codex-design.invalid/sample-brand/logo-mark-reversed.svg" alt=""><div class="wordmark" role="img" aria-label="Tidewater"></div></div>
+        <h1>Coffee, roasted where you buy it</h1>
+        <p class="sub">A small roastery on Harbour Street. Three roasts, a weekly tasting and beans ground the way you brew.</p>
+      </div>
+    </div>
+    <svg class="branch-art" viewBox="0 0 600 600" aria-hidden="true">
+        <path class="branch" d="M612 96 C540 128 452 196 372 280 S214 438 120 520"/>
+        <path class="leaf" d="M525 142 Q470 60 392 72 Q440 150 525 142 Z"/><path class="rib" d="M522 140 Q462 102 396 74"/>
+        <path class="leaf" d="M532 146 Q610 190 596 272 Q540 230 532 146 Z"/><path class="rib" d="M534 150 Q586 196 594 266"/>
+        <path class="leaf" d="M298 350 Q230 290 150 318 Q220 372 298 350 Z"/><path class="rib" d="M294 348 Q226 314 154 318"/>
+        <path class="leaf" d="M304 354 Q392 392 380 482 Q318 440 304 354 Z"/><path class="rib" d="M306 358 Q370 400 378 476"/>
+        <circle class="ripe" cx="430" cy="228" r="30"/><circle class="navel" cx="435" cy="247" r="4.5"/>
+        <circle class="deep" cx="468" cy="236" r="27"/><circle class="navel" cx="473" cy="253" r="4.5"/>
+        <circle class="ripe" cx="446" cy="262" r="26"/><circle class="navel" cx="451" cy="278" r="4.5"/>
+        <circle class="gold" cx="360" cy="306" r="24"/><circle class="navel" cx="364" cy="321" r="4.5"/>
+        <circle class="ripe" cx="392" cy="312" r="22"/><circle class="navel" cx="396" cy="326" r="4.5"/>
+        <circle class="deep" cx="196" cy="462" r="32"/><circle class="navel" cx="202" cy="482" r="4.5"/>
+        <circle class="ripe" cx="238" cy="468" r="28"/><circle class="navel" cx="243" cy="485" r="4.5"/>
+        <circle class="gold" cx="214" cy="500" r="27"/><circle class="navel" cx="219" cy="517" r="4.5"/>
+      </svg>
+  </section>
+
+  <section class="page inside">
+    <div class="bg story"></div><div class="bg roasts"></div><div class="bg brew"></div>
+    <div class="panels">
+      <div class="panel">
+        <p class="label">Our story</p>
+        <h2>Roasted in the shop, sold by weight</h2>
+        <p>The roaster sits behind the counter, so you can watch a batch turn from green to brown while you wait. We buy
+          from the same farms every year and roast only what we can sell within a week.</p>
+        <ol class="week">
+          <li><b>Monday</b>Green beans are weighed out for the week.</li>
+          <li><b>Tuesday to Thursday</b>Small batches, each one logged and tasted.</li>
+          <li><b>Friday</b>The coffee rests; flavour settles after roasting.</li>
+          <li><b>Saturday</b>Tastings in the shop, 09:00–13:00.</li>
+        </ol>
+      </div>
+      <div class="panel">
+        <p class="label">The roasts</p>
+        <h2>Three roasts, all year</h2>
+        <div class="roasts-list">
+          <div class="roast"><svg aria-hidden="true" style="--roast:#B37B45"><use href="#cup"/></svg><div><h3>Light · Ethiopia</h3><p>Bergamot, peach and black tea. Best as filter.</p></div></div>
+          <div class="roast"><svg aria-hidden="true" style="--roast:#7A4A2A"><use href="#cup"/></svg><div><h3>Medium · Colombia</h3><p>Milk chocolate, red apple and caramel. Good every way.</p></div></div>
+          <div class="roast"><svg aria-hidden="true" style="--roast:#3B2418"><use href="#cup"/></svg><div><h3>Dark · Sumatra</h3><p>Cocoa, cedar and brown sugar. Made for milk.</p></div></div>
+        </div>
+        <p>Every roast comes in 250&nbsp;g and 1&nbsp;kg bags, whole bean or ground.</p>
+      </div>
+      <div class="panel">
+        <p class="label">At home</p>
+        <h2>Brew it well</h2>
+        <ol class="steps">
+          <li><b>1</b><div><h3>Grind it fresh</h3><p>Grind right before you brew: ground coffee loses most of its aroma within half an hour.</p></div></li>
+          <li><b>2</b><div><h3>Mind the water</h3><p>Let the kettle rest thirty seconds, to about 94&nbsp;°C.</p></div></li>
+          <li><b>3</b><div><h3>Weigh, don’t scoop</h3><p>Start at 60&nbsp;g of coffee per litre, then adjust by taste.</p></div></li>
+        </ol>
+        <p class="note bottom">Not sure which roast suits your brewer? Bring it to a Saturday tasting.</p>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

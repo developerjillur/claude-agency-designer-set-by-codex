@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Blog featured image</title>
+<!-- Pattern: blog featured image and link card (direction "Editorial"). Presets: blog-featured, og-image, article-hero, x-card. One
+     HTML for the blog's featured image and the card that shows when the link is shared (Open Graph, X, LinkedIn,
+     WhatsApp, Slack). The title is the article's promise in at most 10 words; the category and the byline give
+     context. A link card is seen about 500 px wide, so nothing is smaller than 26 px. Swap .photo's background for
+     <img class="fill" src="plates/…">. Put the same image in og:image, and a 1200x675 copy as the post's featured
+     image. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  body { background: var(--paper); color: var(--ink); }
+  .photo { position: absolute; top: 0; right: 0; bottom: 0; width: calc(var(--canvas-w) * .4);
+    border-radius: 0 0 0 calc(var(--canvas-h) * .5);
+    background: #2e241a url(https://codex-design.invalid/patterns/assets/photos/counter-16x9.webp) 72% center / cover no-repeat; }
+  .photo img.fill { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+  .copy { position: absolute; left: var(--safe-left); top: var(--safe-top); bottom: var(--safe-bottom);
+    width: calc(var(--canvas-w) * .52 - var(--safe-left)); display: grid; grid-template-rows: auto auto 1fr auto; }
+  .mark { height: max(52px, var(--mark-min, 0px)); width: auto; }
+  .kicker { margin-top: calc(max(52px, var(--mark-min, 0px)) * .56); font: 700 max(28px, var(--label-min, 0px))/1.1 var(--font-text); color: var(--primary); letter-spacing: .01em; }
+  h1 { margin: 16px 0 0; font: 800 64px/1.06 var(--font-display); letter-spacing: -0.02em; text-wrap: balance;
+    align-self: start; }
+  .by { display: flex; gap: 18px; align-items: center; font: 500 max(28px, var(--label-min, 0px))/1.2 var(--font-text); color: var(--muted); }
+  .by b { font-weight: 700; color: var(--ink); }
+  [data-preset="article-hero"] h1 { font-size: 68px; }
+  /* X draws its own headline label over the bottom of a link card: the byline would sit under it */
+  [data-preset="x-card"] .copy { bottom: 160px; }
+  [data-preset="x-card"] .by { display: none; }
+  /* blog-featured: one 1200x675 master for every CMS: text inside x 140 to 1060 survives the 3:2, 14:10 and 1.91:1
+     crops, and it is seen about 390 px wide, so nothing is under 34 px */
+  [data-preset="blog-featured"] .copy { width: calc(var(--canvas-w) * .62 - var(--safe-left)); }
+  [data-preset="blog-featured"] .photo { width: calc(var(--canvas-w) * .34); }
+  [data-preset="blog-featured"] .kicker, [data-preset="blog-featured"] .by { font-size: max(34px, var(--label-min, 0px)); }
+</style>
+</head>
+<body>
+  <div class="photo"></div>
+  <div class="copy">
+    <img class="mark logo-mark" src="https://codex-design.invalid/sample-brand/logo-mark.svg" alt="Tidewater">
+    <div class="kicker">Brewing</div>
+    <h1 data-fit="48,68" data-fit-lines="3">Why your coffee tastes flat at home, and the fix</h1>
+    <div class="by"><b>Ana Ruiz</b><span>6 min read</span></div>
+  </div>
+</body>
+</html>

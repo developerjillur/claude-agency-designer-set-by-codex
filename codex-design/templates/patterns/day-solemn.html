@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Day post (solemn)</title>
+<!-- Pattern: solemn or memorial day (occasions.md §1.2-1.3). Sample: Remembrance Sunday, 8 November 2026 (UK; the
+     second Sunday of November), with the customary line from the Exhortation. Presets: ig-portrait, ig-square,
+     fb-feed, ig-story. Render with --occasion solemn: the checks block greetings (Happy, Mubarak, শুভ), exclamation
+     marks, emoji and anything that sells.
+     Structure: the day's official name and date, a tribute phrase, one accurate customary symbol, the logo small and
+     in one quiet colour. No accent colour, no URL, CTA, price, product or hashtag campaign. Centred and calm.
+     The symbol: a laurel wreath (drawn from geometry). Swap it for the day's own customary symbol (occasions.md §1.4);
+     flags, monuments and sacred text are never generated: build flags from the official spec, trace monuments from a
+     licensed photo. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  body { background: var(--paper); color: var(--ink); }
+  .safe { display: grid; grid-template-rows: 1fr auto auto auto 1fr auto; justify-items: center; text-align: center; }
+  .wreath { grid-row: 2; width: 330px; height: auto; }
+  .wreath .stem { fill: none; stroke: var(--muted); stroke-width: 5; stroke-linecap: round; }
+  .wreath .leaves { fill: var(--muted); }
+  .day { grid-row: 3; margin: 56px 0 0; font: 700 34px/1.2 var(--font-text); color: var(--muted); }
+  h1 { grid-row: 4; margin: 26px 0 0; width: 86%; font: 700 104px/1.02 var(--font-display); letter-spacing: -0.02em;
+    text-wrap: balance; }
+  .wordmark { grid-row: 6; width: max(190px, var(--wordmark-min, 0px)); aspect-ratio: 971 / 162; background: var(--muted);
+    -webkit-mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat center / contain;
+    mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat center / contain; }
+  [data-preset="ig-square"] .wreath, [data-preset="li-square"] .wreath { width: 260px; }
+  [data-preset="ig-square"] h1, [data-preset="li-square"] h1 { font-size: 92px; }
+  [data-preset="ig-story"] .wreath, [data-preset="vertical-safe"] .wreath { width: 420px; }
+  [data-preset="ig-story"] h1, [data-preset="vertical-safe"] h1 { font-size: 112px; width: 92%; }
+</style>
+</head>
+<body>
+  <div class="safe">
+    <svg class="wreath" viewBox="60 60 480 500" aria-hidden="true">
+    <path class="stem" d="M248.7 505.7 A212 212 0 0 1 213.8 106.3"/><path class="stem" d="M351.3 505.7 A212 212 0 0 0 386.2 106.3"/>
+    <path class="stem" d="M248.7 505.7 Q300 522 334 550 M351.3 505.7 Q300 522 266 550"/>
+    <g class="leaves"><path d="M0 0 Q29.0 -19.0 58.0 0 Q29.0 19.0 0 0Z" transform="translate(248.7 505.7) rotate(162.0)"/><path d="M0 0 Q29.0 -19.0 58.0 0 Q29.0 19.0 0 0Z" transform="translate(248.7 505.7) rotate(-134.0)"/><path d="M0 0 Q28.1 -18.4 56.1 0 Q28.1 18.4 0 0Z" transform="translate(210.7 492.3) rotate(172.9)"/><path d="M0 0 Q28.1 -18.4 56.1 0 Q28.1 18.4 0 0Z" transform="translate(210.7 492.3) rotate(-123.1)"/><path d="M0 0 Q27.1 -17.8 54.3 0 Q27.1 17.8 0 0Z" transform="translate(175.9 471.8) rotate(-176.2)"/><path d="M0 0 Q27.1 -17.8 54.3 0 Q27.1 17.8 0 0Z" transform="translate(175.9 471.8) rotate(-112.2)"/><path d="M0 0 Q26.2 -17.2 52.4 0 Q26.2 17.2 0 0Z" transform="translate(145.5 445.2) rotate(-165.2)"/><path d="M0 0 Q26.2 -17.2 52.4 0 Q26.2 17.2 0 0Z" transform="translate(145.5 445.2) rotate(-101.2)"/><path d="M0 0 Q25.3 -16.5 50.5 0 Q25.3 16.5 0 0Z" transform="translate(120.8 413.3) rotate(-154.3)"/><path d="M0 0 Q25.3 -16.5 50.5 0 Q25.3 16.5 0 0Z" transform="translate(120.8 413.3) rotate(-90.3)"/><path d="M0 0 Q24.3 -15.9 48.6 0 Q24.3 15.9 0 0Z" transform="translate(102.6 377.3) rotate(-143.4)"/><path d="M0 0 Q24.3 -15.9 48.6 0 Q24.3 15.9 0 0Z" transform="translate(102.6 377.3) rotate(-79.4)"/><path d="M0 0 Q23.4 -15.3 46.8 0 Q23.4 15.3 0 0Z" transform="translate(91.5 338.5) rotate(-132.5)"/><path d="M0 0 Q23.4 -15.3 46.8 0 Q23.4 15.3 0 0Z" transform="translate(91.5 338.5) rotate(-68.5)"/><path d="M0 0 Q22.4 -14.7 44.9 0 Q22.4 14.7 0 0Z" transform="translate(88.0 298.3) rotate(-121.5)"/><path d="M0 0 Q22.4 -14.7 44.9 0 Q22.4 14.7 0 0Z" transform="translate(88.0 298.3) rotate(-57.5)"/><path d="M0 0 Q21.5 -14.1 43.0 0 Q21.5 14.1 0 0Z" transform="translate(92.2 258.2) rotate(-110.6)"/><path d="M0 0 Q21.5 -14.1 43.0 0 Q21.5 14.1 0 0Z" transform="translate(92.2 258.2) rotate(-46.6)"/><path d="M0 0 Q20.6 -13.5 41.1 0 Q20.6 13.5 0 0Z" transform="translate(103.9 219.5) rotate(-99.7)"/><path d="M0 0 Q20.6 -13.5 41.1 0 Q20.6 13.5 0 0Z" transform="translate(103.9 219.5) rotate(-35.7)"/><path d="M0 0 Q19.6 -12.9 39.3 0 Q19.6 12.9 0 0Z" transform="translate(122.7 183.8) rotate(-88.8)"/><path d="M0 0 Q19.6 -12.9 39.3 0 Q19.6 12.9 0 0Z" transform="translate(122.7 183.8) rotate(-24.8)"/><path d="M0 0 Q18.7 -12.2 37.4 0 Q18.7 12.2 0 0Z" transform="translate(147.9 152.3) rotate(-77.8)"/><path d="M0 0 Q18.7 -12.2 37.4 0 Q18.7 12.2 0 0Z" transform="translate(147.9 152.3) rotate(-13.8)"/><path d="M0 0 Q17.8 -11.6 35.5 0 Q17.8 11.6 0 0Z" transform="translate(178.6 126.2) rotate(-66.9)"/><path d="M0 0 Q17.8 -11.6 35.5 0 Q17.8 11.6 0 0Z" transform="translate(178.6 126.2) rotate(-2.9)"/><path d="M0 0 Q16.8 -11.0 33.6 0 Q16.8 11.0 0 0Z" transform="translate(213.8 106.3) rotate(-24.0)"/><path d="M0 0 Q29.0 -19.0 58.0 0 Q29.0 19.0 0 0Z" transform="translate(351.3 505.7) rotate(18.0)"/><path d="M0 0 Q29.0 -19.0 58.0 0 Q29.0 19.0 0 0Z" transform="translate(351.3 505.7) rotate(314.0)"/><path d="M0 0 Q28.1 -18.4 56.1 0 Q28.1 18.4 0 0Z" transform="translate(389.3 492.3) rotate(7.1)"/><path d="M0 0 Q28.1 -18.4 56.1 0 Q28.1 18.4 0 0Z" transform="translate(389.3 492.3) rotate(303.1)"/><path d="M0 0 Q27.1 -17.8 54.3 0 Q27.1 17.8 0 0Z" transform="translate(424.1 471.8) rotate(356.2)"/><path d="M0 0 Q27.1 -17.8 54.3 0 Q27.1 17.8 0 0Z" transform="translate(424.1 471.8) rotate(292.2)"/><path d="M0 0 Q26.2 -17.2 52.4 0 Q26.2 17.2 0 0Z" transform="translate(454.5 445.2) rotate(345.2)"/><path d="M0 0 Q26.2 -17.2 52.4 0 Q26.2 17.2 0 0Z" transform="translate(454.5 445.2) rotate(281.2)"/><path d="M0 0 Q25.3 -16.5 50.5 0 Q25.3 16.5 0 0Z" transform="translate(479.2 413.3) rotate(334.3)"/><path d="M0 0 Q25.3 -16.5 50.5 0 Q25.3 16.5 0 0Z" transform="translate(479.2 413.3) rotate(270.3)"/><path d="M0 0 Q24.3 -15.9 48.6 0 Q24.3 15.9 0 0Z" transform="translate(497.4 377.3) rotate(323.4)"/><path d="M0 0 Q24.3 -15.9 48.6 0 Q24.3 15.9 0 0Z" transform="translate(497.4 377.3) rotate(259.4)"/><path d="M0 0 Q23.4 -15.3 46.8 0 Q23.4 15.3 0 0Z" transform="translate(508.5 338.5) rotate(312.5)"/><path d="M0 0 Q23.4 -15.3 46.8 0 Q23.4 15.3 0 0Z" transform="translate(508.5 338.5) rotate(248.5)"/><path d="M0 0 Q22.4 -14.7 44.9 0 Q22.4 14.7 0 0Z" transform="translate(512.0 298.3) rotate(301.5)"/><path d="M0 0 Q22.4 -14.7 44.9 0 Q22.4 14.7 0 0Z" transform="translate(512.0 298.3) rotate(237.5)"/><path d="M0 0 Q21.5 -14.1 43.0 0 Q21.5 14.1 0 0Z" transform="translate(507.8 258.2) rotate(290.6)"/><path d="M0 0 Q21.5 -14.1 43.0 0 Q21.5 14.1 0 0Z" transform="translate(507.8 258.2) rotate(226.6)"/><path d="M0 0 Q20.6 -13.5 41.1 0 Q20.6 13.5 0 0Z" transform="translate(496.1 219.5) rotate(279.7)"/><path d="M0 0 Q20.6 -13.5 41.1 0 Q20.6 13.5 0 0Z" transform="translate(496.1 219.5) rotate(215.7)"/><path d="M0 0 Q19.6 -12.9 39.3 0 Q19.6 12.9 0 0Z" transform="translate(477.3 183.8) rotate(268.8)"/><path d="M0 0 Q19.6 -12.9 39.3 0 Q19.6 12.9 0 0Z" transform="translate(477.3 183.8) rotate(204.8)"/><path d="M0 0 Q18.7 -12.2 37.4 0 Q18.7 12.2 0 0Z" transform="translate(452.1 152.3) rotate(257.8)"/><path d="M0 0 Q18.7 -12.2 37.4 0 Q18.7 12.2 0 0Z" transform="translate(452.1 152.3) rotate(193.8)"/><path d="M0 0 Q17.8 -11.6 35.5 0 Q17.8 11.6 0 0Z" transform="translate(421.4 126.2) rotate(246.9)"/><path d="M0 0 Q17.8 -11.6 35.5 0 Q17.8 11.6 0 0Z" transform="translate(421.4 126.2) rotate(182.9)"/><path d="M0 0 Q16.8 -11.0 33.6 0 Q16.8 11.0 0 0Z" transform="translate(386.2 106.3) rotate(204.0)"/></g>
+  </svg>
+    <p class="day">Remembrance Sunday · 8 November</p>
+    <h1>We will remember them</h1>
+    <div class="wordmark" role="img" aria-label="Tidewater"></div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Product infographic</title>
+<!-- Pattern: marketplace secondary image, the feature callouts (direction "Clean catalogue"). Presets: shop-square.
+     Never the MAIN image: marketplaces want the main image as the product alone on white, with no text. This is image
+     2 or 3 of the stack: the product large, 3 to 5 callouts of at most 5 words each, joined to the part they describe
+     by a leader line. A product page shows it about 400 px wide, so every word is at least 56 px on the 2048 canvas.
+     Swap the drawn bag (.product svg) for the client's cut-out: <img class="product-img" src="plates/product.png">.
+     Claims are the client's facts only. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  body { background: #fff; color: var(--ink); }
+  .ground { position: absolute; left: 544px; top: 660px; width: 960px; height: 960px; border-radius: 50%;
+    background: var(--sand); }
+  h1 { position: absolute; left: var(--safe-left); right: var(--safe-right); top: var(--safe-top); margin: 0;
+    text-align: center; font: 800 112px/1.02 var(--font-display); letter-spacing: -0.02em; }
+  .product { position: absolute; left: 704px; top: 660px; width: 640px; height: 900px;
+    filter: drop-shadow(0 30px 40px rgb(22 25 27 / .25)); }
+  .product-img { position: absolute; left: 50%; top: 660px; height: 900px; width: auto; transform: translateX(-50%);
+    filter: drop-shadow(0 30px 40px rgb(22 25 27 / .25)); }
+  svg.leaders { position: absolute; inset: 0; }
+  /* the sample brand puts a roast-date sticker on each plain bag: typeset, like any label, never drawn by the model */
+  .stamp { position: absolute; left: 812px; top: 1012px; padding: 16px 26px 14px; border-radius: 10px;
+    background: #F3F1EC; color: #12343a; transform: rotate(-4deg); text-align: center;
+    box-shadow: 0 3px 8px rgb(40 30 15 / .28);
+    font: 700 max(64px, var(--label-min, 0px))/1.25 var(--font-text); letter-spacing: .04em; text-transform: uppercase; }
+  .call { position: absolute; width: 470px; font: 700 max(58px, var(--label-min, 0px))/1.25 var(--font-text); }
+  .call b { display: block; font: 800 76px/1.1 var(--font-display); color: var(--primary); margin-bottom: 10px; }
+  .call.left { left: var(--safe-left); text-align: left; }
+  .call.right { right: var(--safe-right); text-align: right; }
+  .foot { position: absolute; left: 50%; bottom: var(--safe-bottom); width: max(430px, var(--wordmark-min, 0px)); height: auto; transform: translateX(-50%); }
+</style>
+</head>
+<body>
+  <div class="ground"></div>
+  <h1>What is in every bag</h1>
+  <img class="product-img" src="https://codex-design.invalid/patterns/assets/photos/bag-cutout.webp" alt="">
+  <div class="stamp">Roasted<br>22 Sep</div>
+  <svg class="leaders" width="2048" height="2048" viewBox="0 0 2048 2048" aria-hidden="true">
+    <g stroke="#16191B" stroke-width="5" fill="none">
+      <path d="M600 900 H700 L790 1066"/><path d="M1448 900 H1300 L1082 912"/>
+      <path d="M600 1450 H700 L884 1310"/>
+    </g>
+    <g fill="#E0A33A"><circle cx="790" cy="1066" r="16"/><circle cx="1082" cy="912" r="16"/>
+      <circle cx="884" cy="1310" r="16"/></g>
+  </svg>
+  <div class="call left" style="top: 840px"><b>Roast date</b>on every bag</div>
+  <div class="call right" style="top: 840px"><b>Valve</b>keeps it fresh</div>
+  <div class="call left" style="top: 1390px"><b>250 g</b>whole bean</div>
+  <div class="call right" style="top: 1390px"><b>One farm</b>Huila, Colombia</div>
+  <img class="foot wordmark" src="https://codex-design.invalid/sample-brand/wordmark.svg" alt="Tidewater">
+</body>
+</html>

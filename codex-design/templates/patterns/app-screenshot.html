@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>App store screenshot</title>
+<!-- Pattern: app store screenshot (direction "Real UI, one promise"). Presets: appstore-iphone-69, play-phone-screenshot.
+     Frameless: the real UI full width under a caption band (Google Play bans device frames; any frame shrinks the UI).
+     The caption is one benefit in 2 to 5 words, about 11 % of the canvas width, because screenshots 1 to 3 show in
+     search results about 115 px wide. No prices, rankings, awards, testimonials or "Download now" (store rules).
+     Design Apple (0.46) and Google (0.56) separately; localise captions per language. Replace .ui with the app's real
+     screen: <img class="ui fill" src="screens/home.png">. The shapes here stand in for it. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  :root { --u: calc(var(--canvas-w) / 1320); }
+  body { background: var(--primary); color: var(--paper); }
+  h1 { position: absolute; left: var(--safe-left); right: var(--safe-right); top: calc(var(--safe-top) + var(--u) * 60);
+    margin: 0; font: 800 calc(var(--canvas-w) * .11)/1.02 var(--font-display); letter-spacing: -0.02em;
+    text-wrap: balance; }
+  .ui { position: absolute; left: calc(var(--u) * 70); right: calc(var(--u) * 70); top: calc(var(--canvas-h) * .25);
+    bottom: calc(var(--u) * -80); border-radius: calc(var(--u) * 64) calc(var(--u) * 64) 0 0; background: var(--paper);
+    overflow: hidden; }
+  .ui.fill { object-fit: cover; object-position: top; }
+  .bar { height: calc(var(--u) * 150); background: #fff; border-bottom: calc(var(--u) * 4) solid var(--line); }
+  .bar i { position: absolute; left: calc(var(--u) * 60); top: calc(var(--u) * 58); width: calc(var(--u) * 320);
+    height: calc(var(--u) * 34); border-radius: 99px; background: var(--ink); }
+  .card { margin: calc(var(--u) * 44) calc(var(--u) * 50) 0; height: calc(var(--u) * 250); border-radius: calc(var(--u) * 36);
+    background: #fff; position: relative; box-shadow: 0 calc(var(--u) * 10) calc(var(--u) * 30) rgb(22 25 27 / .08); }
+  .card b { position: absolute; left: calc(var(--u) * 40); top: calc(var(--u) * 50); width: calc(var(--u) * 150);
+    height: calc(var(--u) * 150); border-radius: 50%; background: var(--accent); }
+  .card i, .card s { position: absolute; left: calc(var(--u) * 230); height: calc(var(--u) * 30); border-radius: 99px; }
+  .card i { top: calc(var(--u) * 80); width: calc(var(--u) * 520); background: var(--ink); }
+  .card s { top: calc(var(--u) * 140); width: calc(var(--u) * 360); background: var(--line); }
+  .chart { margin: calc(var(--u) * 44) calc(var(--u) * 50) 0; height: calc(var(--u) * 560); border-radius: calc(var(--u) * 36);
+    background: var(--primary); position: relative; }
+  .chart span { position: absolute; bottom: calc(var(--u) * 60); width: calc(var(--u) * 90); border-radius: calc(var(--u) * 20);
+    background: var(--accent); }
+</style>
+</head>
+<body>
+  <h1 data-fit="90,160" data-fit-lines="2">Every roast, tracked to the day</h1>
+  <div class="ui" aria-hidden="true">
+    <div class="bar"><i></i></div>
+    <div class="card"><b></b><i></i><s></s></div>
+    <div class="card"><b style="background: var(--primary)"></b><i></i><s></s></div>
+    <div class="chart">
+      <span style="left: 8%; height: 30%"></span><span style="left: 24%; height: 52%"></span>
+      <span style="left: 40%; height: 44%"></span><span style="left: 56%; height: 68%"></span>
+      <span style="left: 72%; height: 80%"></span>
+    </div>
+    <div class="card"><b style="background: var(--sand)"></b><i></i><s></s></div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Infographic: one chart, one finding</title>
+<!-- Pattern: data infographic (change over time). Presets: ig-portrait (default), pin-standard, ig-story, li-square.
+     The headline states the finding, the subtitle says exactly what is measured (unit, period), the chart is drawn
+     from the JSON data block below by the script (SVG: exact, crisp, editable), lines carry direct labels instead of a
+     legend, the y axis starts at 0, gridlines are light, and a source line names the data and its date.
+     Pick the chart by the relationship (genres.md §8): change over time = line; ranking = sorted bars; part-to-whole =
+     stacked bar or ≤ 5-slice pie; magnitude = bars from 0. Never invent figures: the sample numbers below are marked
+     as samples; replace them with the client's data and source. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<script type="application/json" id="data">
+{
+  "x": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"],
+  "series": [
+    {"name": "Light", "color": "#8C5220", "values": [120, 135, 150, 170, 185, 205, 230, 250]},
+    {"name": "Dark", "color": "#164E57", "values": [260, 250, 240, 232, 220, 212, 205, 198]}
+  ],
+  "y_max": 300, "y_step": 100,
+  "note": {"at": 6, "text": "July: light passes dark"},
+  "source": "Source: Tidewater till data, 250 g bags, January to August 2026 (sample figures for this template)"
+}
+</script>
+<style>
+  :root { --t-s: 34px; --t-m: 44px; --t-h: 90px; }
+  [data-preset="pin-standard"] { --t-s: 54px; --t-m: 68px; --t-h: 104px; }
+  /* a pin is a tall narrow card: the headline carries it, the source sits at the fine-print floor */
+  [data-preset="pin-standard"] .sub { display: none; }
+  [data-preset="pin-standard"] .source { font-size: var(--min-text); max-width: 40ch; }  /* pins show ~236 px wide in the grid */
+  [data-preset="pin-standard"] .wordmark { width: max(270px, var(--wordmark-min, 0px)); }
+  body { background: var(--paper); color: var(--ink); }
+  .safe { display: flex; flex-direction: column; }
+  .kicker { display: flex; align-items: center; gap: 20px; font: 700 max(var(--t-s), var(--label-min, 0px))/1 var(--font-text); color: var(--primary); }
+  .kicker::before { content: ""; width: 80px; height: 17px; background: var(--accent);
+    -webkit-mask: var(--motif-mask, none) center / 100% 100% no-repeat; mask: var(--motif-mask, none) center / 100% 100% no-repeat; }
+  h1 { margin: 34px 0 0; font: 800 var(--t-h)/0.95 var(--font-display); letter-spacing: -0.025em; text-wrap: balance; }
+  .sub { margin: 22px 0 0; font: 500 var(--t-m)/1.3 var(--font-text); color: var(--muted); text-wrap: balance; }
+  .chart { flex: 1; min-height: 0; margin-top: 40px; }
+  .chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  .chart .grid { stroke: var(--line); stroke-width: 2; }
+  .chart .base { stroke: var(--ink); stroke-width: 2.5; }
+  .chart .axis { font: 500 var(--t-s) var(--font-text); fill: var(--muted); }
+  .chart .line { fill: none; stroke-width: 7; stroke-linecap: round; stroke-linejoin: round; }
+  .chart .end { font: 700 var(--t-m) var(--font-text); }
+  .chart .note-line { stroke: var(--ink); stroke-width: 2; stroke-dasharray: 6 8; }
+  .chart .note { font: 700 var(--t-s) var(--font-text); fill: var(--ink); }
+  .callout { display: flex; align-items: center; gap: .5em; margin: 30px 0 0; font: 700 var(--t-s)/1.2 var(--font-text); }
+  .callout::before { content: ""; width: 1.4em; border-top: 3px dashed var(--ink); }
+  .foot { display: flex; justify-content: space-between; align-items: end; gap: 40px; margin-top: 34px; }
+  .source { margin: 0; max-width: 30ch; font: 500 var(--t-s)/1.3 var(--font-text); color: var(--muted); }
+  .wordmark { flex: none; width: max(200px, var(--wordmark-min, 0px)); aspect-ratio: 971 / 162; background: var(--ink);
+    -webkit-mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat right bottom / contain;
+    mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat right bottom / contain; }
+</style>
+</head>
+<body>
+  <div class="safe">
+    <div class="kicker">Roast log · 2026</div>
+    <h1 data-fit="60" data-fit-lines="3">Our light roast now outsells the dark</h1>
+    <p class="sub" data-slot="sub">Bags sold per month, January to August 2026</p>
+    <div class="chart" aria-label="Line chart"></div>
+    <div class="foot"><p class="source" data-slot="source"></p><div class="wordmark logo" role="img" aria-label="Tidewater"></div></div>
+  </div>
+<script>
+window.__cdReady = (async () => {
+  await window.__cdReady;
+  const d = JSON.parse(document.getElementById('data').textContent);
+  document.querySelector('[data-slot="source"]').textContent = d.source;
+  const box = document.querySelector('.chart'), W = box.clientWidth;
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  const add = (tag, attrs, text) => { const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); if (text != null) e.textContent = text; svg.appendChild(e); return e; };
+  // plot area sized from the type: axis labels on the left, direct labels on the right, months below
+  const css = getComputedStyle(document.documentElement);
+  const small = parseFloat(css.getPropertyValue('--t-s')), mid = parseFloat(css.getPropertyValue('--t-m'));
+  const left = small * 2.3, right = mid * 5.4, top = small * 0.9, bottom = small * 1.9;
+  const x = i => left + (W - left - right) * i / (d.x.length - 1);
+  // the note goes beside its dashed line when one line of it fits there; otherwise it becomes a caption above the chart
+  let noteSide = null;
+  if (d.note) {
+    const m = document.createElement('canvas').getContext('2d');
+    m.font = `600 ${small}px ${css.getPropertyValue('--font-text')}`;
+    const tw = m.measureText(d.note.text).width, gap = small * 0.5, at = x(d.note.at);
+    noteSide = tw + gap <= at - left ? 'left' : tw + gap <= W - right - at ? 'right' : 'caption';
+    if (noteSide === 'caption') {
+      const c = document.createElement('p');
+      c.className = 'callout'; c.textContent = d.note.text;
+      box.before(c);
+    }
+  }
+  const H = box.clientHeight;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  const y = v => top + (H - top - bottom) * (1 - v / d.y_max);   // the axis starts at 0: heights stay honest
+  box.appendChild(svg);
+  for (let v = 0; v <= d.y_max; v += d.y_step) {
+    add('line', {class: v ? 'grid' : 'base', x1: left, x2: W - right + mid * 0.6, y1: y(v), y2: y(v)});
+    add('text', {class: 'axis', x: left - small * 0.5, y: y(v) + small * 0.33, 'text-anchor': 'end'}, v);
+  }
+  const every = Math.max(1, Math.ceil(small * 2.2 / ((W - left - right) / (d.x.length - 1))));  // thin crowded months
+  d.x.forEach((m, i) => { if (i % every === 0)
+    add('text', {class: 'axis', x: x(i), y: H - small * 0.25, 'text-anchor': 'middle'}, m); });
+  if (d.note) {
+    add('line', {class: 'note-line', x1: x(d.note.at), x2: x(d.note.at), y1: y(d.y_max), y2: y(0)});
+    if (noteSide !== 'caption')
+      add('text', {class: 'note', x: x(d.note.at) + (noteSide === 'left' ? -1 : 1) * small * 0.5, y: y(d.y_max) + small * 0.9,
+        'text-anchor': noteSide === 'left' ? 'end' : 'start'}, d.note.text);
+  }
+  // direct labels at the line ends, nudged apart when they would touch
+  const ends = d.series.map(s => ({s, yy: y(s.values[s.values.length - 1])})).sort((a, b) => a.yy - b.yy);
+  for (let i = 1; i < ends.length; i++) if (ends[i].yy - ends[i - 1].yy < mid * 1.25) ends[i].yy = ends[i - 1].yy + mid * 1.25;
+  for (const {s, yy} of ends) {
+    add('polyline', {class: 'line', stroke: s.color, points: s.values.map((v, i) => `${x(i)},${y(v)}`).join(' ')});
+    add('circle', {cx: x(s.values.length - 1), cy: y(s.values[s.values.length - 1]), r: mid * 0.28, fill: s.color});
+    add('text', {class: 'end', x: x(s.values.length - 1) + mid * 0.65, y: yy + mid * 0.33, fill: s.color}, `${s.name} ${s.values[s.values.length - 1]}`);
+  }
+  await document.fonts.ready;
+  await window.__cdFit();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Brand guidelines</title>
+<!-- Template: brand guidelines book, 10 pages at 16:9, built from brand.json by the script at the end.
+     Render: design.py render --html guidelines.html --preset deck-16x9 --pages 10 --out out/brand-guidelines.pdf --preview
+     For a client: copy this file next to brand/, set <body data-brand="brand/brand.json"> and point the second
+     stylesheet at brand/brand.css (made by `design.py brand`). Everything else comes from brand.json:
+     name, positioning, voice {is, is_not}, colors, proportions, fonts, type_scale, logo {mark, mark_reversed, wordmark},
+     clear_space, min_size, motif, special_days, specimen (a line for the type page), applications [{src, caption}]
+     (rendered designs, paths relative to brand.json). Contrast figures are computed (WCAG 2.2). Page 9 holds the brand's own graphic elements: replace
+     the sample illustration with the client's. Keep the book factual: no claims the client has not approved. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  .page { background: var(--paper); color: var(--ink); }
+  .page > .safe { display: grid; grid-template-columns: 520px 1fr; grid-template-rows: 1fr auto; column-gap: 80px; }
+  .head { grid-column: 1; grid-row: 1; }
+  .head .n { font: 700 20px/1 var(--font-text); color: var(--primary); letter-spacing: .08em; }
+  .head h2 { margin: 22px 0 0; font: 800 64px/0.98 var(--font-display); letter-spacing: -0.02em; text-wrap: balance; }
+  .head p { margin: 26px 0 0; font: 500 26px/1.4 var(--font-text); color: var(--muted); max-width: 22ch; }
+  .body { grid-column: 2; grid-row: 1; min-width: 0; }
+  .folio { grid-column: 1 / -1; grid-row: 2; display: flex; justify-content: space-between; padding-top: 22px;
+    border-top: 2px solid var(--line); font: 500 20px/1 var(--font-text); color: var(--muted); }
+  .cap { font: 500 20px/1.35 var(--font-text); color: var(--muted); margin: 14px 0 0; }
+  .lead { margin: 0; font: 700 44px/1.25 var(--font-text); letter-spacing: -0.01em; text-wrap: balance; }
+  .wm { aspect-ratio: 971 / 162; background: var(--ink); -webkit-mask: var(--wm-url) no-repeat left center / contain;
+    mask: var(--wm-url) no-repeat left center / contain; }
+  .tile { position: relative; border-radius: 18px; display: grid; place-items: center; overflow: hidden; }
+  .lockup { display: flex; align-items: center; }
+  /* 1 cover */
+  .cover { background: var(--primary); color: var(--paper); }
+  .cover .safe { display: flex; flex-direction: column; justify-content: space-between; }
+  .cover .wm { width: 620px; background: var(--paper); }
+  .cover h1 { margin: 0; font: 800 132px/0.92 var(--font-display); letter-spacing: -0.03em; }
+  .cover .meta { margin: 28px 0 0; font: 500 26px/1.3 var(--font-text); color: var(--sand); }
+  .cover svg.tide { position: absolute; left: 0; right: 0; bottom: 30%; width: 100%; height: 90px; }
+  /* 2 brand */
+  .voice { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 70px; }
+  .voice h3 { margin: 0 0 16px; font: 700 20px/1 var(--font-text); letter-spacing: .1em; text-transform: uppercase; color: var(--primary); }
+  .voice ul { margin: 0; padding: 0; list-style: none; font: 700 44px/1.3 var(--font-text); }
+  .voice .not li { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 3px; text-decoration-color: var(--accent); }
+  .days { margin-top: 70px; padding-top: 26px; border-top: 2px solid var(--line); font: 500 26px/1.4 var(--font-text); }
+  .days b { font-weight: 700; }
+  /* 3 logo */
+  .logos { display: grid; grid-template-columns: 1.4fr 1fr; grid-template-rows: 1fr 1fr; gap: 28px; height: 760px; }
+  .logos .tile:first-child { grid-row: span 2; }
+  .logos .tile .cap { position: absolute; left: 28px; bottom: 22px; margin: 0; }
+  .t-paper { background: #fff; box-shadow: inset 0 0 0 2px var(--line); }
+  .t-sand { background: var(--sand); }
+  .t-sand .cap { color: var(--ink); }  /* muted on sand is too faint in many palettes */
+  .t-primary { background: var(--primary); }
+  .t-primary .cap { color: var(--sand); }
+  /* 4 clear space */
+  .space { display: grid; grid-template-columns: 1.3fr 1fr; gap: 40px; height: 760px; }
+  .space .stage { background: #fff; box-shadow: inset 0 0 0 2px var(--line); }
+  .guide { position: relative; padding: var(--x); outline: 3px dashed var(--accent); outline-offset: 0; }
+  .guide .x { position: absolute; font: 700 20px/1 var(--font-text); color: var(--primary); }
+  .mins { display: grid; align-content: start; gap: 36px; }
+  .mins div { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+  /* 5 misuse */
+  .misuse { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; }
+  .misuse figure { margin: 0; }
+  .misuse .tile { height: 300px; background: #fff; box-shadow: inset 0 0 0 2px var(--line); }
+  .misuse .tile::after { content: ""; position: absolute; right: 20px; top: 20px; width: 34px; height: 34px; border-radius: 50%;
+    background: #B3261E url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 34'><path d='M11 11l12 12M23 11L11 23' stroke='white' stroke-width='4' stroke-linecap='round'/></svg>"); }
+  .misuse figcaption { margin-top: 14px; font: 700 26px/1.3 var(--font-text); }
+  .m-stretch .lockup { transform: scaleX(1.45); } .m-recolor .lockup { filter: hue-rotate(150deg) saturate(1.6); }
+  .m-effects .lockup { filter: drop-shadow(8px 10px 6px rgb(0 0 0 / .5)); } .m-rotate .lockup { transform: rotate(-14deg); }
+  .m-busy { background: repeating-linear-gradient(45deg, #C0392B 0 22px, #E0A33A 22px 44px, #6F9E6B 44px 66px) !important; }
+  .m-crowd .crowd { position: absolute; font: 800 44px/1 var(--font-display); color: var(--primary); }
+  /* 6 colour */
+  .swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+  .sw { border-radius: 16px; overflow: hidden; border: 2px solid var(--line); background: #fff; }
+  .sw .chip { height: 170px; border-bottom: 2px solid var(--line); }
+  .sw .info { padding: 16px 18px 18px; font: 500 20px/1.45 var(--font-text); }
+  .sw .info b { display: block; font: 700 26px/1.3 var(--font-text); }
+  .bar { display: flex; height: 64px; border-radius: 14px; overflow: hidden; margin-top: 44px; border: 2px solid var(--line); }
+  .bar div { height: 100%; }
+  /* 7 contrast */
+  .matrix { display: grid; gap: 14px; }
+  .matrix .cell { border-radius: 14px; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center;
+    box-shadow: inset 0 0 0 2px rgb(0 0 0 / .06); }
+  .matrix .cell span { font: 800 44px/1 var(--font-display); }
+  .matrix .cell i { font: 700 20px/1.3 var(--font-text); font-style: normal; text-align: right; }
+  .matrix .rowhead { font: 700 20px/1.3 var(--font-text); color: var(--muted); align-self: center; }
+  /* 8 type */
+  .type { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 50px; }
+  .type [lang="bn"] .big { line-height: 1.25; }
+  .type .big { height: 230px; display: flex; align-items: flex-end; font-size: 200px; line-height: 0.95; letter-spacing: -0.03em; }
+  .type h3 { margin: 18px 0 6px; font: 700 26px/1.3 var(--font-text); }
+  .type p.sample { margin: 18px 0 0; font: 500 26px/1.45 var(--font-text); text-wrap: balance; }
+  .scale { margin-top: 44px; padding-top: 24px; border-top: 2px solid var(--line); display: flex; align-items: baseline; gap: 44px; }
+  /* 9 elements */
+  .elements { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; height: 760px; }
+  .elements .tile { align-content: center; }
+  .elements .cap { position: absolute; left: 28px; right: 28px; bottom: 22px; margin: 0; }
+  .branch-art { width: 460px; height: auto; }
+  .branch-art .branch { fill: none; stroke: var(--sand); stroke-width: 12; stroke-linecap: round; }
+  .branch-art .leaf { fill: #6F9E6B; } .branch-art .rib { fill: none; stroke: #4F7C4D; stroke-width: 4; stroke-linecap: round; }
+  .branch-art .ripe { fill: #C0392B; } .branch-art .deep { fill: #9E2A22; } .branch-art .gold { fill: var(--accent); }
+  .branch-art .navel { fill: rgb(40 10 6 / .55); }
+  /* 10 applications */
+  .apps { display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 356px; gap: 24px; }
+  .apps figure { margin: 0; }
+  .apps .shot { height: 300px; background: var(--sand); border-radius: 14px; display: grid; place-items: center; }
+  .apps img { max-width: calc(100% - 32px); max-height: 268px; box-shadow: 0 10px 26px rgb(22 25 27 / .18); }
+  .apps figcaption { margin-top: 10px; font: 500 20px/1.3 var(--font-text); color: var(--muted); }
+</style>
+</head>
+<body data-brand="https://codex-design.invalid/sample-brand/brand.json">
+  <section class="page cover">
+    <svg class="tide" viewBox="0 0 1920 90" preserveAspectRatio="none" aria-hidden="true"><path d="M0 45 C 240 5, 480 85, 720 45 S 1200 5, 1440 45 S 1800 70, 1920 45" fill="none" stroke="currentColor" stroke-width="4" opacity=".35"/></svg>
+    <div class="safe">
+      <div class="wm" data-slot="wordmark" role="img"></div>
+      <div><h1>Brand guidelines</h1><p class="meta" data-slot="meta"></p></div>
+    </div>
+  </section>
+
+  <section class="page"><div class="safe">
+    <div class="head"><div class="n">01</div><h2>Who we are</h2><p>The idea every design starts from, and how we sound.</p></div>
+    <div class="body">
+      <p class="lead" data-slot="positioning"></p>
+      <div class="voice"><div><h3>We are</h3><ul data-slot="voice-is"></ul></div><div class="not"><h3>We are not</h3><ul data-slot="voice-not"></ul></div></div>
+      <div class="days" data-slot="days"></div>
+    </div>
+    <div class="folio"><span data-slot="folio"></span><span>02</span></div>
+  </div></section>
+
+  <section class="page"><div class="safe">
+    <div class="head"><div class="n">02</div><h2>Logo</h2><p>Use the supplied files only. Full colour on light grounds; the reversed version on the primary colour and on photos.</p></div>
+    <div class="body logos">
+      <div class="tile t-paper"><div class="lockup" data-slot="lockup" style="--mark:96px"></div><p class="cap" data-slot="cap-lockup"></p></div>
+      <div class="tile t-sand"><img data-slot="mark" alt="" style="height:130px;width:auto"><p class="cap" data-slot="cap-mark"></p></div>
+      <div class="tile t-primary"><div class="lockup" data-slot="lockup-rev" style="--mark:64px"></div><p class="cap" data-slot="cap-rev"></p></div>
+    </div>
+    <div class="folio"><span data-slot="folio"></span><span>03</span></div>
+  </div></section>
+
+  <section class="page"><div class="safe">
+    <div class="head"><div class="n">03</div><h2>Clear space and size</h2><p data-slot="clear-note"></p></div>
+    <div class="body space">
+      <div class="tile stage"><div class="guide" data-slot="guide"></div></div>
+      <div class="mins" data-slot="mins"></div>
+    </div>
+    <div class="folio"><span data-slot="folio"></span><span>04</span></div>
+  </div></section>
+
+  <section class="page"><div class="safe">
+    <div class="head"><div class="n">04</div><h2>Never do this</h2><p>The logo is never stretched, recoloured, given effects, rotated, set on busy grounds or crowded.</p></div>
+    <div class="body misuse" data-qa-ignore>
+      <figure class="m-stretch"><div class="tile"><div class="lockup" data-slot="lockup-s"></div></div><figcaption>Stretched or squashed</figcaption></figure>
+      <figure class="m-recolor"><div class="tile"><div class="lockup" data-slot="lockup-s"></div></div><figcaption>Recoloured</figcaption></figure>
+      <figure class="m-effects"><div class="tile"><div class="lockup" data-slot="lockup-s"></div></div><figcaption>Shadows, glows, bevels</figcaption></figure>
+      <figure class="m-rotate"><div class="tile"><div class="lockup" data-slot="lockup-s"></div></div><figcaption>Rotated</figcaption></figure>
+      <figure><div class="tile m-busy"><div class="lockup" data-slot="lockup-s"></div></div><figcaption>On a busy ground</figcaption></figure>
+      <figure class="m-crowd"><div class="tile"><div class="lockup" data-slot="lockup-s"></div><span class="crowd" style="left:36px;top:30px">NEW</span></div><figcaption>Crowded by other elements</figcaption></figure>
+    </div>
+    <div class="folio"><span data-slot="folio"></span><span>05</span></div>
+  </div></section>
+
+  <section class="page"><div class="safe">
+    <div class="head"><div class="n">05</div><h2>Colour</h2><p>Screen values. For print, convert with the printer’s profile and check a proof.</p></div>
+    <div class="body"><div class="swatches" data-slot="swatches"></div><div class="bar" data-slot="bar"></div><p class="cap" data-slot="bar-cap"></p></div>
+    <div class="folio"><span data-slot="folio"></span><span>06</span></div>
+  </div></section>
+
+  <section class="page"><div class="safe">
+    <div class="head"><div class="n">06</div><h2>Contrast</h2><p>Every text and ground pair, measured (WCAG 2.2): AAA 7:1, AA 4.5:1 for body text, 3:1 for large text.</p></div>
+    <div class="body matrix" data-slot="matrix"></div>
+    <div class="folio"><span data-slot="folio"></span><span>07</span></div>
+  </div></section>
+
+  <section class="page"><div class="safe">
+    <div class="head"><div class="n">07</div><h2>Typography</h2><p data-slot="type-note"></p></div>
+    <div class="body"><div class="type" data-slot="type"></div><div class="scale" data-slot="scale" data-qa-ignore></div></div>
+    <div class="folio"><span data-slot="folio"></span><span>08</span></div>
+  </div></section>
+
+  <section class="page"><div class="safe">
+    <div class="head"><div class="n">08</div><h2>Graphic elements</h2><p data-slot="motif"></p></div>
+    <div class="body elements">
+      <div class="tile t-paper"><svg viewBox="0 0 600 120" style="width:520px" aria-hidden="true"><path d="M20 60 C 110 20, 200 100, 300 60 S 490 20, 580 60" fill="none" stroke="#164E57" stroke-width="6" stroke-linecap="round"/></svg><p class="cap">The tide line: one gentle wave, never a pattern, under or beside a headline.</p></div>
+      <div class="tile t-primary"><svg class="branch-art" viewBox="0 0 600 600" aria-hidden="true">
+            <path class="branch" d="M612 96 C540 128 452 196 372 280 S214 438 120 520"/>
+            <path class="leaf" d="M525 142 Q470 60 392 72 Q440 150 525 142 Z"/><path class="rib" d="M522 140 Q462 102 396 74"/>
+            <path class="leaf" d="M532 146 Q610 190 596 272 Q540 230 532 146 Z"/><path class="rib" d="M534 150 Q586 196 594 266"/>
+            <path class="leaf" d="M298 350 Q230 290 150 318 Q220 372 298 350 Z"/><path class="rib" d="M294 348 Q226 314 154 318"/>
+            <path class="leaf" d="M304 354 Q392 392 380 482 Q318 440 304 354 Z"/><path class="rib" d="M306 358 Q370 400 378 476"/>
+            <circle class="ripe" cx="430" cy="228" r="30"/><circle class="navel" cx="435" cy="247" r="4.5"/>
+            <circle class="deep" cx="468" cy="236" r="27"/><circle class="navel" cx="473" cy="253" r="4.5"/>
+            <circle class="ripe" cx="446" cy="262" r="26"/><circle class="navel" cx="451" cy="278" r="4.5"/>
+            <circle class="gold" cx="360" cy="306" r="24"/><circle class="navel" cx="364" cy="321" r="4.5"/>
+            <circle class="ripe" cx="392" cy="312" r="22"/><circle class="navel" cx="396" cy="326" r="4.5"/>
+            <circle class="deep" cx="196" cy="462" r="32"/><circle class="navel" cx="202" cy="482" r="4.5"/>
+            <circle class="ripe" cx="238" cy="468" r="28"/><circle class="navel" cx="243" cy="485" r="4.5"/>
+            <circle class="gold" cx="214" cy="500" r="27"/><circle class="navel" cx="219" cy="517" r="4.5"/>
+          </svg><p class="cap">Illustration: flat shapes, no outlines, the palette plus cherry red and leaf green.</p></div>
+    </div>
+    <div class="folio"><span data-slot="folio"></span><span>09</span></div>
+  </div></section>
+
+  <section class="page"><div class="safe">
+    <div class="head"><div class="n">09</div><h2>In use</h2><p>Designs made with these rules, from the pattern library.</p></div>
+    <div class="body apps" data-slot="apps"></div>
+    <div class="folio"><span data-slot="folio"></span><span>10</span></div>
+  </div></section>
+
+<script>
+window.__cdReady = (async () => {
+  const brandUrl = new URL(document.body.dataset.brand, location.href);
+  const b = await (await fetch(brandUrl)).json();
+  const u = p => new URL(p, brandUrl).href;
+  const $$ = s => [...document.querySelectorAll(`[data-slot="${s}"]`)];
+  const set = (s, f) => $$(s).forEach(f);
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+  const name = (b.name || 'Brand').replace(/\s*\(.*\)\s*$/, '');
+  const logo = b.logo || {};
+  document.documentElement.style.setProperty('--wm-url', `url("${u(logo.wordmark || '')}")`);
+  const today = new Date(document.body.dataset.date || Date.now());
+  set('meta', el => el.textContent = `${name} · Version 1.0 · ${today.toLocaleString('en-GB', {month: 'long', year: 'numeric'})}`);
+  set('wordmark', el => el.setAttribute('aria-label', name));
+  set('folio', el => el.textContent = `${name} · Brand guidelines`);
+  set('positioning', el => el.textContent = b.positioning || '');
+  set('voice-is', el => el.innerHTML = (b.voice?.is || []).map(v => `<li>${esc(v)}</li>`).join(''));
+  set('voice-not', el => el.innerHTML = (b.voice?.is_not || []).map(v => `<li>${esc(v)}</li>`).join(''));
+  set('days', el => el.innerHTML = Object.entries(b.special_days || {}).map(([k, v]) => `<b>Special days, ${esc(k)}:</b> ${esc(v)}.`).join('<br>'));
+  // lockups: mark + wordmark, full colour or reversed
+  const lock = (el, rev) => {
+    const h = parseFloat(getComputedStyle(el).getPropertyValue('--mark')) || 64;
+    el.style.gap = `${h * 0.3}px`;
+    el.innerHTML = `<img src="${u(rev && logo.mark_reversed ? logo.mark_reversed : logo.mark)}" alt="" style="height:${h}px;width:auto">` +
+      `<div class="wm" style="height:${h * 0.62}px;${rev ? 'background:var(--paper)' : ''}"></div>`;
+    el.classList.add('logo');
+  };
+  set('lockup', el => lock(el, false)); set('lockup-rev', el => lock(el, true));
+  set('lockup-s', el => { el.style.setProperty('--mark', '42px'); lock(el, false); el.classList.remove('logo'); });
+  set('mark', el => { el.src = u(logo.mark); el.classList.add('logo'); });
+  set('cap-lockup', el => el.textContent = `Primary lockup · ${logo.mark} + ${logo.wordmark}`);
+  set('cap-mark', el => el.textContent = `Mark · ${logo.mark}`);
+  set('cap-rev', el => el.textContent = `Reversed · ${logo.mark_reversed || 'make a reversed version'}`);
+  set('clear-note', el => el.textContent = `Clear space: ${b.clear_space || '0.5 x mark height'} on every side. Nothing enters it.`);
+  set('guide', el => {
+    const h = 84, x = h * 0.5;
+    el.style.setProperty('--x', `${x}px`);
+    el.innerHTML = `<div class="lockup logo" style="--mark:${h}px"></div>` +
+      ['left:6px;top:6px', 'right:6px;top:6px', 'left:6px;bottom:6px', 'right:6px;bottom:6px'].map(p => `<span class="x" data-qa-ignore style="${p}">x</span>`).join('');
+    lock(el.firstElementChild, false);
+  });
+  set('mins', el => el.innerHTML = Object.entries(b.min_size || {}).map(([k, v]) => {
+    const px = parseFloat(v) || 24;
+    const vis = k === 'mark' ? `<img data-qa-ignore src="${u(logo.mark)}" alt="" style="height:${px}px;width:auto">` :
+      `<div class="wm" data-qa-ignore style="width:${px}px"></div>`;
+    return `<div>${vis}<span class="cap" style="margin:0">Minimum ${esc(k)}: ${esc(v)}</span></div>`;
+  }).join(''));
+  // colour
+  const hex = h => { const n = parseInt(h.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+  const lum = h => { const [r, g, bb] = hex(h).map(v => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bb; };
+  const ratio = (a, c) => { const [x, y] = [lum(a), lum(c)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+  const cols = Object.entries(b.colors || {});
+  set('swatches', el => el.innerHTML = cols.map(([k, v]) => `<div class="sw"><div class="chip" style="background:${v}"></div>` +
+    `<div class="info"><b>${esc(k)}</b>${v.toUpperCase()}<br>RGB ${hex(v).join(' ')}</div></div>`).join(''));
+  const prop = Object.entries(b.proportions || {});
+  set('bar', el => el.innerHTML = prop.map(([k, v]) => `<div style="flex:${v};background:${b.colors[k] || '#ccc'}"></div>`).join(''));
+  set('bar-cap', el => el.textContent = prop.length ? 'Proportion in a typical layout: ' + prop.map(([k, v]) => `${k} ${v} %`).join(' · ') : '');
+  // contrast matrix: the text colours on the grounds the brand uses
+  const grounds = ['paper', 'sand', 'primary', 'ink'].filter(k => b.colors?.[k]);
+  const texts = ['ink', 'paper', 'primary', 'accent', 'muted'].filter(k => b.colors?.[k]);
+  set('matrix', el => {
+    el.style.gridTemplateColumns = `150px repeat(${grounds.length}, 1fr)`;
+    let h = '<div></div>' + grounds.map(g => `<div class="rowhead">on ${g}</div>`).join('');
+    for (const t of texts) {
+      h += `<div class="rowhead">${t} text</div>`;
+      for (const g of grounds) {
+        if (t === g) { h += '<div></div>'; continue; }
+        const r = ratio(b.colors[t], b.colors[g]);
+        const grade = r >= 7 ? 'AAA' : r >= 4.5 ? 'AA' : r >= 3 ? 'large only' : 'do not use';
+        // failing pairs are specimens of what not to do: the page checks skip them
+        h += `<div class="cell"${r < 3 ? ' data-qa-ignore' : ''} style="background:${b.colors[g]};color:${b.colors[t]}"><span>Aa</span>` +
+          `<i style="color:${lum(b.colors[g]) > 0.35 ? '#000' : '#fff'}">${r.toFixed(1)}:1<br>${grade}</i></div>`;
+      }
+    }
+    el.innerHTML = h;
+  });
+  // type
+  const fonts = Object.entries(b.fonts || {});
+  const fam = spec => spec.split('@')[0].split(':')[0].trim();
+  const weights = spec => (spec.split('@')[0].split(':')[1] || '400,700');
+  set('type-note', el => el.textContent = `${fonts.map(([k, v]) => `${fam(v)} (${k})`).join(', ')}. ${b.type_scale?.ratio ? `Scale ratio ${b.type_scale.ratio}.` : ''}`);
+  set('type', el => el.innerHTML = fonts.map(([k, v]) => {
+    const bn = /bengali|bangla/i.test(k + v);
+    // the specimen line: brand.json "specimen", else the first clause of the positioning, else a pangram
+    const latin = b.specimen || (b.positioning || '').split(/[:.;]/)[0] || 'Sphinx of black quartz, judge my vow';
+    const sample = bn ? (b.specimen_bn || 'বাংলা লেখার নমুনা ০১২৩৪৫৬৭৮৯') : `${latin}. 0123456789`;
+    // Bengali specimen: a conjunct (ক + ্ + ষ), which shows the font shapes the script properly
+    return `<div${bn ? ' lang="bn"' : ''} style="font-family:'${fam(v)}'"><div class="big" style="font-weight:${weights(v).split(',').pop()}">${bn ? 'ক্ষ' : 'Aa'}</div>` +
+      `<h3 style="font-family:var(--font-text)">${esc(fam(v))} · ${esc(k)} · ${esc(weights(v))}</h3>` +
+      `<p class="sample" style="font-family:'${fam(v)}';font-weight:${weights(v).split(',')[0]}">${sample}</p></div>`;
+  }).slice(0, 3).join(''));
+  // the scale as the brand defines it: 20 px text stepped by type_scale.ratio, display type on top
+  set('scale', el => { const r = +(b.type_scale && b.type_scale.ratio) || 1.333;
+    el.innerHTML = [4, 3, 2, 1, 0].map((k, i) => [Math.round(20 * r ** k), i ? (i === 1 ? 700 : 500) : 800,
+      i ? 'var(--font-text)' : 'var(--font-display)'])
+      .map(([s, w, f]) => `<span style="font:${w} ${s}px/1 ${f}">${s} px</span>`).join(''); });
+  set('motif', el => el.textContent = b.motif ? `Motif: ${b.motif}.` : '');
+  set('apps', el => el.innerHTML = (b.applications || []).slice(0, 8).map(a =>
+    `<figure><div class="shot"><img src="${u(a.src)}" alt="${esc(a.caption || '')}"></div><figcaption>${esc(a.caption || '')}</figcaption></figure>`).join('')
+    || '<p class="cap">Add rendered designs to brand.json "applications" to show them here.</p>');
+  await Promise.all([...document.images].map(i => i.complete ? 0 : i.decode().catch(() => 0)));
+  await document.fonts.ready;
+  await window.__cdFit();
+})();
+</script>
+</body>
+</html>

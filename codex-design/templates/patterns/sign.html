@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sign or banner</title>
+<!-- Pattern: landscape sign (direction "One message, read from far away"). Presets: banner-3x6ft, banner-2x4ft,
+     pvc-banner-2000x1000, pvc-banner-bd-4x6ft, billboard-us-bulletin, billboard-uk-48sheet, billboard-bd-20x10ft,
+     signage-1080p, signage-4k; bus sides and election banners work the same way (election pieces in Bangladesh:
+     black and white only).
+     Everything is sized from the canvas height, and no line goes under the canvas's text floor (--min-text, which the
+     renderer raises from the reading distance: a bulletin read from 152 m, a banner from 5 m, a lobby screen from 4 m).
+     Budget: a headline of 7 words or fewer, one support line (billboards and bus sides drop it: people read them in
+     passing), one way to act (a URL, a phone number or a place), the logo, one image. Swap .art for a cut-out product
+     or a photo plate. Hems, grommets and pole pockets are inside the preset's safe zone. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  :root { --u: calc(var(--canvas-h) / 100); --art: min(calc(var(--u) * 84), calc(var(--canvas-w) * .32));
+    --line: max(calc(var(--u) * 7.5), var(--min-text, 0px)); }  /* the small lines, never under the floor */
+  /* read in passing (billboards, bus sides): the words need the width, so the image gets less */
+  [data-preset^="billboard"], [data-preset^="transit"] { --art: min(calc(var(--u) * 80), calc(var(--canvas-w) * .28)); }
+  [data-preset^="billboard"] .art, [data-preset^="transit"] .art { height: min(calc(var(--art) * 1.33), calc(100% - var(--u) * 26)); }
+  body { background: var(--primary); color: var(--paper); }
+  /* the sample art: the product cut-out, the headline leads and the picture supports it */
+  .art { position: absolute; top: 50%; right: max(var(--safe-right), calc(var(--u) * 6)); width: var(--art);
+    height: min(calc(var(--art) * 1.33), calc(100% - var(--u) * 14)); object-fit: contain; transform: translateY(-50%);
+    filter: drop-shadow(0 calc(var(--u) * 1.5) calc(var(--u) * 2.5) rgb(0 0 0 / .3)); }
+  /* the text column: inside the safe zone, clear of the image, with a margin of its own on thin safe zones */
+  .safe { top: max(var(--safe-top), calc(var(--bleed) + var(--u) * 7));
+    left: max(var(--safe-left), calc(var(--bleed) + var(--u) * 7));
+    bottom: max(var(--safe-bottom), calc(var(--bleed) + var(--u) * 7));
+    right: max(var(--safe-right), calc(var(--art) + var(--u) * 12));
+    display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: "mark" "msg" "act"; }
+  /* the logo keeps half its height clear on every side */
+  .mark { grid-area: mark; justify-self: start; display: flex; align-items: center; gap: calc(var(--line) * .45);
+    height: calc(var(--line) * 1.6); margin-bottom: calc(var(--line) * 1.1); }
+  .mark img { height: 100%; width: auto; }
+  .mark .wm { height: 62%; aspect-ratio: 971 / 162; background: var(--paper);
+    -webkit-mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat left center / contain;
+    mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat left center / contain; }
+  /* the headline takes what is left and fits it, by width and by height, never under the floor */
+  .msg { grid-area: msg; min-height: 0; display: flex; flex-direction: column; justify-content: center;
+    padding-bottom: calc(var(--line) * .6); }
+  h1 { flex: 0 1 auto; min-height: 0; margin: 0; font: 800 calc(var(--u) * 22)/0.95 var(--font-display);
+    letter-spacing: -0.02em; text-wrap: balance; }
+  .sub { flex: none; margin: calc(var(--u) * 4) 0 0; font: 500 var(--line)/1.2 var(--font-text); text-wrap: balance; }
+  .act { grid-area: act; justify-self: start; margin: 0; padding: .16em .55em .2em; border-radius: 10em;
+    background: var(--accent); color: var(--ink); font: 700 var(--line)/1.15 var(--font-text); white-space: nowrap; }
+  /* a very wide board (a US bulletin, a bus side) is too short for a logo on top: it moves beside the call to action */
+  @media (min-aspect-ratio: 13/5) {
+    .safe { grid-template-columns: auto minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto;
+      grid-template-areas: "msg msg" "mark act"; column-gap: calc(var(--line) * .9); align-items: center; }
+    .mark { margin-bottom: 0; }
+    .msg { padding-bottom: calc(var(--line) * 1.1); }
+  }
+  /* read in passing: the headline and one way to act, no support line */
+  [data-preset^="billboard"] .sub, [data-preset^="transit"] .sub { display: none; }
+</style>
+</head>
+<body>
+  <img class="art" src="https://codex-design.invalid/patterns/assets/photos/bag-cutout.webp" alt="">
+  <div class="safe">
+    <div class="mark" data-logo><img src="https://codex-design.invalid/sample-brand/logo-mark-reversed.svg" alt="Tidewater"><div class="wm" role="img" aria-label="Tidewater"></div></div>
+    <div class="msg">
+      <h1 data-fit="floor" data-fit-lines="2">Roasted here, sold by weight</h1>
+      <p class="sub">Fresh beans every day at 12 Harbour Street</p>
+    </div>
+    <p class="act">Open daily, 7 to 6</p>
+  </div>
+</body>
+</html>

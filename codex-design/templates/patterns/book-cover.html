@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Book cover</title>
+<!-- Pattern: book cover (direction "Title as the image"). Presets: ebook-kdp and the other e-book presets for the front
+     alone; a print wrap from `design.py bookcover` (back, spine and front on one canvas, with the spine, barcode and
+     hinge areas it computes). The same front works for both, so the e-book and the print edition match.
+     The title must read in a store's search results, where the cover is about 94 px wide: two to five big words, the
+     author's name large enough to read on the product page, one strong image or shape, no small print on the front.
+     Back cover: a hook line, a short blurb, an author line, the publisher mark, and the barcode box left empty (the
+     platform prints it). Spine: title and author, read top to bottom in English. Swap .art for an illustration or
+     photo plate. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  /* the front panel: the whole canvas for an e-book, the right panel of a wrap */
+  body { background: var(--primary); color: var(--paper); }
+  .front { position: absolute; inset: 0; overflow: hidden; container-type: size; }
+  /* the disc sits between the subtitle and the author line, so every word keeps a flat ground; sized by the
+     smaller of width and height, so a 3:4 cover (Kobo) and a 1:1.6 one (Kindle) both keep the gap */
+  .art { --d: min(72cqw, 44cqh); position: absolute; left: calc(78cqw - var(--d) / 2); top: calc(64cqh - var(--d) / 2);
+    width: var(--d); height: var(--d); border-radius: 50%;
+    background: radial-gradient(circle at 42% 40%, #f0c46e 0 12%, var(--accent) 12.2% 60%, #b97e22 60.2% 100%); }
+  .front .in { position: absolute; left: 9cqw; right: 9cqw; top: 7cqh; bottom: 6cqh; display: grid;
+    grid-template-rows: auto auto 1fr auto; }
+  .front h1 { margin: 0; font: 800 14.5cqw/0.95 var(--font-display); letter-spacing: -0.03em; }
+  .front .sub { margin-top: 3cqh; max-width: 70cqw; font: 500 4.4cqw/1.25 var(--font-text); text-wrap: balance; }
+  .front .author { font: 700 8cqw/1 var(--font-text); letter-spacing: .01em; }
+  /* a print wrap: the preset gives --back-x, --spine-x, --front-x, --board-w, --spine-w and --wrap */
+  .back, .spine { display: none; }
+  .wrap .front { inset: 0 0 0 auto; left: var(--front-x); width: calc(var(--canvas-w) - var(--front-x)); }
+  .wrap .front .in { right: calc(9cqw + var(--wrap)); top: calc(7cqh + var(--wrap)); bottom: calc(6cqh + var(--wrap)); }
+  /* one ground runs across back, spine and front: spines drift up to 1/16 in, so a colour change on a fold shows
+     as a sliver on the wrong side */
+  .wrap .back { display: grid; position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--spine-x));
+    color: var(--paper); padding: calc(var(--wrap) + var(--text-safe) + 0.35in)
+    calc(var(--text-safe) + 0.35in) calc(var(--wrap) + var(--text-safe) + 1.9in) calc(var(--wrap) + var(--text-safe) + 0.35in);
+    grid-template-rows: auto auto auto 1fr auto; }
+  .back .hook { max-width: 4.6in; font: 800 27pt/1.05 var(--font-display); letter-spacing: -0.01em; text-wrap: balance; }
+  .back p { margin: 0.22in 0 0; max-width: 4.3in; font: 400 13pt/1.5 var(--font-text); text-wrap: pretty; }
+  .back .bio { max-width: 3.2in; font: 500 10.5pt/1.45 var(--font-text); color: var(--sand); text-wrap: balance; }
+  .back .press { height: 0.42in; width: auto; margin-top: 0.2in; }
+  .wrap .spine { display: flex; position: absolute; top: 0; bottom: 0; left: var(--spine-x); width: var(--spine-w);
+    background: var(--primary); align-items: center; justify-content: center; }
+  /* spine type fills about half the spine between its margins, never over 0.3 in; no spine text under the
+     platform's page minimum (--spine-text is 0, and the whole spine is a keep-out) */
+  .spine .t { writing-mode: vertical-rl; text-orientation: sideways; white-space: nowrap;
+    font: 700 min(calc((var(--spine-w) - 2 * var(--spine-margin)) * .55), 0.3in)/1.3 var(--font-display); }
+  .spine .t span { margin-inline-start: 0.3in; font-family: var(--font-text); color: var(--sand); }
+  .no-spine-text .spine .t { display: none; }
+</style>
+</head>
+<body>
+  <section class="back">
+    <div class="hook">Great coffee is roasted, not bought.</div>
+    <p>Ana Ruiz has roasted beans in a shop, a garage and a popcorn machine. This book shows you how to roast at home
+      in twenty minutes, taste what changed, and do it better the next week.</p>
+    <p>Inside: three roast profiles to start with, a tasting log, and the one habit that stops coffee tasting flat.</p>
+    <div></div>
+    <div><div class="bio">Ana Ruiz is the head roaster at Tidewater Coffee Roasters.</div>
+      <img class="press logo-mark" src="https://codex-design.invalid/sample-brand/logo-mark-reversed.svg" alt="Tidewater Press"></div>
+  </section>
+  <section class="spine"><div class="t">The Home Roaster’s Handbook<span>Ana Ruiz</span></div></section>
+  <section class="front">
+    <div class="art"></div>
+    <div class="in">
+      <h1>The Home Roaster’s Handbook</h1>
+      <div class="sub">Roast great coffee in your own kitchen</div>
+      <div></div>
+      <div class="author">Ana Ruiz</div>
+    </div>
+  </section>
+  <script>
+    // a wrap preset carries --spine-w; the renderer sets the preset's variables on DOMContentLoaded, before this runs
+    document.addEventListener('DOMContentLoaded', () => {
+      const v = getComputedStyle(document.documentElement);
+      if (v.getPropertyValue('--spine-w').trim()) document.body.classList.add('wrap');
+      if (v.getPropertyValue('--spine-text').trim() === '0') document.body.classList.add('no-spine-text');
+    });
+  </script>
+</body>
+</html>

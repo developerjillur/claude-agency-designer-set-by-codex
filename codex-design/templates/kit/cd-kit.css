@@ -1,0 +1,68 @@
+/* codex-design kit. Link it first, then brand.css, then the design's own <style>.
+   The renderer sets --canvas-w, --canvas-h, --slides, --pages, --bleed, --safe-top/right/bottom/left and
+   html[data-preset]. */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+html {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-kerning: normal;
+  font-optical-sizing: auto;
+  font-synthesis: none;            /* never fake bold or italic (single-weight and CJK/Indic faces) */
+}
+/* scripts with joins, conjuncts or a headline stroke: no tracking, no caps, room for vowel signs */
+:lang(bn), :lang(hi), :lang(mr), :lang(ne), :lang(ar), :lang(fa), :lang(ur) {
+  letter-spacing: 0 !important; word-spacing: normal; text-transform: none;
+}
+body {
+  position: relative;
+  overflow: hidden;
+  width: calc(var(--canvas-w, 1080px) * var(--slides, 1));
+  height: calc(var(--canvas-h, 1350px) * var(--pages, 1));
+  background: var(--paper, #fff);
+  color: var(--ink, #111);
+}
+img, svg, video { display: block; }
+
+/* one canvas; carousels put N .slide elements in a .track (render with --slides N); documents stack N .page
+   elements (render with --pages N: one PDF page each, or one PNG per page) */
+.canvas, .slide, .page { position: relative; width: var(--canvas-w, 1080px); height: var(--canvas-h, 1350px); overflow: hidden; flex: none; }
+.page { break-after: page; break-inside: avoid; }
+.page:last-child { break-after: auto; }
+.track { position: relative; display: flex; width: calc(var(--canvas-w, 1080px) * var(--slides, 1)); height: var(--canvas-h, 1350px); }
+
+/* text and logos belong inside .safe (platform UI, trimming); inside a .page it is relative to that page */
+.safe { position: absolute; top: var(--safe-top, 0px); right: var(--safe-right, 0px); bottom: var(--safe-bottom, 0px); left: var(--safe-left, 0px); }
+
+/* print: backgrounds run to the bleed edge; .trimbox is the finished size. Small dark text in print: #000
+   (--print-black) so the printer's RIP prints it in black only */
+.bleedbox { position: absolute; inset: 0; }
+.trimbox { position: absolute; inset: var(--bleed, 0px); }
+:root { --print-black: #000; }
+
+/* images */
+.fill { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.scrim-bottom { position: absolute; inset: 0; background: linear-gradient(to top, rgb(0 0 0 / .74) 0%, rgb(0 0 0 / .42) 32%, rgb(0 0 0 / 0) 62%); }
+.scrim-top { position: absolute; inset: 0; background: linear-gradient(to bottom, rgb(0 0 0 / .62) 0%, rgb(0 0 0 / .28) 26%, rgb(0 0 0 / 0) 48%); }
+.grain::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: var(--grain, .07); mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 1 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+/* typography helpers */
+.balance { text-wrap: balance; }
+.pretty { text-wrap: pretty; }
+.nums { font-variant-numeric: lining-nums tabular-nums; }
+/* display type gets lining figures: old-style ones (Young Serif's default) drop below the baseline, look uneven in a
+   headline number and collided with the next line in a judged thumbnail ("36-hour") */
+h1, h2, h3, .display, [data-fit] { font-variant-numeric: lining-nums; }
+.caps { text-transform: uppercase; letter-spacing: .08em; }
+.cap-trim { text-box: trim-both cap alphabetic; }
+.nowrap { white-space: nowrap; }
+
+/* layout check while designing: add class="show-grid" to <body> (12 columns inside the safe area) */
+.show-grid::before {
+  content: ""; position: absolute; z-index: 9999; pointer-events: none;
+  top: var(--safe-top, 0px); right: var(--safe-right, 0px); bottom: var(--safe-bottom, 0px); left: var(--safe-left, 0px);
+  background: repeating-linear-gradient(to right, rgb(255 0 80 / .10) 0 calc((100% - 11 * var(--gutter, 24px)) / 12), transparent 0 calc((100% - 11 * var(--gutter, 24px)) / 12 + var(--gutter, 24px)));
+}

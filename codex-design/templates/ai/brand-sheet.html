@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Brand reference sheet</title>
+<!-- Reference image for the single-prompt route: the brand on one 3:2 sheet (logo on light and dark, palette with
+     hex and role, type specimens in the real fonts, the motif), attached as one reference so the image model sees the
+     brand instead of guessing it. Built from brand.json by the script; render with
+     design.py refsheet --brand brand/brand.json --out refs/brand-sheet.png
+     (or render --preset ref-sheet with data-brand pointing at the brand). The sheet is a reference only: the prompt
+     says not to copy its layout or labels into the design. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  body { background: #FFFFFF; color: #1b1b1b; font-family: var(--font-text); }
+  .sheet { position: absolute; inset: 48px; display: grid; grid-template-columns: 1.1fr 1fr; grid-template-rows: auto 1fr auto;
+    gap: 32px 48px; }
+  .label { font: 700 18px/1 var(--font-text); letter-spacing: .12em; text-transform: uppercase; color: #6a6a6a; margin: 0 0 14px; }
+  .logos { grid-column: 1; grid-row: 1 / 3; display: grid; grid-template-rows: 1fr 1fr; gap: 24px; }
+  .tile { border-radius: 16px; display: grid; place-items: center; position: relative; }
+  .tile.light { background: var(--paper); box-shadow: inset 0 0 0 2px #e4e4e4; }
+  .tile.dark { background: var(--primary); }
+  .lockup { display: flex; align-items: center; gap: 22px; }
+  .lockup img { height: 110px; width: auto; }
+  .lockup .wm { height: 66px; aspect-ratio: var(--wm-ratio, 6); background: var(--ink); -webkit-mask: var(--wm-url) no-repeat left center / contain;
+    mask: var(--wm-url) no-repeat left center / contain; }
+  .dark .lockup .wm { background: var(--paper); }
+  .palette { grid-column: 2; grid-row: 1; }
+  .chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .chip { border-radius: 12px; overflow: hidden; box-shadow: inset 0 0 0 2px #e4e4e4; }
+  .chip i { display: block; height: 86px; }
+  .chip span { display: block; padding: 8px 10px; font: 600 16px/1.3 var(--font-text); }
+  .type { grid-column: 2; grid-row: 2; display: grid; align-content: start; gap: 18px; }
+  .spec { border-top: 2px solid #eee; padding-top: 12px; }
+  .spec .big { font-size: 68px; line-height: 1; }
+  .spec .meta { font: 600 16px/1.3 var(--font-text); color: #6a6a6a; margin-top: 6px; }
+  .motif { grid-column: 1 / -1; grid-row: 3; display: flex; align-items: center; gap: 28px; border-top: 2px solid #eee; padding-top: 18px;
+    font: 500 20px/1.35 var(--font-text); color: #333; }
+  .motif svg { flex: none; width: 220px; height: 60px; }
+  /* data-mode="model": the version the image model sees. No logo (the real one is composited later, so the model
+     must not draw one) and no words (labels, names and hex codes in a reference get copied into designs). */
+  body[data-mode="model"] .logos, body[data-mode="model"] .label, body[data-mode="model"] .chip span,
+  body[data-mode="model"] .spec .meta, body[data-mode="model"] .motif span { display: none; }
+  body[data-mode="model"] .sheet { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; gap: 40px; }
+  body[data-mode="model"] .palette { grid-column: 1; grid-row: 1; }
+  body[data-mode="model"] .chips { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 16px; }
+  body[data-mode="model"] .chip { box-shadow: none; }
+  body[data-mode="model"] .chip i { height: 230px; }
+  body[data-mode="model"] .type { grid-column: 1; grid-row: 2; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    align-items: center; align-content: center; }
+  body[data-mode="model"] .spec { border-top: 0; padding: 0; }
+  body[data-mode="model"] .spec .big { font-size: 190px; }
+  body[data-mode="model"] .motif { grid-row: 3; border-top: 0; justify-content: center; }
+  body[data-mode="model"] .motif svg { width: 420px; height: 110px; }
+</style>
+</head>
+<body data-brand="https://codex-design.invalid/sample-brand/brand.json">
+  <div class="sheet">
+    <div class="logos">
+      <div class="tile light"><div class="lockup" data-slot="lock"></div></div>
+      <div class="tile dark"><div class="lockup" data-slot="lock-rev"></div></div>
+    </div>
+    <div class="palette"><p class="label">Colours</p><div class="chips" data-slot="chips"></div></div>
+    <div class="type" data-slot="type"></div>
+    <div class="motif"><svg viewBox="0 0 220 60" aria-hidden="true"><path d="M8 44 C 60 8, 150 8, 212 36" fill="none" stroke-width="6" stroke-linecap="round" data-slot="motif-path"/></svg><span data-slot="motif"></span></div>
+  </div>
+<script>
+window.__cdReady = (async () => {
+  await window.__cdReady;
+  const url = new URL(document.body.dataset.brand, location.href);
+  const b = await (await fetch(url)).json();
+  const u = p => new URL(p, url).href;
+  const logo = b.logo || {};
+  const setBy = (s, f) => document.querySelectorAll(`[data-slot="${s}"]`).forEach(f);
+  document.documentElement.style.setProperty('--wm-url', `url("${u(logo.wordmark || '')}")`);
+  const wm = new Image(); wm.src = u(logo.wordmark || '');
+  try { await wm.decode(); document.documentElement.style.setProperty('--wm-ratio', `${wm.naturalWidth} / ${wm.naturalHeight}`); } catch (e) {}
+  setBy('lock', el => el.innerHTML = `<img src="${u(logo.mark)}" alt=""><div class="wm" role="img" aria-label="wordmark"></div>`);
+  setBy('lock-rev', el => el.innerHTML = `<img src="${u(logo.mark_reversed || logo.mark)}" alt=""><div class="wm" role="img" aria-label="wordmark"></div>`);
+  const cols = Object.entries(b.colors || {}).slice(0, 8);
+  setBy('chips', el => el.innerHTML = cols.map(([k, v]) => `<div class="chip"><i style="background:${v}"></i><span>${k}<br>${v.toUpperCase()}</span></div>`).join(''));
+  const fam = spec => spec.split('@')[0].split(':')[0].trim();
+  const wts = spec => (spec.split('@')[0].split(':')[1] || '400').split(',');
+  setBy('type', el => el.innerHTML = '<p class="label">Type</p>' + Object.entries(b.fonts || {}).slice(0, 3).map(([role, spec]) => {
+    const bn = /bengali|bangla/i.test(role + spec);
+    const model = document.body.dataset.mode === 'model';
+    const sample = bn ? (model ? 'অআ' : 'বাংলা ক্ষ ০১২৩') : (model ? 'Aa' : 'Aa Bb Gg 0123');
+    return `<div class="spec"${bn ? ' lang="bn"' : ''}><div class="big" style="font-family:'${fam(spec)}';font-weight:${wts(spec).pop()}">${sample}</div>` +
+      `<div class="meta">${role}: ${fam(spec)} ${wts(spec).join(' / ')}</div></div>`;
+  }).join(''));
+  setBy('motif-path', el => el.setAttribute('stroke', b.colors?.accent || b.colors?.primary || '#333'));
+  setBy('motif', el => el.textContent = b.motif ? `Motif: ${b.motif}` : '');
+  await Promise.all([...document.images].map(i => i.complete ? 0 : i.decode().catch(() => 0)));
+  await document.fonts.ready;
+  await window.__cdFit();
+})();
+</script>
+</body>
+</html>

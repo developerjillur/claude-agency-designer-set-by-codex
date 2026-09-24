@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YouTube thumbnail</title>
+<!-- Pattern: YouTube thumbnail, preset yt-thumbnail (render --scale 3 for a 3840x2160 upload from a computer; the
+     1280x720 JPG stays under 2 MB for phone uploads). Face or object on the left 45 % (a cut-out of the creator's
+     real photo, or a plate), 2-4 words on the right, the bottom-right 270x155 kept clear for the duration badge
+     (a keep-out zone in the checks). Overlay presets by class on <body>: ov-beast (default), ov-fire, ov-lime,
+     ov-glass, ov-marker. For the classic heavy look load Anton or Archivo Black with `design.py fonts` and set
+     --font-thumb. Replace .subject with <img class="subject" src="plates/face-cutout.png" alt="">. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  :root { --font-thumb: var(--font-display); }
+  body { background: radial-gradient(120% 120% at 20% 40%, #2c7784 0%, #164E57 45%, #0b2a30 100%); }
+  /* the sample subject: a cut-out of the thing the video is about, about half the frame, entering from the edge */
+  /* mirrored so the forearm the cut-out crops leaves through the frame's left edge, and the other through the bottom */
+  .subject { position: absolute; left: -2%; bottom: -9%; height: 118%; width: auto; transform: scaleX(-1);
+    filter: drop-shadow(0 18px 30px rgb(0 0 0 / .35)); }
+  /* top right: clear of the subject; YouTube's timestamp takes the bottom right */
+  .mark { position: absolute; right: max(var(--safe-right, 0px), 4%); top: max(var(--safe-top, 0px), 5%); height: max(64px, var(--mark-min, 0px)); width: auto; }
+  h1 .n { display: block; font-size: 1.45em; font-weight: 800; line-height: .9; color: var(--accent); }
+  h1 { position: absolute; right: 4%; top: 30%; width: 45%; height: 46%; margin: 0; display: flex; align-items: center;
+    font: 800 150px/0.9 var(--font-thumb); letter-spacing: -0.01em; text-transform: uppercase; text-wrap: balance; }
+  .ov-beast h1 { color: #fff; -webkit-text-stroke: 0.06em #0b0c0d; paint-order: stroke fill; text-shadow: 0.02em 0.03em 0 #0b0c0d; }
+  .ov-fire h1 span { background: linear-gradient(#FFE24B, #FF9A1F 55%, #FF2E2E); -webkit-background-clip: text; background-clip: text;
+    color: transparent; filter: drop-shadow(0 0 .08em rgb(255 120 30 / .7)) drop-shadow(.04em .05em 0 #1a0b00); }
+  .ov-lime h1 { color: #D4FF3F; -webkit-text-stroke: 0.09em #0b0f02; paint-order: stroke fill; text-shadow: 0 0 .22em rgb(212 255 63 / .45); }
+  .ov-glass h1 { text-transform: none; align-items: flex-start; height: auto; top: 16%; }
+  .ov-glass h1 span { padding: .12em .3em; border-radius: .2em; background: rgb(20 20 25 / .45); backdrop-filter: blur(16px);
+    color: #fff; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+  .ov-marker h1 { color: #0b0f02; }
+  .ov-marker h1 span { background: #D4FF3F; padding: 0 .1em; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+</style>
+</head>
+<body class="ov-beast">
+  <img class="subject" src="https://codex-design.invalid/patterns/assets/photos/grinder-hands.webp" alt="">
+  <img class="mark logo-mark" src="https://codex-design.invalid/sample-brand/logo-mark-reversed.svg" alt="Tidewater">
+  <h1 data-fit="84,130" data-fit-lines="3"><span><b class="n">7</b> grinders tested</span></h1>
+</body>
+</html>

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Invitation</title>
+<!-- Pattern: invitation card (direction "Quiet formal"). Presets invite-5x7 (5 x 7 in, 1/16 in bleed) and invite-a5
+     (148 x 210 mm, 3 mm bleed); a wedding, an engagement, a gaye holud, a launch or a dinner. Sizes are a share of the
+     canvas, so one HTML fits both.
+     Render: design.py render --html invitation.html --preset invite-5x7 --out out/invite.pdf --preview
+     Reading order: who invites, the names (the biggest line), what for, then the facts a guest acts on: day and
+     date, time, place, and how to reply. Budget: about 40 words on the front; details (map, schedule, dress code)
+     go on the back or an insert card. For a Bangla card, set lang="bn" on <html>, use var(--font-bengali), and keep
+     the family's own wording (a doa line, the parents' names) exactly as they give it; confirm the size with the local
+     press (5 x 7 in is the global default). No text under 8 pt: fine hairlines and small type fill in on textured
+     card. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  :root { --u: calc(var(--canvas-w) / 500); }
+  body { background: var(--paper); color: var(--primary); }
+  /* an arch drawn inside the trim; the text stays well inside it */
+  .arch { position: absolute; left: calc(var(--bleed) + var(--u) * 34); right: calc(var(--bleed) + var(--u) * 34);
+    top: calc(var(--bleed) + var(--u) * 34); bottom: calc(var(--bleed) + var(--u) * 34);
+    border: calc(var(--u) * 1.4) solid var(--accent); border-radius: 50% 50% calc(var(--u) * 6) calc(var(--u) * 6) / 30% 30% calc(var(--u) * 6) calc(var(--u) * 6); }
+  .copy { position: absolute; left: calc(var(--bleed) + var(--u) * 70); right: calc(var(--bleed) + var(--u) * 70);
+    top: calc(var(--bleed) + var(--u) * 150); bottom: calc(var(--bleed) + var(--u) * 70);
+    display: grid; grid-template-rows: auto auto auto 1fr auto auto; justify-items: center; text-align: center; }
+  .small { margin: 0; font: 700 calc(var(--u) * 12.5)/1.4 var(--font-text); letter-spacing: .16em; text-transform: uppercase; }
+  .names { margin: calc(var(--u) * 22) 0 0; font: 800 calc(var(--u) * 46)/1.02 var(--font-display); letter-spacing: -0.02em;
+    color: var(--ink); }
+  .names span { display: block; margin: calc(var(--u) * 6) 0; font-size: calc(var(--u) * 30); color: var(--primary); }
+  .for { margin: calc(var(--u) * 22) 0 0; max-width: calc(var(--u) * 300); font: 400 calc(var(--u) * 16)/1.45 var(--font-text);
+    color: var(--print-black); text-wrap: balance; }
+  .when { margin: 0; font: 700 calc(var(--u) * 16)/1.45 var(--font-text); color: var(--print-black); }
+  .when span { display: block; font-weight: 400; }
+  .reply { margin: calc(var(--u) * 20) 0 0; }
+  /* a small ornament marks the pause between the invitation and the facts */
+  .orn { align-self: center; width: calc(var(--u) * 90); display: grid; grid-template-columns: 1fr auto 1fr;
+    align-items: center; gap: calc(var(--u) * 8); }
+  .orn::before, .orn::after { content: ""; height: calc(var(--u) * 1.4); background: var(--accent); }
+  .orn i { width: calc(var(--u) * 7); height: calc(var(--u) * 7); background: var(--accent); transform: rotate(45deg); }
+</style>
+</head>
+<body>
+  <div class="bleedbox"></div>
+  <div class="arch" aria-hidden="true"></div>
+  <div class="copy">
+    <p class="small">Together with their families</p>
+    <h1 class="names">Amara Osei<span>and</span>Daniel Reyes</h1>
+    <p class="for">invite you to celebrate their wedding</p>
+    <div class="orn" aria-hidden="true"><i></i></div>
+    <p class="when">Saturday 14 November 2026, 4 pm<span>The Glasshouse, 12 Harbour Street</span></p>
+    <p class="small reply">Please reply by 20 October</p>
+  </div>
+</body>
+</html>

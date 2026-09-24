@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Display ad set</title>
+<!-- Pattern: static display ads, one HTML for the IAB set. Pack them together:
+     design.py pack --html ad-banner.html --presets iab-mrec,iab-leaderboard,iab-halfpage,iab-skyscraper,iab-mobile-banner,iab-billboard,gads-landscape --out-dir out --format png
+     Anatomy: brand mark, one offer headline (≤ 6 words), one line of detail, a CTA that looks pressable, and the
+     terms where the offer needs them. The same copy on every size; the layout changes (row for wide sizes, stack for
+     tall ones), never the words. Check each file against the network's byte limit (the presets carry it; use
+     --format jpg to apply it). For Google's responsive display ads, upload clean images and logos instead: the network
+     adds the text itself. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  :root { --u: calc(var(--canvas-h) / 250); }            /* one unit = 1 px on the 300x250 master */
+  body { background: var(--primary); color: var(--paper); }
+  .safe { display: flex; flex-direction: column; justify-content: space-between; padding: calc(var(--u) * 10); }
+  .mark { width: calc(var(--u) * 34); height: auto; flex: none; }
+  .msg { display: flex; flex-direction: column; }
+  h1 { margin: 0; font: 800 calc(var(--u) * 30)/1 var(--font-display); letter-spacing: -0.02em; text-wrap: balance; }
+  .offer { margin: calc(var(--u) * 6) 0 0; font: 700 calc(var(--u) * 17)/1.2 var(--font-text); color: var(--paper); }
+  .cta { align-self: flex-start; flex: none; padding: calc(var(--u) * 8) calc(var(--u) * 14); border-radius: 999px; background: var(--accent);
+    color: var(--ink); font: 700 calc(var(--u) * 14)/1 var(--font-text); white-space: nowrap; }
+  .terms { font: 500 max(11px, calc(var(--u) * 11))/1.2 var(--font-text); color: var(--sand); text-wrap: balance; }
+  .row { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+  /* wide, short sizes: one row, mark · message · CTA */
+  [data-preset="iab-leaderboard"] .safe, [data-preset="iab-mobile-banner"] .safe,
+  [data-preset="iab-billboard"] .safe { flex-direction: row; align-items: center; gap: calc(var(--u) * 22); }  /* ≥ half the mark: its clear space */
+  [data-preset="iab-leaderboard"] .msg, [data-preset="iab-mobile-banner"] .msg,
+  [data-preset="iab-billboard"] .msg { flex: 1; }
+  [data-preset="iab-leaderboard"] .row, [data-preset="iab-mobile-banner"] .row,
+  [data-preset="iab-billboard"] .row { flex-direction: column; align-items: flex-end; gap: 4px; }
+  [data-preset="iab-leaderboard"] { --u: calc(var(--canvas-h) / 150); }
+  [data-preset="iab-leaderboard"] h1 { font-size: 26px; } [data-preset="iab-leaderboard"] .offer { font-size: 14px; margin-top: 3px; }
+  [data-preset="iab-leaderboard"] .cta { font-size: 14px; padding: 9px 14px; }
+  [data-preset="iab-leaderboard"] .mark { width: 46px; } [data-preset="iab-leaderboard"] .safe { gap: 26px; }
+  [data-preset="iab-mobile-banner"] { --u: calc(var(--canvas-h) / 100); }
+  [data-preset="iab-mobile-banner"] .safe { padding: 4px 6px; gap: 15px; }
+  [data-preset="iab-mobile-banner"] .mark { width: 30px; }
+  [data-preset="iab-mobile-banner"] h1 { font-size: 16px; } [data-preset="iab-mobile-banner"] .offer { font-size: 12px; margin-top: 1px; }
+  [data-preset="iab-mobile-banner"] .cta { font-size: 12px; padding: 7px 10px; }
+  [data-preset="iab-mobile-banner"] .terms { display: none; }
+  [data-preset="iab-billboard"] { --u: calc(var(--canvas-h) / 140); }
+  [data-preset="gads-landscape"] { --u: calc(var(--canvas-h) / 200); }  /* shown small: every line ≥ 34 px; stacked like the MREC */
+  [data-preset="iab-halfpage"] { --u: calc(var(--canvas-h) / 420); }
+  [data-preset="iab-skyscraper"] { --u: calc(var(--canvas-h) / 560); }
+  [data-preset="iab-skyscraper"] h1 { font-size: 26px; }
+  [data-preset="iab-skyscraper"] .row { flex-direction: column; align-items: flex-start; }
+</style>
+</head>
+<body>
+  <div class="safe">
+    <img class="mark logo" src="https://codex-design.invalid/sample-brand/logo-mark-reversed.svg" alt="Tidewater">
+    <div class="msg">
+      <h1>Harvest roast is back</h1>
+      <p class="offer">20&nbsp;% off your first bag</p>
+    </div>
+    <div class="row">
+      <span class="terms">Until 31 Oct 2026, online</span>
+      <span class="cta pill">Shop now</span>
+    </div>
+  </div>
+</body>
+</html>

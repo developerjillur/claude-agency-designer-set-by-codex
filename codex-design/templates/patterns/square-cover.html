@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Square cover art</title>
+<!-- Pattern: podcast, album, single or audiobook cover (direction "Type as the picture"). Presets: podcast-cover, album-cover, audiobook-cover, yt-podcast-thumb.
+     Cover art is seen at 55 to 180 px in apps, so the title is two or three huge words and nothing on it is smaller than
+     183 px on the 3000 px canvas (about 11 px in a large app tile). One focal shape, strong contrast, no small print:
+     stores reject URLs, social handles, prices and "new" or "episode" labels on cover art. Episode art changes the
+     number or guest in the same system. Swap .disc for a photo plate if the brand has one. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  /* every size follows the canvas: the same cover renders at 3000 (podcast, album), 2400 (audiobook) and 1280
+     (YouTube podcast) */
+  :root { --u: calc(var(--canvas-w) / 3000); }
+  body { background: var(--primary); color: var(--paper); }
+  .disc { position: absolute; right: calc(var(--u) * -500); bottom: calc(var(--u) * -500);
+    width: calc(var(--u) * 1500); height: calc(var(--u) * 1500); border-radius: 50%;
+    background: radial-gradient(circle at 50% 50%, var(--primary) 0 18%, var(--accent) 18.2% 100%); }
+  .mark { position: absolute; left: var(--safe-left); top: var(--safe-top); height: max(calc(var(--u) * 300), var(--mark-min, 0px)); width: auto; }
+  h1 { position: absolute; left: var(--safe-left); top: max(calc(var(--u) * 640), calc(var(--safe-top) + max(calc(var(--u) * 300), var(--mark-min, 0px)) * 1.55)); margin: 0; width: calc(var(--u) * 1900);
+    font: 800 calc(var(--u) * 540)/0.9 var(--font-display); letter-spacing: -0.035em; }
+  .host { position: absolute; left: var(--safe-left); bottom: var(--safe-bottom);
+    font: 700 max(calc(var(--u) * 210), var(--label-min, 0px))/1.1 var(--font-text); }
+  /* ACX may put an "Only from Audible" triangle over the bottom-right 41 %: keep the title above and left of it
+     (an audiobook cover needs the title and the author on it) */
+  [data-preset="audiobook-cover"] h1 { top: max(calc(var(--u) * 605), calc(var(--safe-top) + max(calc(var(--u) * 300), var(--mark-min, 0px)) * 1.55)); font-size: calc(var(--u) * 430); }
+</style>
+</head>
+<body>
+  <div class="disc"></div>
+  <img class="mark logo-mark" src="https://codex-design.invalid/sample-brand/logo-mark-reversed.svg" alt="Tidewater">
+  <h1>The Roast Report</h1>
+  <div class="host">Ana Ruiz</div>
+</body>
+</html>

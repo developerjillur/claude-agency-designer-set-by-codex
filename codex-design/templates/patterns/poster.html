@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Event poster A3</title>
+<!-- Pattern: event poster (image-led, one visual idea). Preset a3-poster (297 x 420 mm, 3 mm bleed, 10 mm safe);
+     also a2-poster, b2-poster, tabloid-poster, poster-18x24 (sizes scale with the canvas: type is in % of it).
+     Render: design.py render --html poster.html --preset a3-poster --out out/poster.pdf --preview
+     AIDA from top to bottom: the visual with the date in it (attention), the headline in the top two thirds and a
+     benefit line (interest, desire), the info block at eye level with what · when · where · price and a QR code
+     labelled with its action (action), then the brand. Budget: headline ≤ 7 words, info block ≤ 5 lines, ≤ 40 words.
+     Letter height: about 25 mm per 3 m of reading distance. QR ≥ 20 mm (bigger for distance: ~ distance ÷ 10). -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  body { background: var(--paper); color: var(--print-black); }
+  /* the visual: one cup seen from above, cropped by the top edge on purpose */
+  .cup { position: absolute; left: 50%; top: 25%; width: 92%; aspect-ratio: 1; transform: translate(-50%, -50%); }
+  .date { position: absolute; left: 50%; top: 25%; transform: translate(-50%, -50%); text-align: center; color: var(--paper); }
+  .date b { display: block; font: 700 calc(var(--canvas-w) * .032)/1 var(--font-text); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+  .date span { display: block; margin-top: .12em; font: 800 calc(var(--canvas-w) * .105)/0.9 var(--font-display); letter-spacing: -0.03em; }
+  .safe { display: grid; grid-template-rows: 1fr auto auto auto; }
+  .top { position: absolute; left: 0; right: 0; top: 0; display: flex; justify-content: space-between; align-items: center; }
+  .top .wm { width: 22%; aspect-ratio: 971 / 162; background: var(--primary);
+    -webkit-mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat left center / contain;
+    mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat left center / contain; }
+  h1 { grid-row: 2; margin: 0; font: 800 calc(var(--canvas-w) * .135)/0.9 var(--font-display); letter-spacing: -0.035em; color: var(--primary); }
+  .sub { grid-row: 3; margin: .7em 0 0; max-width: 30ch; font: 500 calc(var(--canvas-w) * .026)/1.3 var(--font-text); text-wrap: pretty; }
+  .info { grid-row: 4; margin-top: calc(var(--canvas-w) * .05); padding-top: calc(var(--canvas-w) * .03); border-top: 1.5pt solid var(--print-black);
+    display: grid; grid-template-columns: 1fr auto; gap: 6%; align-items: end; }
+  .info p { margin: 0; font: 700 calc(var(--canvas-w) * .026)/1.35 var(--font-text); }
+  .info p strong { font-weight: 700; }
+  .qr { text-align: center; }
+  .qr img { width: calc(var(--canvas-w) * .12); height: auto; aspect-ratio: 1; margin: 0 auto; }
+  .qr span { display: block; margin-top: .5em; font: 700 calc(var(--canvas-w) * .015)/1.3 var(--font-text); }
+</style>
+</head>
+<body>
+  <div class="bleedbox"></div>
+  <svg class="cup" viewBox="0 0 1000 1000" aria-hidden="true">
+    <circle cx="500" cy="500" r="490" fill="#E6DED0"/>
+    <rect x="800" y="458" width="190" height="84" rx="42" fill="#FBFAF7" stroke="#D9D4CA" stroke-width="4" transform="rotate(36 500 500)"/>
+    <circle cx="500" cy="500" r="352" fill="#FBFAF7" stroke="#D9D4CA" stroke-width="4"/>
+    <circle cx="500" cy="500" r="292" fill="#3B2418"/>
+    <circle cx="500" cy="500" r="268" fill="none" stroke="#6B4A2E" stroke-width="10" opacity=".7"/>
+  </svg>
+  <div class="date"><b>Saturday</b><span>17 Oct</span></div>
+  <div class="safe">
+    <div class="top"><div class="wm logo" role="img" aria-label="Tidewater"></div></div>
+    <h1 data-fit="60" data-fit-lines="2">Watch us roast</h1>
+    <p class="sub">Tour the roaster and taste the first batch of this year’s harvest.</p>
+    <div class="info">
+      <p><strong>Open roastery day</strong><br>10:00–16:00 · 12&nbsp;Harbour Street<br>Free, no booking needed</p>
+      <div class="qr"><img src="https://codex-design.invalid/patterns/assets/qr-open-day.svg" alt="QR code: tidewater.example/open-day"><span>Scan for the programme<br>tidewater.example/open-day</span></div>
+    </div>
+  </div>
+</body>
+</html>

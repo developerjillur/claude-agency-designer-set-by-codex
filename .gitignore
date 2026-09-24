@@ -1,0 +1,11 @@
+# per-machine environments and caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+*.log
+.DS_Store
+
+# a private survey of other locally installed skills (machine paths, third-party licences)
+codex-design/references/research/R1-skills-higgsfield-local.md

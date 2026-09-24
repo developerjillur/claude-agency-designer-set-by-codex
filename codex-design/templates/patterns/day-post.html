@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Day post (celebratory)</title>
+<!-- Pattern: special-day post, tone class celebratory (occasions.md §1.2). Sample: International Coffee Day,
+     1 October (ICO), for a coffee brand. Presets: ig-portrait, ig-square, fb-feed, ig-story (pack them together).
+     Structure: the date, a typeset greeting, one specific motif from the day's own world (here ripe
+     coffee cherries, not the stock steaming cup), one warm line (8-20 words:
+     thanks or meaning, no feature list), the logo small. No offer here: a festive offer is a separate creative.
+     Second language: add class "bilingual" to <body> to show the greeting line in the audience's script (lang set,
+     never letter-spaced), only when the client's audience reads it. Render with --occasion celebratory.
+     For solemn or memorial days use day-solemn.html instead. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  body { background: var(--primary); color: var(--paper); }
+  .safe { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto auto 1fr auto;
+    grid-template-areas: "date date" "head head" "second second" ". ." "line logo"; column-gap: 40px; }
+  .date { grid-area: date; } h1 { grid-area: head; } .second { grid-area: second; } .line { grid-area: line; }
+  .wordmark { grid-area: logo; align-self: end; }
+  .date { display: flex; align-items: center; gap: 22px; font: 700 34px/1 var(--font-text); }
+  .date::before { content: ""; width: 90px; height: 20px; background: var(--accent);
+    -webkit-mask: var(--motif-mask, none) center / 100% 100% no-repeat; mask: var(--motif-mask, none) center / 100% 100% no-repeat; }
+  h1 { margin: 44px 0 0; width: 92%; height: 520px; display: flex; align-items: flex-start;
+    font: 800 140px/0.93 var(--font-display); letter-spacing: -0.025em; text-wrap: balance; }
+  .second { display: none; margin: 18px 0 0; font: 700 56px/1.3 var(--font-bengali); color: var(--sand); }
+  .bilingual .second { display: block; }
+  .bilingual h1 { height: 420px; }
+  .line { margin: 0; max-width: 17ch; font: 500 42px/1.3 var(--font-text); text-wrap: pretty; }
+  .wordmark { width: max(230px, var(--wordmark-min, 0px)); aspect-ratio: 971 / 162; background: var(--paper);
+    -webkit-mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat left bottom / contain;
+    mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat left bottom / contain; }
+  /* the motif: a coffee branch with ripe cherries, entering from the right edge (cropped on purpose) */
+  .motif { position: absolute; right: -7%; top: 34%; width: 64%; aspect-ratio: 1; }
+  .motif .branch { fill: none; stroke: var(--sand); stroke-width: 12; stroke-linecap: round; }
+  .motif .leaf { fill: #6F9E6B; } .motif .rib { fill: none; stroke: #4F7C4D; stroke-width: 4; stroke-linecap: round; }
+  .motif .ripe { fill: #C0392B; } .motif .deep { fill: #9E2A22; } .motif .gold { fill: var(--accent); }
+  .motif .navel { fill: rgb(40 10 6 / .55); }
+  [data-preset="ig-square"] h1, [data-preset="li-square"] h1 { height: 400px; width: 70%; }
+  [data-preset="ig-square"] .motif, [data-preset="li-square"] .motif { width: 58%; right: -6%; top: 30%; }
+  /* 9:16: the warm line follows the greeting, the branch fills the lower half, the logo sits alone at the foot */
+  [data-preset="ig-story"] .safe, [data-preset="vertical-safe"] .safe {
+    grid-template-areas: "date date" "head head" "second second" "line line" ". ." "logo logo"; }
+  [data-preset="ig-story"] h1, [data-preset="vertical-safe"] h1 { height: 440px; margin-top: 56px; }
+  [data-preset="ig-story"] .line, [data-preset="vertical-safe"] .line { margin-top: 40px; max-width: 20ch; font-size: 48px; }
+  [data-preset="ig-story"] .wordmark, [data-preset="vertical-safe"] .wordmark { justify-self: start; }
+  [data-preset="ig-story"] .motif, [data-preset="vertical-safe"] .motif { width: 96%; right: -18%; top: 45%; }
+</style>
+</head>
+<body>
+  <svg class="motif" viewBox="0 0 600 600" aria-hidden="true">
+    <path class="branch" d="M612 96 C540 128 452 196 372 280 S214 438 120 520"/>
+    <path class="leaf" d="M525 142 Q470 60 392 72 Q440 150 525 142 Z"/><path class="rib" d="M522 140 Q462 102 396 74"/>
+    <path class="leaf" d="M532 146 Q610 190 596 272 Q540 230 532 146 Z"/><path class="rib" d="M534 150 Q586 196 594 266"/>
+    <path class="leaf" d="M298 350 Q230 290 150 318 Q220 372 298 350 Z"/><path class="rib" d="M294 348 Q226 314 154 318"/>
+    <path class="leaf" d="M304 354 Q392 392 380 482 Q318 440 304 354 Z"/><path class="rib" d="M306 358 Q370 400 378 476"/>
+    <circle class="ripe" cx="430" cy="228" r="30"/><circle class="navel" cx="435" cy="247" r="4.5"/>
+    <circle class="deep" cx="468" cy="236" r="27"/><circle class="navel" cx="473" cy="253" r="4.5"/>
+    <circle class="ripe" cx="446" cy="262" r="26"/><circle class="navel" cx="451" cy="278" r="4.5"/>
+    <circle class="gold" cx="360" cy="306" r="24"/><circle class="navel" cx="364" cy="321" r="4.5"/>
+    <circle class="ripe" cx="392" cy="312" r="22"/><circle class="navel" cx="396" cy="326" r="4.5"/>
+    <circle class="deep" cx="196" cy="462" r="32"/><circle class="navel" cx="202" cy="482" r="4.5"/>
+    <circle class="ripe" cx="238" cy="468" r="28"/><circle class="navel" cx="243" cy="485" r="4.5"/>
+    <circle class="gold" cx="214" cy="500" r="27"/><circle class="navel" cx="219" cy="517" r="4.5"/>
+  </svg>
+  <div class="safe">
+    <div class="date">1 October</div>
+    <h1 data-fit="92,140" data-fit-lines="4">Happy International Coffee Day</h1>
+    <p class="second" lang="bn">আন্তর্জাতিক কফি দিবসের শুভেচ্ছা</p>
+    <p class="line">Every cup starts on a farm. Today we thank the growers who make ours.</p>
+    <div class="wordmark" role="img" aria-label="Tidewater"></div>
+  </div>
+</body>
+</html>

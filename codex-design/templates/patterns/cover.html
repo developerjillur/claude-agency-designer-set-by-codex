@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Profile covers and banners</title>
+<!-- Pattern: channel and profile covers from one HTML. Pack them together:
+     design.py pack --html cover.html --presets yt-banner,fb-cover,li-profile-cover,li-company-cover,x-header --out-dir out
+     Every platform crops or covers a different part: YouTube shows only the centre 1546 x 423 on every device;
+     Facebook, LinkedIn and X put the profile photo over the bottom left (the presets carry these keep-out zones and
+     the checks flag text inside them). So the message sits inside .safe, the lockup and headline stay small in
+     number (one line of promise, one line of facts), and decoration may run under the avatar or off the edges.
+     Type sizes are set per canvas below: covers are seen at phone width, so every line stays above the preset's
+     minimum (min_text_px). The headline shrinks to fit (data-fit) if the copy grows. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  body { background: var(--primary); color: var(--paper); }
+  .safe { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; }
+  .block { width: var(--block-w, 62%); }
+  .lockup { display: flex; align-items: center; gap: calc(var(--logo-h) * .3); margin-bottom: calc(var(--logo-h) * .5); }
+  .lockup img { height: var(--logo-h); width: auto; }
+  .lockup .wordmark { height: calc(var(--logo-h) * .62); aspect-ratio: 971 / 162; background: var(--paper);
+    -webkit-mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat left center / contain;
+    mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat left center / contain; }
+  h1 { margin: 0; font: 800 var(--h1)/0.98 var(--font-display); letter-spacing: -0.02em; text-wrap: balance; }
+  .sub { margin: calc(var(--sub) * .55) 0 0; font: 700 var(--sub)/1.25 var(--font-text); color: var(--sand); text-wrap: balance; }
+  .branch-art { position: absolute; width: auto; aspect-ratio: 1; height: var(--art-h); right: var(--art-r); bottom: var(--art-b); }
+  .branch-art .branch { fill: none; stroke: var(--sand); stroke-width: 12; stroke-linecap: round; }
+  .branch-art .leaf { fill: #6F9E6B; } .branch-art .rib { fill: none; stroke: #4F7C4D; stroke-width: 4; stroke-linecap: round; }
+  .branch-art .ripe { fill: #C0392B; } .branch-art .deep { fill: #9E2A22; } .branch-art .gold { fill: var(--accent); }
+  .branch-art .navel { fill: rgb(40 10 6 / .55); }
+  /* per canvas: sizes above each preset's minimum, the art placed where no UI covers it */
+  :root { --h1: 96px; --sub: 48px; --logo-h: 72px; --art-h: 120%; --art-r: -6%; --art-b: -40%; }
+  [data-preset="yt-banner"] { --h1: 116px; --sub: 84px; --logo-h: 96px; --block-w: 100%; --art-h: 115%; --art-r: -9%; --art-b: -30%; }
+  [data-preset="yt-banner"] .safe { align-items: center; text-align: center; }
+  [data-preset="yt-banner"] .lockup { display: none; }  /* the channel icon already shows the logo */
+  /* the banner's safe area is 423 px tall: the headline and one line, the schedule */
+  [data-preset="yt-banner"] .sub span:first-child, [data-preset="yt-banner"] .sub .sep { display: none; }
+  [data-preset="fb-cover"] { --h1: 92px; --sub: 60px; --logo-h: 64px; --block-w: 82%; --art-h: 125%; --art-r: -7%; --art-b: -45%; }
+  [data-preset="fb-cover"] .safe { justify-content: flex-start; padding-top: 40px; }
+  [data-preset="li-profile-cover"] { --h1: 72px; --sub: 52px; --logo-h: 0px; --block-w: 78%; --art-h: 150%; --art-r: -5%; --art-b: -62%; }
+  [data-preset="li-profile-cover"] .lockup, [data-preset="li-company-cover"] .lockup, [data-preset="li-company-cover"] .sub { display: none; }
+  [data-preset="li-company-cover"] { --h1: 64px; --block-w: 70%; --art-h: 210%; --art-r: -4%; --art-b: -120%; }
+  [data-preset="x-header"] { --h1: 84px; --sub: 48px; --logo-h: 0px; --block-w: 72%; --art-h: 130%; --art-r: -8%; --art-b: -52%; }
+  [data-preset="x-header"] .lockup { display: none; }
+  /* narrow text blocks: one fact per line instead of a separator left hanging at a line end */
+  [data-preset="li-profile-cover"] .sub span, [data-preset="x-header"] .sub span { display: block; }
+  [data-preset="li-profile-cover"] .sub .sep, [data-preset="x-header"] .sub .sep { display: none; }
+</style>
+</head>
+<body>
+  <svg class="branch-art" viewBox="0 0 600 600" aria-hidden="true">
+      <path class="branch" d="M612 96 C540 128 452 196 372 280 S214 438 120 520"/>
+      <path class="leaf" d="M525 142 Q470 60 392 72 Q440 150 525 142 Z"/><path class="rib" d="M522 140 Q462 102 396 74"/>
+      <path class="leaf" d="M532 146 Q610 190 596 272 Q540 230 532 146 Z"/><path class="rib" d="M534 150 Q586 196 594 266"/>
+      <path class="leaf" d="M298 350 Q230 290 150 318 Q220 372 298 350 Z"/><path class="rib" d="M294 348 Q226 314 154 318"/>
+      <path class="leaf" d="M304 354 Q392 392 380 482 Q318 440 304 354 Z"/><path class="rib" d="M306 358 Q370 400 378 476"/>
+      <circle class="ripe" cx="430" cy="228" r="30"/><circle class="navel" cx="435" cy="247" r="4.5"/>
+      <circle class="deep" cx="468" cy="236" r="27"/><circle class="navel" cx="473" cy="253" r="4.5"/>
+      <circle class="ripe" cx="446" cy="262" r="26"/><circle class="navel" cx="451" cy="278" r="4.5"/>
+      <circle class="gold" cx="360" cy="306" r="24"/><circle class="navel" cx="364" cy="321" r="4.5"/>
+      <circle class="ripe" cx="392" cy="312" r="22"/><circle class="navel" cx="396" cy="326" r="4.5"/>
+      <circle class="deep" cx="196" cy="462" r="32"/><circle class="navel" cx="202" cy="482" r="4.5"/>
+      <circle class="ripe" cx="238" cy="468" r="28"/><circle class="navel" cx="243" cy="485" r="4.5"/>
+      <circle class="gold" cx="214" cy="500" r="27"/><circle class="navel" cx="219" cy="517" r="4.5"/>
+    </svg>
+  <div class="safe">
+    <div class="block">
+      <div class="lockup logo"><img src="https://codex-design.invalid/sample-brand/logo-mark-reversed.svg" alt=""><div class="wordmark" role="img" aria-label="Tidewater"></div></div>
+      <h1 data-fit="42" data-fit-lines="2">Coffee, roasted where you buy it</h1>
+      <p class="sub"><span>12&nbsp;Harbour Street</span><span class="sep"> · </span><span>Tastings every Saturday</span></p>
+    </div>
+  </div>
+</body>
+</html>

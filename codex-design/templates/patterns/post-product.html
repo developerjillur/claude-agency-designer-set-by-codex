@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Product / offer post</title>
+<!-- Pattern: product launch or offer (direction "Bold Committed"). Presets: ig-portrait, ig-3x4, ig-square,
+     meta-ad-feed, fb-feed. The surface is the brand colour; the real product (a cut-out: design.py cutout, or a
+     transparent codex-imagegen job of the real product) overlaps the headline for depth; the offer is typeset.
+     Replace .product with <img class="product" src="plates/product.png" alt="">. Offers need real dates and a real
+     reference price; never on marketplace images. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  body { background: var(--primary); color: var(--paper); }
+  /* the product may overlap the headline block for depth, but never a letter (the checks flag hidden text) */
+  h1 { position: absolute; left: var(--safe-left); top: var(--safe-top); width: 58%; height: 50%; margin: 0;
+    font: 800 190px/0.9 var(--font-display); letter-spacing: -0.03em; text-wrap: balance; }
+  .stage { position: absolute; right: 6%; top: calc(var(--safe-top) + 40%); bottom: 12%; width: 48%; }
+  .shadow { position: absolute; left: 8%; right: 8%; bottom: -3%; height: 9%; border-radius: 50%;
+    background: radial-gradient(closest-side, rgb(0 0 0 / .32), rgb(0 0 0 / 0)); }
+  /* the sample product: a cut-out bag photo; swap in the client's own cut-out */
+  .product { position: absolute; inset: 0; margin: auto; width: 100%; height: 100%; object-fit: contain; object-position: center bottom; }
+  .offer { position: absolute; left: var(--safe-left); bottom: calc(var(--safe-bottom) + 220px); }
+  .offer b { display: block; font: 800 96px/1 var(--font-display); color: var(--accent); letter-spacing: -0.02em; }
+  .offer span { display: block; margin-top: 12px; font: 700 40px/1.2 var(--font-text); }
+  .terms { position: absolute; left: var(--safe-left); right: var(--safe-right); bottom: var(--safe-bottom);
+    display: flex; justify-content: space-between; align-items: end; font: 500 34px/1.3 var(--font-text);
+    color: rgb(243 241 236 / .86); }
+  .terms { gap: 56px; }
+  .terms span { flex: 1 1 auto; min-width: 0; text-wrap: balance; }
+  .terms img { flex: none; height: max(70px, var(--mark-min, 0px)); width: auto; }
+  [data-preset="ig-square"] h1 { height: 46%; }
+  /* 9:16: the product ends above the terms line, so the small print sits on a clean ground */
+  [data-preset="ig-story"] .stage { top: calc(var(--safe-top) + 38%); bottom: 24%; }
+  /* cross-platform 9:16 keeps the bottom 35 % for app UI: headline, product and offer all sit above it */
+  [data-preset="vertical-safe"] h1 { height: 30%; }
+  [data-preset="vertical-safe"] .stage { top: 42%; bottom: 41%; right: 9%; width: 36%; }
+</style>
+</head>
+<body>
+  <h1 data-fit="110,190" data-fit-lines="3">Harvest roast is back</h1>
+  <div class="stage"><div class="shadow"></div><img class="product" src="https://codex-design.invalid/patterns/assets/photos/bag-cutout.webp" alt=""></div>
+  <div class="offer"><b>20 % off</b><span>your first bag</span></div>
+  <div class="terms"><span class="legal">Until 31 Oct 2026 · code HARVEST · online only</span>
+    <img src="https://codex-design.invalid/sample-brand/logo-mark-reversed.svg" alt=""></div>
+</body>
+</html>

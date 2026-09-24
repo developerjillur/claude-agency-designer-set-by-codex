@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Flyer A5, two sides</title>
+<!-- Pattern: print flyer, front and back (direction "Swiss Signal" on paper). Preset a5-flyer (148 x 210 mm, 3 mm
+     bleed, 6 mm safe margin); also a4-flyer, dl-flyer, letter-flyer with adjusted sizes.
+     Render: design.py render --html flyer.html --preset a5-flyer --pages 2 --out out/flyer.pdf --preview
+     (vector RGB PDF with TrimBox/BleedBox, the printer's default; add --cmyk only when the printer refuses RGB).
+     Front = AIDA: headline and visual (attention), one line of promise (interest), the three roasts (desire), the info
+     block with date, time, place and a QR code (action). Back = how it works and where to find it.
+     Print rules: type in pt; body 9-11 pt, nothing under 7 pt; small dark text in var(--print-black) (#000); reversed
+     text ≥ 9 pt and medium weight; backgrounds reach the bleed edge (.bleedbox), text stays in .safe; the QR ≥ 20 mm
+     wide with its quiet zone, made by `design.py qr` and test-scanned from the proof. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  body { color: var(--print-black); }
+  .front .bleedbox { background: var(--paper); }
+  .back .bleedbox { background: var(--primary); }
+  .front .safe { display: grid; grid-template-rows: auto auto auto 1fr auto; }
+  .top { display: flex; justify-content: space-between; align-items: center; }
+  .top img { height: 5.2mm; width: auto; }
+  .top span { font: 500 8.5pt/1 var(--font-text); color: var(--muted); }
+  h1 { margin: 12mm 0 0; font: 800 66pt/0.9 var(--font-display); letter-spacing: -0.025em; color: var(--primary); }
+  .promise { margin: 5mm 0 0; max-width: 30ch; font: 500 12.5pt/1.35 var(--font-text); text-wrap: pretty; }
+  .roasts { align-self: center; display: grid; grid-template-columns: repeat(3, 1fr); gap: 5mm; }
+  .roasts figure { margin: 0; text-align: center; }
+  .roasts svg { width: 100%; height: auto; }
+  .roasts figcaption { margin-top: 2.5mm; font: 700 8.5pt/1.3 var(--font-text); }
+  .roasts figcaption span { display: block; font-weight: 500; color: var(--print-black); }
+  .info { display: grid; grid-template-columns: 1fr auto; gap: 6mm; align-items: end; border-top: 0.75pt solid var(--print-black);
+    padding-top: 4.5mm; }
+  .when { margin: 0; font: 700 12.5pt/1.3 var(--font-text); }
+  .where { margin: 0; font: 500 12.5pt/1.3 var(--font-text); }
+  .note { margin: 2mm 0 0; font: 500 8.5pt/1.35 var(--font-text); }
+  .qr { text-align: center; }
+  .qr img { width: 22mm; height: 22mm; }
+  .qr span { display: block; margin-top: 1mm; font: 700 8.5pt/1.2 var(--font-text); }
+  /* back */
+  .back { color: var(--paper); }
+  .back .safe { display: grid; grid-template-rows: auto 1fr auto auto; }
+  .back h2 { margin: 6mm 0 0; font: 800 26pt/1 var(--font-display); letter-spacing: -0.015em; }
+  .steps { align-self: center; margin: 0; padding: 0; list-style: none; display: grid; gap: 9mm; }
+  .steps li { display: grid; grid-template-columns: 11mm 1fr; column-gap: 2mm; align-items: baseline; }
+  .steps b { grid-row: span 2; font: 800 26pt/0.8 var(--font-display); color: var(--accent); }
+  .steps strong { font: 700 12.5pt/1.25 var(--font-text); }
+  .steps p { grid-column: 2; margin: 1mm 0 0; font: 500 10pt/1.4 var(--font-text); max-width: 34ch; }
+  .visit { border-top: 0.75pt solid rgb(243 241 236 / .5); padding-top: 4.5mm; display: grid; grid-template-columns: 1fr 1fr;
+    gap: 4mm; font: 500 10pt/1.45 var(--font-text); }
+  .visit h3 { grid-column: 1 / -1; margin: 0; font: 700 8.5pt/1 var(--font-text); letter-spacing: .12em; text-transform: uppercase; }
+  .visit p { margin: 0; }
+  .sign { margin-top: 7mm; display: flex; align-items: center; gap: 3mm; }
+  .sign img { height: 9mm; width: auto; }
+  .sign .wordmark { width: 34mm; aspect-ratio: 971 / 162; background: var(--paper);
+    -webkit-mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat left center / contain;
+    mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat left center / contain; }
+</style>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="cup" viewBox="0 0 120 120">
+      <circle cx="60" cy="60" r="56" fill="#E6DED0"/>
+      <rect x="88" y="53" width="28" height="14" rx="7" fill="#FBFAF7" transform="rotate(38 60 60)"/>
+      <circle cx="60" cy="60" r="40" fill="#FBFAF7" stroke="#D9D4CA" stroke-width="1.2"/>
+      <circle cx="60" cy="60" r="32" style="fill: var(--roast)"/>
+      <circle cx="60" cy="60" r="32" fill="none" stroke="rgb(255 255 255 / .18)" stroke-width="3" stroke-dasharray="30 170"
+        transform="rotate(200 60 60)"/>
+    </symbol>
+  </svg>
+
+  <section class="page front">
+    <div class="bleedbox"></div>
+    <div class="safe">
+      <div class="top"><img src="https://codex-design.invalid/sample-brand/wordmark.svg" alt="Tidewater"><span>Harbour Street roastery</span></div>
+      <h1>Saturday tastings</h1>
+      <p class="promise">Taste three roasts side by side and take home the one you like best.</p>
+      <div class="roasts">
+        <figure><svg aria-hidden="true" style="--roast:#B37B45"><use href="#cup"/></svg><figcaption>Light<span>Ethiopia</span></figcaption></figure>
+        <figure><svg aria-hidden="true" style="--roast:#7A4A2A"><use href="#cup"/></svg><figcaption>Medium<span>Colombia</span></figcaption></figure>
+        <figure><svg aria-hidden="true" style="--roast:#3B2418"><use href="#cup"/></svg><figcaption>Dark<span>Sumatra</span></figcaption></figure>
+      </div>
+      <div class="info">
+        <div>
+          <p class="when">Every Saturday<br>09:00–13:00</p>
+          <p class="where">12 Harbour Street</p>
+          <p class="note">Free · 20&nbsp;minutes · no experience needed</p>
+        </div>
+        <div class="qr"><img src="https://codex-design.invalid/patterns/assets/qr-tastings.svg" alt="QR code: tidewater.example/tastings"><span>Book a seat</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page back">
+    <div class="bleedbox"></div>
+    <div class="safe">
+      <h2>How a tasting works</h2>
+      <ol class="steps">
+        <li><b>1</b><strong>Three cups, side by side</strong><p>One light, one medium and one dark roast, brewed the same way.</p></li>
+        <li><b>2</b><strong>Taste before you read</strong><p>Say what you notice first; then we tell you the farm and the roast.</p></li>
+        <li><b>3</b><strong>Take your favourite home</strong><p>We grind it for the way you brew at home.</p></li>
+      </ol>
+      <div class="visit">
+        <h3>Visit</h3>
+        <p>12 Harbour Street<br>Tuesday to Sunday, 08:00–17:00</p>
+        <p>tidewater.example<br>hello@tidewater.example</p>
+      </div>
+      <div class="sign logo"><img src="https://codex-design.invalid/sample-brand/logo-mark-reversed.svg" alt=""><div class="wordmark" role="img" aria-label="Tidewater"></div></div>
+    </div>
+  </section>
+</body>
+</html>

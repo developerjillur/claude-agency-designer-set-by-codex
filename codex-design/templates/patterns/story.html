@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Story frame</title>
+<!-- Pattern: story / reel cover frame. Presets: ig-story (organic Instagram/Facebook), vertical-safe (cross-platform,
+     Reels, TikTok, Shorts, ads), wa-status. The headline sits in the upper safe band, a block stays empty for the
+     poll/link sticker added in the app, and the CTA stays above the bottom UI band. Swap .plate for a 9:16 plate
+     (<img class="fill" src="plates/story.png" alt="">) whose middle is calm. One idea per frame, ≤ 20 words. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  body { background: var(--primary); color: var(--paper); }
+  /* the sample plate: a 9:16 photo; its top fades into the brand colour behind the headline, its foot darkens for the
+     call to action and the logo */
+  .plate { position: absolute; left: 0; right: 0; bottom: 0; height: 60%;
+    background: #0f363d url(https://codex-design.invalid/patterns/assets/photos/roastery-9x16.webp) center 62% / cover no-repeat; }
+  .plate::after { content: ""; position: absolute; inset: 0; background:
+      linear-gradient(to bottom, var(--primary) 0%, rgb(22 78 87 / 0) 26%),
+      linear-gradient(to top, rgb(9 18 20 / .78) 0%, rgb(9 18 20 / .5) 26%, rgb(9 18 20 / 0) 52%); }
+  .head { position: absolute; top: var(--safe-top); left: var(--safe-left); right: var(--safe-right); }
+  .kicker { display: flex; align-items: center; gap: 20px; font: 700 36px/1 var(--font-text); color: var(--paper); }
+  .kicker::before { content: ""; width: 80px; height: 17px; background: var(--accent);
+    -webkit-mask: var(--motif-mask, none) center / 100% 100% no-repeat; mask: var(--motif-mask, none) center / 100% 100% no-repeat; }
+  h1 { margin: 26px 0 0; height: 470px; font: 800 132px/0.95 var(--font-display); letter-spacing: -0.025em; text-wrap: balance; }
+  /* reserved for the app's sticker (poll, question, link): keep it empty */
+  .sticker-slot { position: absolute; left: var(--safe-left); right: var(--safe-right); top: 50%; height: 300px; }
+  /* the action sits right under the sticker's space, where the eye lands after it, not at the foot */
+  .cta { position: absolute; left: var(--safe-left); top: min(calc(50% + 340px), calc(100% - var(--safe-bottom) - 190px)); display: flex; align-items: center; gap: 22px;
+    font: 700 44px/1 var(--font-text); }
+  .cta b { font-weight: inherit; display: inline-block; padding-bottom: 10px; border-bottom: 5px solid var(--paper); color: var(--paper);
+    text-box: trim-both cap alphabetic; }
+  /* 9:16 with a tall app band: the action sits higher on the photo, so the scrim reaches it */
+  [data-preset="vertical-safe"] .plate::after, [data-preset="wa-status"] .plate::after { background:
+      linear-gradient(to bottom, var(--primary) 0%, rgb(22 78 87 / 0) 22%),
+      linear-gradient(to top, rgb(9 18 20 / .84) 0%, rgb(9 18 20 / .74) 40%, rgb(9 18 20 / .5) 62%, rgb(9 18 20 / 0) 84%); }
+  .cta.pill b { padding: 24px 36px; border: 0; border-radius: 999px; background: var(--paper); color: var(--primary); }
+  .lockup { position: absolute; left: var(--safe-left); bottom: var(--safe-bottom); display: flex; align-items: center; gap: 20px; }
+  .lockup img { height: max(64px, var(--mark-min, 0px)); width: auto; }
+  .lockup .wordmark { width: max(270px, var(--wordmark-min, 0px)); aspect-ratio: 971 / 162; background: var(--paper);
+    -webkit-mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat left center / contain;
+    mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat left center / contain; }
+</style>
+</head>
+<body>
+  <div class="plate"></div>
+  <div class="head">
+    <div class="kicker">Saturday tastings</div>
+    <h1 data-fit="96,132" data-fit-lines="4">Taste three roasts before you buy</h1>
+  </div>
+  <div class="sticker-slot" aria-hidden="true"></div>
+  <div class="cta"><b>Book a seat</b></div>
+  <div class="lockup" data-logo><img src="https://codex-design.invalid/sample-brand/logo-mark-reversed.svg" alt="Tidewater"><div class="wordmark" role="img" aria-label="Tidewater"></div></div>
+</body>
+</html>

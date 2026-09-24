@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Carousel (seamless)</title>
+<!-- Pattern: educational carousel with a seamless "chain" element (direction "Editorial Chapters").
+     Render: design.py render --html carousel.html --preset ig-carousel --slides 5 --out out/carousel.png
+     (and --out out/carousel.pdf for a LinkedIn document). Slide 1 hooks (≤ 8 words, inside the 3:4 grid crop),
+     slides 2-4 carry one idea each, slide 5 is the call to action. The tide line crosses the cuts on purpose; text
+     never does (the checks keep it ≥ 40 px from every cut). Every slide still reads on its own. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  body { background: var(--paper); color: var(--ink); }
+  .slide { padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left); display: grid;
+    grid-template-rows: auto 1fr auto; }
+  .slide:nth-child(odd) { background: var(--paper); } .slide:nth-child(even) { background: var(--sand); }
+  .meta { display: flex; justify-content: space-between; font: 700 max(34px, var(--label-min, 0px))/1 var(--font-text); color: var(--primary); }
+  .meta .count { color: var(--muted); font-weight: 500; }
+  .tide { position: absolute; left: 0; top: 71%; width: calc(var(--canvas-w) * var(--slides)); height: 120px;
+    pointer-events: none; }
+  .cover h1 { align-self: center; margin: 0; font: 800 132px/0.95 var(--font-display); letter-spacing: -0.025em;
+    text-wrap: balance; }
+  .cue { font: 700 max(34px, var(--label-min, 0px))/1 var(--font-text); color: var(--primary); }
+  .idea { align-self: start; margin-top: 90px; }
+  .idea .n { font: 800 200px/0.85 var(--font-display); color: var(--primary); letter-spacing: -0.04em; }
+  .idea h2 { margin: 34px 0 24px; font: 800 76px/1.02 var(--font-display); letter-spacing: -0.02em; text-wrap: balance; }
+  .idea p { margin: 0; max-width: 24ch; font: 500 42px/1.3 var(--font-text); text-wrap: pretty; }
+  .cta { align-self: center; }
+  .cta h2 { margin: 0 0 30px; font: 800 100px/0.98 var(--font-display); letter-spacing: -0.025em; text-wrap: balance; }
+  .cta p { margin: 0; font: 700 42px/1.3 var(--font-text); color: var(--primary); }
+  .foot { display: flex; justify-content: space-between; align-items: end; font: 500 max(34px, var(--label-min, 0px))/1 var(--font-text); color: var(--muted); }
+  .foot img { height: max(48px, var(--mark-min, 0px)); width: auto; }
+</style>
+</head>
+<body>
+  <div class="track">
+    <section class="slide cover">
+      <div class="meta"><span>Brew guide</span><span class="count">1/5</span></div>
+      <h1 data-fit="96,132" data-fit-lines="4">Three changes that fix a flat morning cup</h1>
+      <div class="foot"><span class="cue">Swipe →</span><img src="https://codex-design.invalid/sample-brand/logo-mark.svg" alt=""></div>
+    </section>
+    <section class="slide">
+      <div class="meta"><span>Brew guide</span><span class="count">2/5</span></div>
+      <div class="idea"><div class="n">1</div><h2>Grind right before you brew</h2><p>Ground coffee loses most of its aroma within half an hour.</p></div>
+      <div class="foot"><span>tidewater.example</span></div>
+    </section>
+    <section class="slide">
+      <div class="meta"><span>Brew guide</span><span class="count">3/5</span></div>
+      <div class="idea"><div class="n">2</div><h2>Let the kettle rest for thirty seconds</h2><p>Water around 94&nbsp;°C pulls sweetness without bitterness.</p></div>
+      <div class="foot"><span>tidewater.example</span></div>
+    </section>
+    <section class="slide">
+      <div class="meta"><span>Brew guide</span><span class="count">4/5</span></div>
+      <div class="idea"><div class="n">3</div><h2>Weigh the coffee, not the scoop</h2><p>Start at 60&nbsp;g per litre and adjust by taste.</p></div>
+      <div class="foot"><span>tidewater.example</span></div>
+    </section>
+    <section class="slide">
+      <div class="meta"><span>Brew guide</span><span class="count">5/5</span></div>
+      <div class="cta"><h2>Save this for Saturday</h2><p>Tastings every Saturday, 09:00–13:00, 12&nbsp;Harbour Street</p></div>
+      <div class="foot"><span>@tidewater.example</span><img src="https://codex-design.invalid/sample-brand/logo-mark.svg" alt=""></div>
+    </section>
+    <svg class="tide" viewBox="0 0 5400 120" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0 60 C 270 10, 540 110, 810 60 S 1350 10, 1620 60 S 2160 110, 2430 60 S 2970 10, 3240 60 S 3780 110, 4050 60 S 4590 10, 4860 60 S 5310 90, 5400 60"
+        fill="none" stroke="#164E57" stroke-width="6" stroke-linecap="round" opacity=".55"/>
+    </svg>
+  </div>
+</body>
+</html>

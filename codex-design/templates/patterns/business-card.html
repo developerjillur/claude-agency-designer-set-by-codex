@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Business card</title>
+<!-- Pattern: business card, two sides. Presets bc-eu (85 x 55 mm), bc-us (3.5 x 2 in), bc-jp (91 x 55 mm); 3 mm bleed,
+     4 mm safe margin. Render: design.py render --html business-card.html --preset bc-eu --pages 2 --out out/card.pdf --preview
+     Side 1 is the brand (colour to the bleed, the lockup centred); side 2 is the person: at most 7 lines, nothing under
+     7 pt, small text in var(--print-black), one line per contact route. The sample person and number are fictional
+     (+44 20 7946 0xxx is a UK range reserved for drama); use the client's real details. -->
+<link rel="stylesheet" href="https://codex-design.invalid/kit/cd-kit.css">
+<link rel="stylesheet" href="https://codex-design.invalid/sample-brand/brand.css">
+<script src="https://codex-design.invalid/kit/cd-kit.js"></script>
+<style>
+  body { color: var(--print-black); }
+  .brand .bleedbox { background: var(--primary); }
+  .person .bleedbox { background: var(--paper); }
+  .brand .safe { display: grid; place-items: center; }
+  .lockup { display: flex; align-items: center; gap: 3mm; }
+  .lockup img { height: 11mm; width: auto; }
+  .lockup .wordmark { width: 36mm; aspect-ratio: 971 / 162; background: var(--paper);
+    -webkit-mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat left center / contain;
+    mask: url(https://codex-design.invalid/sample-brand/wordmark.svg) no-repeat left center / contain; }
+  .person .safe { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto 1fr auto; }
+  .name { margin: 0; font: 800 11pt/1.1 var(--font-display); letter-spacing: -0.01em; }
+  .role { margin: 0.8mm 0 0; font: 500 8pt/1.3 var(--font-text); }
+  .mark { grid-column: 2; grid-row: 1; width: 7mm; height: auto; }
+  .contact { grid-column: 1 / -1; grid-row: 3; margin: 0; font: 500 8pt/1.45 var(--font-text); }
+  .contact span { display: block; }
+</style>
+</head>
+<body>
+  <section class="page brand">
+    <div class="bleedbox"></div>
+    <div class="safe">
+      <div class="lockup logo"><img src="https://codex-design.invalid/sample-brand/logo-mark-reversed.svg" alt=""><div class="wordmark" role="img" aria-label="Tidewater"></div></div>
+    </div>
+  </section>
+  <section class="page person">
+    <div class="bleedbox"></div>
+    <div class="safe">
+      <div>
+        <p class="name">Maya Okafor</p>
+        <p class="role">Head roaster</p>
+      </div>
+      <img class="mark logo" src="https://codex-design.invalid/sample-brand/logo-mark.svg" alt="Tidewater">
+      <p class="contact">
+        <span>+44 20 7946 0314</span>
+        <span>maya@tidewater.example</span>
+        <span>tidewater.example</span>
+        <span>12&nbsp;Harbour Street</span>
+      </p>
+    </div>
+  </section>
+</body>
+</html>

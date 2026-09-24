@@ -1,0 +1,92 @@
+{
+  "name": "Tidewater Coffee Roasters (fictional sample brand for the templates)",
+  "colors": {
+    "ink": "#16191B",
+    "paper": "#F3F1EC",
+    "primary": "#164E57",
+    "accent": "#E0A33A",
+    "muted": "#5C6368",
+    "line": "#D9D4CA",
+    "sand": "#E6DED0"
+  },
+  "fonts": {
+    "display": "Bricolage Grotesque:700,800",
+    "text": "Figtree:400,500,700",
+    "bengali": "Anek Bangla:500,700@106"
+  },
+  "radius": 14,
+  "logo": {
+    "mark": "logo-mark.svg",
+    "mark_reversed": "logo-mark-reversed.svg",
+    "wordmark": "wordmark.svg"
+  },
+  "clear_space": "0.5 x mark height",
+  "min_size": {
+    "mark": "24 px / 6 mm",
+    "wordmark": "96 px wide / 25 mm"
+  },
+  "voice": {
+    "is": [
+      "plain",
+      "warm",
+      "exact"
+    ],
+    "is_not": [
+      "hype",
+      "slang",
+      "exclamation marks"
+    ]
+  },
+  "motif": "a single tide line (a gentle wave, 3 px at 1080) under or beside headlines",
+  "special_days": {
+    "solemn": "mono mark only, no accent colour, no offers"
+  },
+  "logo_use": "full colour on light grounds; the reversed mark and a paper wordmark (CSS mask) on primary or photos",
+  "positioning": "A small roastery that roasts in the shop and sells by weight, in plain kraft bags with a roast-date sticker: fresh, exact and unfussy.",
+  "proportions": {
+    "paper": 55,
+    "primary": 25,
+    "sand": 10,
+    "ink": 7,
+    "accent": 3
+  },
+  "type_scale": {
+    "display": "800, -0.025em, line-height 0.9-0.95",
+    "text": "500, line-height 1.3-1.45",
+    "ratio": 1.333
+  },
+  "applications": [
+    {
+      "src": "applications/post.jpg",
+      "caption": "Feed post, type-led"
+    },
+    {
+      "src": "applications/day-post.jpg",
+      "caption": "Special-day post"
+    },
+    {
+      "src": "applications/story.jpg",
+      "caption": "Story"
+    },
+    {
+      "src": "applications/flyer-front.jpg",
+      "caption": "A5 flyer"
+    },
+    {
+      "src": "applications/thumbnail.jpg",
+      "caption": "YouTube thumbnail"
+    },
+    {
+      "src": "applications/brochure-outside.jpg",
+      "caption": "Tri-fold brochure, outside"
+    },
+    {
+      "src": "applications/card-front.jpg",
+      "caption": "Business card"
+    },
+    {
+      "src": "applications/x-header.jpg",
+      "caption": "X header"
+    }
+  ]
+}
