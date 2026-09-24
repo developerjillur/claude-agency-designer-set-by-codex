@@ -16,17 +16,47 @@ Command prefix: `python3 ~/.claude/skills/codex-design/scripts/design.py` (every
 Scope: this skill owns every deliverable with layout or text, and the copy on it; codex-imagegen owns stand-alone
 photos and illustrations; website UI belongs to the frontend skills.
 
+## Fast path (every draft: do exactly this)
+
+Most requests are a draft: one post, banner, card or thumbnail for the user, or a first version for a client. Do
+it in four steps and about five tool calls, with no judge:
+
+1. **Pick** the preset and the pattern. Presets: `ig-portrait` 1080x1350, `ig-square`, `ig-story` 1080x1920,
+   `fb-feed`, `fb-cover`, `li-landscape`, `x-post`, `yt-thumbnail` (`presets --find WORDS` for anything else).
+   Patterns in `templates/patterns/`: `post-type.html` (type only), `post-photo.html`, `post-product.html`,
+   `story.html`, `carousel.html`, `thumbnail.html`, `ad-banner.html`, `flyer.html`, `poster.html`, `card.html`,
+   `invitation.html`, `day-post.html`. The pattern already carries the craft: read no references for a simple piece.
+2. **Write** copy.json (the example in §1) and the HTML in one step each: the pattern with your words, and the client's colours
+   and fonts set in the page's own `<style>` on `:root` (`--paper`, `--ink`, `--primary`, `--accent`, `--muted`,
+   `--font-display`, `--font-text`, `--font-bengali`). The kit ships Bricolage Grotesque, Figtree and Anek Bangla;
+   `fonts --family 'Name:400,700' --out design/` fetches any other Google font in one call. Swap or drop the sample
+   wordmark.
+   Keep the pattern's stylesheet and script links: they load the kit and its fonts. Keep every copy.json string
+   whole in one element (a `<span>` around part of a string fails the exact-copy check); give a styled part
+   its own string instead.
+3. **Render**: `render --html design/post.html --preset ig-portrait --copy copy.json --out out/post.png` (1 to 2 s).
+   It checks the picture and lints the copy in the same call (`copy_lint`). Fix what it reports and render again.
+4. **Look** at the PNG once with Read, then deliver it. Offer the art-director judge in one line.
+
+A photo in a draft: one codex-imagegen `generate --no-judge` for the plate (about 50 s), started in the background
+while you write the HTML. Never run `doctor`, read cli.md or open design.py unless a command fails.
+
+**Client work** (the client's final files, anything published under a client's name, or the user asks for the best
+or final version): add the gates below: the ledger, judged plates, the design judge (one run while iterating,
+`--runs 3` on the file you ship), copyjudge and `deliver`.
+
 ## 0. Preflight
 
-- `doctor` must say `"ready": true` (it exits 1 otherwise and lists optional parts that are missing, with what they
-  unlock). `doctor --setup` once per Python version builds the skill venv.
+- Only on a new machine, after an update or when a command fails: `doctor` must say `"ready": true` (it exits 1
+  otherwise and lists optional parts that are missing, with what they unlock). `doctor --setup` once per Python
+  version builds the skill venv.
 - Renders are offline and run with local file access: render only HTML you wrote. `doctor --clean-tmp` clears temp
   folders of killed runs.
 - The judges need codex-imagegen and a Codex login (`doctor` shows both).
 
-## 1. Quick starts
+## 1. Client work: inputs, run times and quick starts
 
-**Inputs, run times and waiting.** Read this before the first command.
+**Inputs, run times and waiting.**
 
 ```json
 {"locale": "US", "platform": "instagram", "strings": [
@@ -51,7 +81,7 @@ photos and illustrations; website UI belongs to the frontend skills.
 - The judges and `render` print a short summary. The whole report is in the file named by `report` (or `qa_json`),
   and `--json` prints it.
 
-**One feed post (any language).**
+**Client work: one feed post (any language).**
 1. `brief.md` + `copy.json` with `"locale"`, `"platform"`, the on-image strings, a caption and alt text (`copy.md`).
 2. `copylint --copy copy.json` (zero errors), then `copyjudge --copy copy.json --brief brief.md --goal order` while
    drafting and `--runs 3` on the final copy (PASS_NATIVE for client work).

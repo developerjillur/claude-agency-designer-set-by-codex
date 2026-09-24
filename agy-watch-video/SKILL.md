@@ -12,6 +12,14 @@ reads a compact report and checks the frames that matter with its own eyes. The 
 `python3 ~/.claude/skills/agy-watch-video/scripts/watch_video.py`. Every command, flag and output field is in
 `references/cli.md`.
 
+## Fast path (every request: do exactly this)
+
+Pick the lightest command that answers the question: one `ask` for one question (1 to 3 minutes),
+`watch --depth quick` for what is in a video (about a minute), `qa` for technical checks (seconds, no model). Use
+`watch` (standard) for a full report, and `deep`, `forensic` or `verify` only for QA before delivery or a finding the
+answer depends on. Run anything over a minute in the background, and never run `doctor` or read the script unless a
+command fails.
+
 ## 0. What reaches Gemini (measured, `references/engine.md`)
 
 | Media sent by the skill | What Gemini gets | Used for |

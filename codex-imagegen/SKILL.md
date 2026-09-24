@@ -8,6 +8,14 @@ allowed-tools: Bash(python3 ~/.claude/skills/codex-imagegen/scripts/codex_image.
 
 Claude plans and writes the briefs, then verifies and delivers the results. The local Codex CLI (logged in with ChatGPT) generates and judges them. The command prefix is always `python3 ~/.claude/skills/codex-imagegen/scripts/codex_image.py`. Every flag, job key, path rule, output field and error is in `references/cli.md`.
 
+## Fast path (every draft: do exactly this)
+
+A draft image (a placeholder, a mockup, a quick look at an idea, a first version): write the brief with
+the labelled lines, start `generate --prompt-file b.txt --aspect 4:5 --no-judge` in the background (about 50 s
+instead of 90), look at the image yourself with Read and deliver it; several images go in one `batch --no-judge`.
+Anything shipped, published or client-facing keeps the judge (the default) and every step below. Never run `doctor`
+or read the script unless a command fails: `references/cli.md` has every flag.
+
 ## 0. Preflight
 
 Run the preflight on a new machine and after every `codex update`:

@@ -193,6 +193,32 @@ class Units(unittest.TestCase):
         deck = d.copyrules.lint_deck([{"role": "mukhra", "text": song}, {"role": "antara", "text": song}], "BD")
         self.assertEqual([f["code"] for f in deck["deck"]], [])                # the refrain repeats on purpose
 
+    def test_copylint_save_writes_and_checks_in_one_step(self):
+        """A fast run saved copy with Write and skipped the lint; --save makes saving the check."""
+        with tempfile.TemporaryDirectory() as t:
+            dest = Path(t) / "sub" / "cap.txt"
+            ns = d.build_parser().parse_args(["copylint", "--save", str(dest), "--platform", "facebook",
+                                              "--locale", "BD"])
+            old_stdin = sys.stdin
+            sys.stdin = io.StringIO("স্টক সীমিত, এখনই অর্ডার করুন \u2014 ১ কেজি ৮৫০ টাকা\n")
+            try:
+                with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(io.StringIO()) as out, \
+                        contextlib.redirect_stderr(io.StringIO()):
+                    d.cmd_copylint(ns)
+            finally:
+                sys.stdin = old_stdin
+            self.assertEqual(cm.exception.code, 2)                      # the dash is an error
+            self.assertTrue(dest.read_text(encoding="utf-8").startswith("স্টক সীমিত"))
+            self.assertIn("bn-urgency", " ".join(f["code"] for f in d.copyrules.lint_string(
+                dest.read_text(encoding="utf-8"), "caption", "BD")))
+            self.assertIn('"errors": 1', out.getvalue())
+
+    def test_scarcity_needs_its_fact(self):
+        codes = lambda t: [f["code"] for f in d.copyrules.lint_string(t, "caption", "BD")]
+        self.assertIn("bn-urgency", codes("প্রথম দিনেই শেষ হয়ে যেতে পারে, তাই আগেভাগে অর্ডার দিন"))
+        self.assertNotIn("bn-urgency", codes("অফার শুক্রবার পর্যন্ত, স্টক সীমিত"))
+        self.assertNotIn("bn-urgency", codes("আর মাত্র ১০টা বাকি, শেষ হয়ে যেতে পারে"))
+
     def test_inline_brief_is_text_not_a_path(self):
         """Found in use: a long --brief given inline crashed with 'File name too long', and a mistyped path was judged
         as if it were the brief."""
@@ -2049,6 +2075,26 @@ class RenderProduction(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
             d.cmd_render(ns)
         self.assertEqual(len(json.loads(out.getvalue())["text"]), 2)
+
+    def test_render_lints_the_copy_in_the_same_call(self):
+        """The fast path: one render gives the picture's checks and the copy's (a dash is an error, --strict fails)."""
+        p = self.tmp / "c.html"
+        p.write_text(page("<h1 style='margin:40px;font:48px serif'>Fresh bread \u2014 at 7</h1>"), encoding="utf-8")
+        copy = self.tmp / "c.copy.json"
+        copy.write_text(json.dumps({"locale": "US", "strings": [{"role": "headline",
+                                                                  "text": "Fresh bread \u2014 at 7"}]}), encoding="utf-8")
+        ns = d.build_parser().parse_args(["render", "--html", str(p), "--size", "600x400", "--copy", str(copy),
+                                          "--out", str(self.tmp / "c.png")])
+        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+            d.cmd_render(ns)
+        rep = json.loads(out.getvalue())
+        self.assertGreaterEqual(rep["copy_lint"]["errors"], 1)
+        self.assertTrue(any("dash" in f for f in rep["copy_lint"]["found"]))
+        ns.strict = True
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            d.cmd_render(ns)
+        self.assertEqual(cm.exception.code, 2)
 
 
 if __name__ == "__main__":

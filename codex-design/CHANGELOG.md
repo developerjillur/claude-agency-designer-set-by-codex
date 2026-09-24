@@ -4,6 +4,24 @@ The version is `SKILL_VERSION` in `scripts/design.py`; `doctor` reports it. Afte
 `python3 -m unittest discover -s ~/.claude/skills/codex-design/tests`, and render the pattern library (every pattern
 on its presets must stay free of errors and warnings; `templates/README.md` lists them).
 
+## 2026.09.24.6 · a fast path for everyday work
+
+Measured with headless Claude Code runs of two everyday tasks (a Bangla Facebook caption, an Instagram post):
+before, at the machine's xhigh effort, 202 s and 447 s; after the fast paths, at low effort with a four-line
+skill routing in the global CLAUDE.md, 15 s and 39 s, with the skill's checks still run. At low effort without
+the routing, no skill was loaded at all and the caption invented taste claims and scarcity.
+
+- **Fast path first.** SKILL.md now opens with the draft path: pick a preset and a pattern, write copy.json and the
+  HTML (brand colours and fonts on `:root`), one `render --copy`, look once, deliver. No references, no `doctor`, no
+  judge for a draft; client work keeps every gate. It names the patterns, the common presets, the kit's fonts, and the
+  two things that cost a render round (keep the pattern's stylesheet links; keep each copy string in one element).
+- **`render --copy` lints the copy too** (`copy_lint`, and `--strict` fails on a copy error): one call checks a draft.
+- **`copylint --save FILE`** writes the copy (piped in or `--text`) and lints it in one step, so a fast run cannot
+  save copy and skip the check. natural-copy's fast path saves only this way.
+- **Scarcity without its fact** is a Bengali warning now (`bn-urgency`: শেষ হয়ে যেতে পারে, স্টক সীমিত without a
+  closing date or a count), the invented closer a fast run reached for. The calibration lines stay clean.
+- **Tests:** 125 offline tests.
+
 ## 2026.09.24.5 · shorter waits, fewer failed runs, and songs judged as songs
 
 Found by reading the session logs of real use: a lyric was pushed towards chat, a long inline brief crashed the copy

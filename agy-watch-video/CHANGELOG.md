@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.09.24.6
+
+- SKILL.md opens with a fast path: the lightest command that answers (`ask`, `watch --depth quick`, `qa`), deeper
+  depths and `verify` only for QA and findings that matter. No code change.
+
 ## 2026.09.24.5
 
 - **Time limits by kind of call.** Every agy call used to wait up to 17 minutes before failing over. Each kind now has

@@ -3,6 +3,11 @@
 The version is `SKILL_VERSION` in `scripts/codex_image.py`; `doctor` reports it. Run the offline tests after every change:
 `python3 -m unittest discover -s ~/.claude/skills/codex-imagegen/tests`. Run `doctor --image-smoke` after every Codex CLI update.
 
+## 2026.09.24.2 · a fast path for drafts
+
+- SKILL.md opens with the draft path: brief, `generate --no-judge` in the background (about 50 s instead of 90), look
+  at it yourself, deliver; several images in one `batch --no-judge`. Anything shipped keeps the judge. No code change.
+
 ## 2026.09.24.1 · no more half-hour waits, and batches that keep their work
 
 Found by reading the skill's own session logs (single images: median 87 s, slowest 488 s; judges: median 38 s).

@@ -9,6 +9,24 @@ allowed-tools: Bash(python3 ~/.claude/skills/codex-design/scripts/design.py:*), 
 Every word an audience reads or hears should sound like a person from that audience wrote it for them today: casual,
 simple, specific, in their own words. Not a chatbot, a textbook, a poem, a government notice or a translation.
 
+## Fast path (every draft: do exactly this)
+
+1. **Write from the facts you were given, and nothing else.** No taste, texture, feelings, seasons, scarcity,
+   reviews, customers or results the user did not give; if it feels thin, keep it short or ask one question. Use §2
+   to §5 of this file; open a reference only for a word you are unsure of.
+2. **Save it through the lint, in one Bash call.** It writes the file and checks it; fix every error and warning,
+   then save again the same way:
+   ```bash
+   python3 ~/.claude/skills/codex-design/scripts/design.py copylint --save caption.txt --platform facebook --locale BD <<'EOF'
+   (the copy)
+   EOF
+   ```
+3. **Show it**, and offer the native-reader judge in one line.
+
+**Client level** (a client's campaign or final copy, anything published under a client's name, or the user asks for
+the best version): §1 first, then `copyjudge` once at the end in the background, with `--runs 3` on the version that
+ships. Never judge again after a small edit: lint it.
+
 Why it decides whether a project works:
 - Readers who *suspect* copy is AI trust it about half as much and are less willing to buy, whatever its real origin
   (Raptive 2025, 3,000 adults: trust down 48 %, purchase consideration down 14 %). Recognition, not quality, triggers
@@ -31,7 +49,7 @@ The evidence and the numbers are in `~/.claude/skills/codex-design/references/re
 4. Does it survive being read aloud in one breath per idea?
 5. Is it free of every tell in §4 (the lint finds most of them)?
 
-## 1. Before writing: learn how the audience talks (10 minutes)
+## 1. Client level: learn how the audience talks first (10 minutes)
 
 1. **One reader.** Who exactly, where they meet it (platform, placement, moment), what they should do or feel after
    three seconds, what they already believe or complain about.
@@ -157,7 +175,8 @@ meter like the popular songs of their market.
    openings, a refrain, আহা). `copyjudge --caption song.txt --role lyric --brief "..." --locale BD` uses a lyricist's
    rubric: song language, imagery, singability, emotion, genre fit, hook, freshness. In a copy.json, name the section
    roles mukhra, antara 1, sanchari, abhog (or verse, chorus, bridge): any of these switches both tools to the song
-   rules. Sing it once over a simple beat before you judge it.
+   rules. Sing it once over a simple beat before you judge it. A draft song needs only the lyric lint; run the judge
+   when the user asks for it or on the version they will record.
 
 ## 6. Languages
 
@@ -172,6 +191,7 @@ meter like the popular songs of their market.
 ## 7. Check it (the loop)
 
 ```bash
+python3 ~/.claude/skills/codex-design/scripts/design.py copylint --save post.txt --platform facebook --locale BD <<'EOF' ... EOF
 python3 ~/.claude/skills/codex-design/scripts/design.py copylint --caption post.txt --platform facebook --locale BD
 python3 ~/.claude/skills/codex-design/scripts/design.py copylint --text "অর্ডার করুন" --role cta --locale BD
 python3 ~/.claude/skills/codex-design/scripts/design.py copylint --caption script.txt --role voiceover --lang en
@@ -185,7 +205,8 @@ python3 ~/.claude/skills/codex-design/scripts/design.py copyjudge --caption post
    words, pick them when there is no tag), and its region (`zh-TW`, `pt-PT`) or `--locale` adds that market's rules.
    `--brand` leaves the brand's `keep` lines alone.
 2. **Read it aloud** as the reader. If you would not say it across a counter, rewrite it.
-3. `copyjudge` (a fresh native-reader session): PASS at least; PASS_NATIVE with `--runs 3` for client work. It scores
+3. `copyjudge` (client level; a fresh native-reader session): PASS at least; PASS_NATIVE with `--runs 3` for client
+   work. It scores
    fidelity to the brief first, so an invented detail costs the line. Speed: one run takes about 40 s (up to 2 minutes for long
    Bengali copy at the default `--effort high`); `--runs 3` runs in parallel and takes about 100 s. Run it in the
    background, iterate with `copylint` (instant), and judge once when the draft is done rather than after every small

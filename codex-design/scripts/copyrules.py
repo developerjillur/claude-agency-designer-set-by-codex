@@ -534,6 +534,11 @@ def _f(sev, code, message, suggest=""):
     return {"severity": sev, "code": code, "message": message, "suggest": suggest}
 
 
+# Scarcity claimed without the fact behind it ("it may sell out on day one"): a model's favourite closer in Bengali.
+BN_URGENCY = re.compile(unicodedata.normalize("NFC", r"(?:শেষ হয়ে|ফুরিয়ে) (?:যেতে পারে|যাবে|যাচ্ছে)|স্টক সীমিত|"
+                                                     r"সীমিত স্টক|সীমিত সময়ের (?:জন্য|অফার)"))
+BN_HAS_FACT = re.compile(unicodedata.normalize("NFC", r"পর্যন্ত|শেষ দিন|[০-৯0-9]+\s*(?:টি|টা|পিস|জন|সেট|কেজি)?\s*"
+                                                      r"(?:বাকি|আছে)"))
 HAS_FACT = re.compile(r"\b(?:until|till|ends?|by|before)\b[^.!?]{0,25}\b(?:mon|tue|wed|thu|fri|sat|sun|today|tonight|"
                       r"midnight|noon|\d)|\b\d+\s+(?:left|seats|spots|places|units|bags|tickets)\b", re.I)
 VIRAMA = "\u09CD\u094D"
@@ -720,6 +725,10 @@ def lint_string(text: str, role: str = "", locale: str = "", platform: str = "",
                 VISARGA_ABBR.sub(" ", text) if what.startswith("a visarga") else text
             if rx.search(target):
                 out.append(_f("warning", "bn-pattern", what, rep))
+        if BN_URGENCY.search(text) and not BN_HAS_FACT.search(text):
+            out.append(_f("warning", "bn-urgency", "scarcity or a deadline claimed without the fact (a closing date, a "
+                                                   "count)", "give the real date or quantity (শুক্রবার পর্যন্ত, আর ৪০টা "
+                                                             "বাকি), or leave it out"))
         if VISARGA_ABBR.search(text):
             out.append(_f("note", "bn-abbr", "an abbreviation with a visarga (মোঃ, ডাঃ)",
                           "common, and fine; Bangla Academy style is মো., ডা."))

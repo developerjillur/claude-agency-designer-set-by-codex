@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # no __pycache__ inside the skill folder
 import copyrules  # noqa: E402  (copy that reads human: references/copy.md)
 
-SKILL_VERSION = "2026.09.24.5"
+SKILL_VERSION = "2026.09.24.6"
 SKILL_DIR = Path(__file__).resolve().parent.parent
 PRESETS_FILE = SKILL_DIR / "scripts" / "presets.json"
 
@@ -2465,9 +2465,24 @@ def cmd_render(args) -> None:
         rep = produce(ch, html, c, out, args.scale, args.transparent, args.slides or 1, not args.no_qa, args.overlay,
                       args.quality, args.max_bytes, args.preview, args.pages or 1, copy, sims, args.occasion,
                       args.cmyk, locale, args.timeout)
+    if copy:
+        rep["copy_lint"] = render_copy_lint(copy, locale, copy_meta(args.copy).get("platform") or "")
     print(json.dumps(rep if getattr(args, "json", False) else render_summary(rep), indent=2, ensure_ascii=False))
-    if args.strict and ((rep.get("checks") and not rep["checks"]["ok"]) or rep.get("errors")):
+    if args.strict and ((rep.get("checks") and not rep["checks"]["ok"]) or rep.get("errors")
+                        or (rep.get("copy_lint") or {}).get("errors")):
         sys.exit(2)
+
+
+def render_copy_lint(copy: list, locale: str, platform: str) -> dict:
+    """copylint on the copy.json the render checked, so one command gives the picture's checks and the copy's: one
+    step less for every draft. Notes stay in `copylint`; errors and warnings come here."""
+    platform = platform.lower() if platform and platform.split("-")[0].lower() in copyrules.PLATFORM else ""
+    strings = [{"role": s.get("role", ""), "text": s.get("text", ""), "lang": s.get("lang", "")} for s in copy]
+    lint = copyrules.lint_deck(strings, locale, platform)
+    found = [f"{f['severity']}: {it['role'] or '-'}: {f['message']} -> {f['suggest']}"
+             for it in lint["items"] for f in it["findings"] if f["severity"] != "note"] + \
+            [f"{f['severity']}: (deck) {f['message']} -> {f['suggest']}" for f in lint["deck"] if f["severity"] != "note"]
+    return {"errors": lint["errors"], "warnings": lint["warnings"], "found": found[:15]}
 
 
 def render_summary(rep: dict) -> dict:
@@ -6267,6 +6282,16 @@ def cmd_copylint(args) -> None:
     """Offline lint of copy before it goes on a design: dashes, AI and template words, bookish or translated Bengali,
     West Bengal words for Bangladesh, headline and CTA length, platform caption limits, hashtags and emoji, per-language
     punctuation and the brand's own avoid list."""
+    if getattr(args, "save", None):
+        # Save through the lint, so a fast run cannot write the copy and skip the check.
+        text = args.text if args.text is not None else sys.stdin.read()
+        if not text.strip():
+            die("--save needs the copy: pipe it in (a heredoc) or give --text")
+        dest = Path(args.save).expanduser()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        write_atomic(dest, text.strip() + "\n")
+        log(f"saved {dest}")
+        args.caption, args.text = str(dest), None
     strings = _copy_strings(args)
     meta = copy_meta(args.copy) if args.copy else {}
     locale = norm_locale(args.locale or meta.get("locale"))
@@ -7023,6 +7048,8 @@ def build_parser() -> argparse.ArgumentParser:
                                     "leaves alone")
     cl.add_argument("--strict", action="store_true", help="exit 2 on warnings too")
     cl.add_argument("--json", action="store_true", help="print the whole report as JSON only")
+    cl.add_argument("--save", metavar="FILE", help="save the copy (from --text, or piped in) to FILE, then lint that "
+                                                    "file: one step that cannot skip the check")
     cl.set_defaults(func=cmd_copylint)
     cj = sub.add_parser("copyjudge", help="native-reader review of copy by a fresh Codex session: ratings, rewrites")
     cj.add_argument("--copy", help="copy.json")

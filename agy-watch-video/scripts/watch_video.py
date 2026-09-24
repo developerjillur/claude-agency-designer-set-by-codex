@@ -30,7 +30,7 @@ import time
 import unicodedata
 from pathlib import Path
 
-SKILL_VERSION = "2026.09.24.5"
+SKILL_VERSION = "2026.09.24.6"
 CACHE_VERSION = "2026.09.24.4"   # keys the cache: bump it only when what a pass or a measurement returns changes
 SKILL_DIR = Path(__file__).resolve().parent.parent
 CACHE = Path(os.environ.get("AGY_WATCH_CACHE") or (Path.home() / ".cache" / "agy-watch-video"))

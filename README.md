@@ -12,6 +12,23 @@ with the Codex CLI on a ChatGPT plan, and watch, transcribe and check videos wit
 | [`agy-watch-video`](agy-watch-video/SKILL.md) | Gives Claude eyes and ears for video: summaries, shot lists, frame-by-frame reports at full resolution, timestamped transcripts and subtitles (Bengali included), on-screen text, zoomed answers about any moment or detail, measured QA (cuts, black and frozen frames, flicker, loudness, platform specs and safe zones) and version comparisons. ffmpeg prepares and measures; Gemini 3.1 Pro and 3.8 Flash look and listen through the Antigravity CLI; two models are compared and Claude checks the evidence frames. |
 | [`codex-imagegen`](codex-imagegen/SKILL.md) | Generates and edits the images a project needs through the logged-in Codex CLI: photos, illustrations, cutouts, logo concepts, favicons, OG cards and web exports, in parallel with a style lock, each one judged independently. Photos look like unretouched camera photos, and place and people come from the client, never the requester. |
 
+## Fast for everyday work, strict for client finals
+
+Every skill opens with a fast path for drafts (a caption, a post, a placeholder image, a quick look at a video): a
+few tool calls, offline checks only, no judges. Client finals take each skill's client level: the independent judges,
+`--runs 3` and the delivery gate. Measured on two everyday tasks: a Bangla caption in 15 s and an Instagram post in
+39 s, down from 202 s and 447 s.
+
+At a low effort setting Claude Code may not load a skill unless told to. A few lines in your global `CLAUDE.md` fix
+that:
+
+```markdown
+## Our skills: use them for these jobs, every time
+- Any copy people will read, in any language: load `natural-copy` first and follow its fast path.
+- Any graphic with text or layout: load `codex-design` first and follow its fast path.
+- Any image to generate or edit: `codex-imagegen`. Any video or audio: `agy-watch-video`.
+```
+
 ## Why it holds up
 
 - **Measured, not eyeballed.** Every render writes a report (`.qa.json`) with contrast, safe-zone, keep-out, fold and

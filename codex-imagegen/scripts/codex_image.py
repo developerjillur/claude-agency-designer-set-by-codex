@@ -48,7 +48,7 @@ LEAN_FLAGS = [] if os.environ.get("CODEX_IMAGEGEN_FULL_FEATURES") else [
 # spend ~3.1 s (median) in Codex start-up before the model is called; measure with `doctor --image-smoke`.
 LEAN_FLAGS = LEAN_FLAGS + shlex.split(os.environ.get("CODEX_IMAGEGEN_EXTRA_FLAGS", ""))
 API_BASE = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-SKILL_VERSION = "2026.09.24.1"  # bump on every behaviour change; `doctor` reports it
+SKILL_VERSION = "2026.09.24.2"  # bump on every behaviour change; `doctor` reports it
 CODEX_TZ = os.environ.get("CODEX_IMAGEGEN_TZ", "UTC")  # Codex tells the model the machine timezone; "system" keeps it
 # Session time limits. Real fast-mode image sessions took 87 s median, 246 s p90 and 488 s at most; real judges took
 # 38 s median, 53 s p90 and 104 s at most. Agent mode and the API engine keep the older, longer limit.
