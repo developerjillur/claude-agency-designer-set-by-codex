@@ -14,11 +14,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: ffmpeg (for agy-watch-video)
+        run: brew install ffmpeg
       - name: Install the skills
         run: ./install.sh
       - name: codex-imagegen tests
         run: python3 -m unittest discover -s ~/.claude/skills/codex-imagegen/tests
       - name: codex-design tests
         run: python3 -m unittest discover -s ~/.claude/skills/codex-design/tests
+      - name: agy-watch-video tests
+        run: python3 -m unittest discover -s ~/.claude/skills/agy-watch-video/tests
       - name: Pattern library renders clean
         run: CODEX_DESIGN_PATTERNS=1 python3 -m unittest discover -s ~/.claude/skills/codex-design/tests -p "test_patterns.py"

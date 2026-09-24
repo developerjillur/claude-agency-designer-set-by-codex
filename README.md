@@ -1,13 +1,15 @@
 # claude-agency-designer-set-by-codex
 
-Three Claude Code skills that work as a small design agency: they design finished graphics at each platform's exact
-size with real typography, write copy that sounds like the audience instead of a machine, and make and check the
-images, using the Codex CLI on a ChatGPT plan (no API key needed).
+Four Claude Code skills that work as a small design agency: they design finished graphics at each platform's exact
+size with real typography, write copy that sounds like the audience instead of a machine, make and check the images
+with the Codex CLI on a ChatGPT plan, and watch, transcribe and check videos with Gemini through the Antigravity CLI
+(no API keys needed).
 
 | Skill | What it does |
 |---|---|
 | [`codex-design`](codex-design/SKILL.md) | Designs social posts, stories, carousels, thumbnails, covers, banners, ads, posters, flyers, brochures, book covers, certificates, invitations, signs and more: 526 researched formats, and a method for any size or kind it has never seen. Real type in HTML and CSS over generated plates, rendered by headless Chrome and measured (contrast on real pixels, safe zones, text sizes, folds), then judged by an independent senior-art-director review and gated before delivery. |
 | [`natural-copy`](natural-copy/SKILL.md) | Writes and fixes any text an audience reads or hears (captions, ads, banner lines, product and web text, emails, WhatsApp and SMS, scripts, replies) so it sounds like a person from that audience: casual everyday words, no AI tone, no bookish, poetic or translated feel. English, Bangla and Banglish for Bangladesh first-class, and 18 more languages. |
+| [`agy-watch-video`](agy-watch-video/SKILL.md) | Gives Claude eyes and ears for video: summaries, shot lists, frame-by-frame reports at full resolution, timestamped transcripts and subtitles (Bengali included), on-screen text, zoomed answers about any moment or detail, measured QA (cuts, black and frozen frames, flicker, loudness, platform specs and safe zones) and version comparisons. ffmpeg prepares and measures; Gemini 3.1 Pro and 3.8 Flash look and listen through the Antigravity CLI; two models are compared and Claude checks the evidence frames. |
 | [`codex-imagegen`](codex-imagegen/SKILL.md) | Generates and edits the images a project needs through the logged-in Codex CLI: photos, illustrations, cutouts, logo concepts, favicons, OG cards and web exports, in parallel with a style lock, each one judged independently. Photos look like unretouched camera photos, and place and people come from the client, never the requester. |
 
 ## Why it holds up
@@ -20,6 +22,10 @@ images, using the Codex CLI on a ChatGPT plan (no API key needed).
   calibrated so that 287 natural lines draw no finding while 232 of 234 robotic lines are caught. A native-reader judge
   (`copyjudge`) scores fidelity to the brief before anything else and lints its own rewrites.
 - **Never two designs alike.** A design ledger rejects a layout recipe too close to a client's recent work.
+- **Video claims are checked, not trusted.** Detail comes from sharp full-resolution frames and zoom, never from the
+  low-detail video stream; two Gemini models answer every question and must agree on every number and colour; a claim
+  is verified with a neutral question that hides it, then judged. Measured QA (cuts, black and frozen frames, flashes,
+  loudness, platform specs and safe zones) needs no model at all.
 - **Global by default.** Place, people, language, digits and currency come from the client's market.
 
 ## Requirements
@@ -29,6 +35,9 @@ images, using the Codex CLI on a ChatGPT plan (no API key needed).
 - Google Chrome (the Compose route renders with headless Chrome).
 - The [Codex CLI](https://github.com/openai/codex), logged in with a ChatGPT plan that includes image generation
   (`codex login`). It generates the images and runs the judges; the offline tools and the lint work without it.
+- For `agy-watch-video`: [ffmpeg](https://ffmpeg.org) (`brew install ffmpeg`) and the
+  [Antigravity CLI](https://antigravity.google/download#antigravity-cli), signed in once with `agy`. See the note on
+  Antigravity's terms below.
 - [Claude Code](https://docs.claude.com/en/docs/claude-code).
 
 ## Install
@@ -39,7 +48,7 @@ cd claude-agency-designer-set-by-codex
 ./install.sh
 ```
 
-`install.sh` links the three skills into `~/.claude/skills` (so `git pull` updates them; `--copy` copies them
+`install.sh` links the four skills into `~/.claude/skills` (so `git pull` updates them; `--copy` copies them
 instead), sets up each skill's Python environment and checks the machine. It never overwrites an existing folder.
 Restart Claude Code afterwards. `./install.sh --test` also runs the offline test suites.
 
@@ -51,6 +60,8 @@ Ask Claude Code in plain words, in any language; the skills load by themselves:
 - "YouTube thumbnail for this video, and a matching community post."
 - "biye card design kore dao" or "post er caption likhe dao" (Banglish works).
 - "Make a KDP paperback cover, 6x9, 240 pages, cream paper."
+- "What happens in this video?", "Check this reel before I post it", "Transcribe this and give me subtitles",
+  "Why does the app crash at 0:12 in this recording?"
 
 Or call the tools directly:
 
@@ -60,15 +71,19 @@ python3 ~/.claude/skills/codex-design/scripts/design.py render --html post.html 
 python3 ~/.claude/skills/codex-design/scripts/design.py copylint --caption caption.txt --platform instagram --locale BD
 python3 ~/.claude/skills/codex-design/scripts/design.py copyjudge --caption caption.txt --brief brief.md --runs 3
 python3 ~/.claude/skills/codex-imagegen/scripts/codex_image.py doctor --smoke
+python3 ~/.claude/skills/agy-watch-video/scripts/watch_video.py watch clip.mp4 --goal promo --platform reels
+python3 ~/.claude/skills/agy-watch-video/scripts/watch_video.py ask clip.mp4 "What is on the sign?" --at 0:12
+python3 ~/.claude/skills/agy-watch-video/scripts/watch_video.py verify clip.mp4 "the logo appears before the title" --from 0 --to 5
 ```
 
-Every command, flag and output is documented in `codex-design/references/cli.md` and `codex-imagegen/references/cli.md`.
+Every command, flag and output is documented in the `references/cli.md` of each skill.
 
 ## Tests
 
 ```bash
 python3 -m unittest discover -s ~/.claude/skills/codex-design/tests
 python3 -m unittest discover -s ~/.claude/skills/codex-imagegen/tests
+python3 -m unittest discover -s ~/.claude/skills/agy-watch-video/tests
 CODEX_DESIGN_PATTERNS=1 python3 -m unittest discover -s ~/.claude/skills/codex-design/tests -p "test_patterns.py"
 ```
 
@@ -81,6 +96,8 @@ codex-design/     the design skill: scripts/ (design.py, copyrules.py, presets.j
                   (26 patterns, the kit, a sample brand), references/ (craft, copy, formats, research notes), tests/
 natural-copy/     the voice skill: SKILL.md and references/ (English, Bangla, 18 more languages)
 codex-imagegen/   the image skill: scripts/codex_image.py, references/, tests/
+agy-watch-video/  the video skill: scripts/watch_video.py (and ocr.swift), references/ (engine, cli, playbooks,
+                  platforms, research notes), tests/
 ```
 
 ## Notes
@@ -90,6 +107,11 @@ codex-imagegen/   the image skill: scripts/codex_image.py, references/, tests/
 - `codex-design/references/research/` holds dated research notes with their sources. They are evidence, not rules:
   where a note and a reference file disagree, the reference file wins.
 - Generated images keep their provenance metadata (C2PA); the tools never strip or fake it.
+- `agy-watch-video` sends the video's frames and audio to Google through your Antigravity account. Google's
+  Antigravity FAQ says "using third party software, tools, or services to access Antigravity is a violation of our
+  Terms of Service" and recommends a Gemini Enterprise or Google AI Studio API key for third-party coding agents. The
+  skill calls the official `agy` binary in its documented headless mode; whether that fits your account is your call.
+  agy can also run on a Gemini API key, and the skill works the same way (see `agy-watch-video/references/engine.md`).
 - The sample photos in `codex-design/templates/patterns/assets/photos/` were generated with `codex-imagegen` for the
   fictional sample brand and say so in their metadata (IPTC DigitalSourceType trainedAlgorithmicMedia).
 - The sample brand's fonts are open-licensed (SIL OFL 1.1); see `codex-design/templates/sample-brand/fonts/`.

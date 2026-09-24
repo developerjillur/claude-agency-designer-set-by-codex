@@ -192,6 +192,12 @@ subtitle). Every row has a starting pattern in `templates/README.md`, and the br
 4. An unfamiliar kind of design maps by its job (announce, sell, teach, invite, celebrate, brand, recruit, fundraise,
    compare, warn, direct, entertain) to an anatomy and the closest pattern (`formats.md` §4).
 
+Video and motion: anything delivered as a video (animated posts, reels, stories, intros, HyperFrames or Remotion
+renders) goes through the `agy-watch-video` skill before delivery: `qa VIDEO --platform reels --strict` (black and
+frozen frames, flicker, loudness, specs, safe zones; exit 2 on a failure), then `watch VIDEO --goal motion --expect
+copy.txt` (the approved on-screen lines, each found or not) and `verify` for any finding before you act on it. To
+study a reference or competitor video, use `watch VIDEO --goal promo`.
+
 ## 5. Non-negotiables
 
 - **Text:** every approved on-image string appears exactly once with real punctuation, and nothing else is written

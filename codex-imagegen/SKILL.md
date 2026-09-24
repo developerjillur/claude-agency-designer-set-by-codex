@@ -60,6 +60,7 @@ Images are part of building or improving a site; the full playbook is `reference
 | Logo, brand kit, guidelines | the codex-design skill (SVG system, `outline` wordmarks, brand book); concept marks = a batch of 3–4 different transparent concept jobs here |
 | Icons | the project's SVG icon library, or hand-written SVG on its grid |
 | Favicons, OG card | `favicon --src brand/logo-mark.svg --out public`; `og --bg <hero> --title "…" --out public/og.png` (Latin text only: for Bengali or other scripts, or a designed card, use codex-design's `og-image` preset) |
+| Stills from a video (thumbnail candidates, references, hero frames) | the agy-watch-video skill: `frames VIDEO --scenes --sheet` or `--at 12.5` for sharp frames, and `ask` to find the best moment; then edit or upscale here |
 | Social posts, banners, posters, flyers, ads, thumbnails | codex-design: it plans the layout and typography and asks this skill for text-free plates at the canvas aspect (Compose, its primary route); its secondary Direct route sends one compiled design prompt through `generate` and verifies the text by OCR |
 | Brand guideline | `brand/BRAND.md` + `brand/style.json` |
 | Existing site | `audit --root .` (issues + locale) → keep / re-export / replace / add → re-audit |

@@ -169,6 +169,9 @@ python3 ~/.claude/skills/codex-design/scripts/design.py copyjudge --caption post
    Never pass copy through a third-party humanizer tool: they strip hyphens, break ranges and invent facts.
 4. For a series, `design.py ledger` keeps hooks and templates from repeating (the same template in 3 of the last 12
    posts is a machine sign).
+5. For spoken copy in a finished video, reel or ad, get the words as they are actually heard with the `agy-watch-video`
+   skill (`transcribe VIDEO`), then lint and judge that transcript like any script. `ask VIDEO "Do the captions match
+   the speech?"` catches captions that drifted from the voiceover.
 
 ## 8. Natural is not fake (non-negotiable)
 
