@@ -52,8 +52,12 @@ for skill in codex-imagegen codex-design natural-copy; do
 done
 
 echo "setting up Python environments (Pillow, segno, pypdf, uharfbuzz, fontTools)"
-python3 "$dest/codex-imagegen/scripts/codex_image.py" doctor --setup
-python3 "$dest/codex-design/scripts/design.py" doctor --setup
+# each doctor builds its skill's environment first, then reports what is still missing on this machine (the Codex CLI,
+# Chrome); a missing tool is a note here, not a failed install
+python3 "$dest/codex-imagegen/scripts/codex_image.py" doctor --setup || \
+  echo "note    codex-imagegen is set up; its doctor lists what is still missing above (usually the Codex CLI)"
+python3 "$dest/codex-design/scripts/design.py" doctor --setup || \
+  echo "note    codex-design is set up; its doctor lists what is still missing above"
 
 echo "checking the machine"
 python3 "$dest/codex-design/scripts/design.py" doctor || true
