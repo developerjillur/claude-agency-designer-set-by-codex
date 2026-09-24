@@ -1,6 +1,6 @@
 ---
 name: natural-copy
-description: "Writes, rewrites and checks any text an audience reads or hears (social posts, captions, ad copy, banner and poster lines, product descriptions, website and app text, emails, WhatsApp and SMS, reel and video scripts, comment replies) so it sounds like a real person from that audience wrote it: casual, easy everyday words, the way people talk to friends and the brands they like talk online. No AI tone, templates or cliches; no bookish, poetic, old, sadhu or stiff 'shuddho' style; no translation feel. Bangla and Banglish for Bangladesh first-class, plus English and 18 more languages. Use it whenever you write or fix copy for a brand, a client or the user's own posts, in any language, Banglish asks included ('caption likhe dao', 'post likho', 'ad copy banao', 'reply dao'). It learns the audience's own words first, picks the register, writes, then checks with copylint and a native-reader copyjudge. Pairs with codex-design for text on graphics."
+description: "Writes, rewrites and checks any text an audience reads or hears (social posts, captions, ad copy, banner and poster lines, product descriptions, website and app text, emails, WhatsApp and SMS, reel and video scripts, comment replies) so it sounds like a real person from that audience wrote it: casual, easy everyday words, the way people talk to friends and the brands they like talk online. No AI tone, templates or cliches; no bookish, poetic, old, sadhu or stiff 'shuddho' style; no translation feel. Bangla and Banglish for Bangladesh first-class, plus English and 18 more languages. Use it whenever you write or fix copy for a brand, a client or the user's own posts, in any language, Banglish asks included ('caption likhe dao', 'post likho', 'ad copy banao', 'reply dao'). It learns the audience's own words first, picks the register, writes, then checks with copylint and a native-reader copyjudge. Song lyrics, jingles and poems get their own lyric rules and a lyricist's judge. Pairs with codex-design for text on graphics."
 allowed-tools: Bash(python3 ~/.claude/skills/codex-design/scripts/design.py:*), Read, Write, Edit
 ---
 
@@ -134,6 +134,30 @@ in `scripts/voice_rules.json` (932 tested rules in 24 languages).
 | Replies and DMs | answer first in their words, their name, what happens next and by when, one owned apology, no emoji on complaints, never the same reply three times (`references/voice.md` §8) |
 | Blog, newsletter, long post | start with the point, no roadmap line, real examples, end on the last new fact, not a restated conclusion |
 | Festival and solemn days | follow `codex-design/references/occasions.md`: no selling on solemn days, no jokes on tragedy |
+| Song lyrics, jingles, poems | a different craft with its own rules and checks: §5a |
+
+## 5a. Songs, lyrics and poems
+
+Sections 2 to 4 are for words people read in a feed. A song is sung, and its craft runs the other way: song language
+(poetic and literary words are welcome), fresh images, an even meter and a hook. Turning a song into chat (a phone
+call, tea, texting lines) is the classic failure: a user rejected exactly that, and asked for imagery, rhyme and
+meter like the popular songs of their market.
+
+1. **Keep the songwriter's own lines exactly**, and build the story from the moment they describe.
+2. **Pick the sound first.** For Bangladesh: today's Bangladeshi band, modern, film and indie songs, with Bangladeshi
+   usage (পানি, গোসল); a line that sounds like Kolkata adhunik or a textbook poem is off unless the user wants that.
+   When the user names a sound (Dhaka pop, band, folk, ghazal, a singer), follow it; when unsure, ask in one line.
+3. **Form:** mukhra, antara, sanchari, abhog (or verse, pre-chorus, chorus, bridge). Count syllables so paired lines
+   match, put open vowels on long notes, rhyme or near-rhyme where the genre expects it, and give one line people
+   will sing back.
+4. **Images, not statements:** a place, a time of day, a small action the listener can see. Avoid the pile of stock
+   song phrases (চাঁদের আলো, স্বপ্নের ডানায়) and AI-song clichés.
+5. **Check:** `copylint --caption song.txt --role lyric --locale BD` keeps the hard checks (dashes, calques, West
+   Bengal words in a Bangladeshi song, chatbot leftovers) and turns off the post rules (even rhythm, repeated
+   openings, a refrain, আহা). `copyjudge --caption song.txt --role lyric --brief "..." --locale BD` uses a lyricist's
+   rubric: song language, imagery, singability, emotion, genre fit, hook, freshness. In a copy.json, name the section
+   roles mukhra, antara 1, sanchari, abhog (or verse, chorus, bridge): any of these switches both tools to the song
+   rules. Sing it once over a simple beat before you judge it.
 
 ## 6. Languages
 
@@ -162,7 +186,13 @@ python3 ~/.claude/skills/codex-design/scripts/design.py copyjudge --caption post
    `--brand` leaves the brand's `keep` lines alone.
 2. **Read it aloud** as the reader. If you would not say it across a counter, rewrite it.
 3. `copyjudge` (a fresh native-reader session): PASS at least; PASS_NATIVE with `--runs 3` for client work. It scores
-   fidelity to the brief first, so an invented detail costs the line. Its rewrites come back linted
+   fidelity to the brief first, so an invented detail costs the line. Speed: one run takes about 40 s (up to 2 minutes for long
+   Bengali copy at the default `--effort high`); `--runs 3` runs in parallel and takes about 100 s. Run it in the
+   background, iterate with `copylint` (instant), and judge once when the draft is done rather than after every small
+   edit; `--effort medium --runs 1` is a quick draft check. `--brief` takes a file or the brief's text itself. A
+   copy.json is `{"locale": "BD", "strings": [{"role": "headline", "text": "..."}]}` (or a plain list of strings);
+   the verdict is saved next to it as `<name>.copyjudge.json`, and an unchanged deck returns the saved verdict
+   instantly (`--fresh` judges again). Its rewrites come back linted
    (`rewrite_lint`): use none that carries a finding. Take a rewrite only after checking disputed local words against
    a local source, and test it: delete each word it added (does anything go?), revert each word it replaced (was the
    old one already right?).

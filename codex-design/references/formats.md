@@ -17,7 +17,8 @@ python3 ~/.claude/skills/codex-design/scripts/design.py presets --nearest 1500x3
 ```
 
 - `--find` searches ids, labels, aliases (including Banglish such as "fb cover banano", "thumbnail banao"), platforms and
-  notes, and ranks the exact phrase first.
+  notes, and ranks the exact phrase first. Search the client's own words: "biye card", "visiting card" and "boi er
+  prochchhod" all land on the right presets.
 - A retired format answers with its replacement: a "YouTube story" request gets `yt-shorts-frame` and `yt-post`
   (Stories closed on 2023-06-26); IGTV, LinkedIn Stories, Twitter Fleets, Idea Pins and the removed Meta placements
   do the same. Tell the client, and design the replacement.

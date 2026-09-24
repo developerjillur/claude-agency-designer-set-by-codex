@@ -696,6 +696,18 @@ class FakeAgyTests(unittest.TestCase):
         self.assertIn("fact check", how)
         self.assertIn(w.TEXT_ONLY, json.loads(self.log.read_text().splitlines()[-1])[1])
 
+    def test_each_kind_of_call_has_its_own_time_limit(self):
+        self.assertEqual(w.call_timeout("overview02", [Path("p.mp4")]), 900)
+        self.assertEqual(w.call_timeout("audio001", [Path("a.wav")]), 600)
+        self.assertEqual(w.call_timeout("detail000", [Path("f.jpg")]), 420)
+        self.assertEqual(w.call_timeout("verify-1r", [Path("f.jpg")]), 420)
+        self.assertEqual(w.call_timeout("neutral", []), 240)
+        self.assertEqual(w.call_timeout("review", []), 360)
+        r = w.agy_call(None, "t-limit", "prompt", w.SCHEMA_ASK, "gemini-3.8-flash-high", [self.media], fresh=True)
+        self.assertTrue(r["ok"])
+        args = json.loads(self.log.read_text().splitlines()[-1])
+        self.assertEqual(args[args.index("--print-timeout") + 1], "420s")
+
     def test_quota_error_is_named(self):
         os.environ["FAKE_AGY_MODE"] = "error"
         r = self._call("t-quota")

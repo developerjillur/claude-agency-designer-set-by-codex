@@ -4,6 +4,33 @@ The version is `SKILL_VERSION` in `scripts/design.py`; `doctor` reports it. Afte
 `python3 -m unittest discover -s ~/.claude/skills/codex-design/tests`, and render the pattern library (every pattern
 on its presets must stay free of errors and warnings; `templates/README.md` lists them).
 
+## 2026.09.24.5 · shorter waits, fewer failed runs, and songs judged as songs
+
+Found by reading the session logs of real use: a lyric was pushed towards chat, a long inline brief crashed the copy
+judge, Claude read design.py to learn the copy.json format, and judges waited up to 16 minutes on a stuck session.
+
+- **Songs, lyrics and poems:** a lyric role (`--role lyric`, or copy.json roles mukhra, antara, sanchari, abhog, verse,
+  chorus, bridge, poem, jingle) switches `copylint` to song rules (dashes, calques, chatbot leftovers and West Bengal
+  words stay findings; the post rules about even rhythm, repeated openings, a refrain, stacked praise and আহা are off;
+  the voice rules become notes) and `copyjudge` to a lyricist's rubric (song_language, imagery, singability, emotion,
+  genre_fit, hook, freshness, no_ai_tells; no CTA; the songwriter's own lines are never rewritten). The copy rubric
+  scores poetic language down, which had turned a user's song into conversation. First live run: 71 s.
+- **Briefs and captions:** `--brief` (judge, copyjudge, pairwise) and `--caption` take a file or the text itself, of
+  any length; a value that looks like a path must exist, else one line says so with the working folder. judge cuts
+  only the brief, never the approved copy or brand facts after it.
+- **Multi-run judges keep what they got:** with `--runs 3` a failed run is listed in `runs_failed` with its reason and
+  the verdict stands on the others (2 of 3, 3 of 5). Stopping a run now kills every Codex session at once (0.1 s, was
+  17 s). pairwise says why when its votes fail instead of calling it a tie.
+- **Time limits near the measured times:** judge 240 s, copyjudge 150 s, pairwise 300 s, direct 240 s per session, one
+  retry each; a timed-out edit fails in one line and only its own repair.
+- **Short output:** `presets` 30 KB instead of 361 KB, `render` 1.1 KB instead of 36.5 KB, judge and copyjudge print a
+  summary and keep the full report in the file (`--json` prints everything).
+- **reframe** names a misspelled preset ("did you mean") and writes print presets at print resolution with a ppi
+  warning (an A5 used to come out 582 px wide). The second readers in direct run side by side.
+- **Docs:** SKILL.md gives a minimal copy.json, the brief rule, run times, what to run in the background and "one run
+  while iterating, three to confirm", in fewer tokens than before.
+- **Tests:** 122 offline tests.
+
 ## 2026.09.24.4 · faster, and patterns that pass as finished work
 
 The user asked for a last pass before publishing: faster, better organised and better output, never at the cost of

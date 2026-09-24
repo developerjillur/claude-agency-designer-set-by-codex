@@ -48,8 +48,13 @@ LEAN_FLAGS = [] if os.environ.get("CODEX_IMAGEGEN_FULL_FEATURES") else [
 # spend ~3.1 s (median) in Codex start-up before the model is called; measure with `doctor --image-smoke`.
 LEAN_FLAGS = LEAN_FLAGS + shlex.split(os.environ.get("CODEX_IMAGEGEN_EXTRA_FLAGS", ""))
 API_BASE = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-SKILL_VERSION = "2026.09.24"  # bump on every behaviour change; `doctor` reports it
+SKILL_VERSION = "2026.09.24.1"  # bump on every behaviour change; `doctor` reports it
 CODEX_TZ = os.environ.get("CODEX_IMAGEGEN_TZ", "UTC")  # Codex tells the model the machine timezone; "system" keeps it
+# Session time limits. Real fast-mode image sessions took 87 s median, 246 s p90 and 488 s at most; real judges took
+# 38 s median, 53 s p90 and 104 s at most. Agent mode and the API engine keep the older, longer limit.
+GEN_TIMEOUT = 480
+AGENT_TIMEOUT = 900
+JUDGE_TIMEOUT = 150
 
 
 _TMP = {"lock": threading.Lock()}
@@ -102,8 +107,13 @@ def write_atomic(path, text: str) -> Path:
 # Every Codex session (and agent-mode child run) lives in its own process group, so the terminal's Ctrl-C never
 # reaches it. They are tracked here: a stop signal ends them all at once instead of leaving them running (and
 # spending plan quota) for up to --timeout while Python waits for its worker threads.
-_LIVE = {"procs": set(), "lock": threading.RLock(), "stop": False}  # RLock: a signal may land while held
+_LIVE = {"procs": set(), "lock": threading.RLock(), "stop": False, "fatal": None}  # RLock: a signal may land while held
 POLL_S = 0.2  # how often a running session checks cancel / stop / an early result
+# Codex errors that every later session would hit too: the plan's usage limit or a lost login. The run stops at once.
+FATAL_RX = re.compile(r"usage limit|hit your limit|quota|not logged in|(please|need to) (log|sign) ?in|codex login|"
+                      r"unauthori[sz]ed|(authentication|auth) (failed|required|error)|"
+                      r"token (has )?(expired|been revoked)|(access|refresh) token\b.{0,40}\b(expired|invalid|revoked)",
+                      re.I)
 
 
 def _stop_group(proc, grace: float = 2.0) -> None:
@@ -137,6 +147,23 @@ def kill_live_sessions() -> int:
     for t in threads:
         t.join()
     return len(procs)
+
+
+def fatal_error(text) -> bool:
+    """True for a Codex error that no retry can fix: the plan's usage limit or a lost login."""
+    return bool(text) and bool(FATAL_RX.search(str(text)))
+
+
+def stop_run(reason: str) -> None:
+    """End the whole run at once, keeping Codex's own words as the reason: every other session would fail the same
+    way, so none of them should keep waiting or spending quota."""
+    with _LIVE["lock"]:
+        first = not _LIVE["fatal"]
+        if first:
+            _LIVE["fatal"] = str(reason)[:500]
+    if first:
+        log(f"STOPPING the run. Codex said: {_LIVE['fatal']}")
+        kill_live_sessions()
 
 
 def install_stop_handlers() -> None:
@@ -287,7 +314,9 @@ def log(msg: str) -> None:
 
 def die(msg: str, code: int = 1) -> None:
     log(f"ERROR: {msg}")
-    raise SystemExit(code)
+    err = SystemExit(code)
+    err.message = msg  # a batch job that dies reports this instead of ending the whole batch
+    raise err
 
 
 # ----------------------------------------------------------------------------- helpers
@@ -312,6 +341,35 @@ def parse_size(s: str) -> tuple:
     if not m:
         die(f"size must look like 1920x1080, got {s!r}")
     return int(m.group(1)), int(m.group(2))
+
+
+def check_size(size, what: str) -> None:
+    """Refuse a malformed size before any Codex session (it used to end the whole run after the images were made)."""
+    m = re.fullmatch(r"(\d+)x(\d+)", str(size))
+    if not m or int(m.group(1)) < 1 or int(m.group(2)) < 1:
+        die(f"{what}: size must be WIDTHxHEIGHT in pixels with a lowercase x and no spaces, like 1920x1080 "
+            f"(got {size!r})")
+
+
+def check_candidates(value, what: str) -> None:
+    """Candidates per image: a whole number from 1 to 4, or not set."""
+    if value is None:
+        return
+    if isinstance(value, bool) or not str(value).strip().isdigit() or not 1 <= int(value) <= 4:
+        die(f"{what}: candidates must be a whole number from 1 to 4 (got {value!r})")
+
+
+def find_input(value, bases=()):
+    """A file named on the command line or in a jobs file. Absolute and ~ paths are taken as given; a relative path
+    is looked up in each base folder in turn, then in the current folder. None when it is nowhere."""
+    p = Path(str(value)).expanduser()
+    for q in ([p] if p.is_absolute() else [Path(b) / p for b in bases] + [Path.cwd() / p]):
+        try:
+            if q.exists():
+                return q.resolve()
+        except OSError:  # text longer than a file name is not a path
+            return None
+    return None
 
 
 def valid_api_size(w: int, h: int) -> bool:
@@ -390,26 +448,52 @@ def get_api_key():
 
 
 # ----------------------------------------------------------------------------- job setup
+def looks_like_file_name(text: str) -> bool:
+    """A one-line text that is a file name (brief.txt) or an existing file, not a brief."""
+    t = (text or "").strip()
+    if not t or "\n" in t or len(t) > 250:
+        return False
+    p = find_input(t)
+    return bool(re.fullmatch(r"\S+\.(txt|md|json)", t, re.I)) or (p is not None and p.is_file())
+
+
 def read_brief(args) -> str:
+    """The brief from --prompt, --prompt-file FILE or --prompt-file - (stdin). An empty brief stops the run."""
+    if args.prompt_file and args.prompt is not None:
+        log("WARNING: both --prompt and --prompt-file given; the file is used")
     if args.prompt_file == "-":
-        return sys.stdin.read().strip()
+        brief = sys.stdin.read().strip()
+        if not brief:
+            die("the brief is empty: nothing came in on stdin (check the heredoc)")
+        return brief
     if args.prompt_file:
-        return Path(args.prompt_file).read_text(encoding="utf-8").strip()
+        p = find_input(args.prompt_file)
+        if p is None or not p.is_file():
+            die(f"brief file not found: {args.prompt_file} (to pass the brief as text, use --prompt)")
+        brief = p.read_text(encoding="utf-8").strip()
+        if not brief:
+            die(f"the brief is empty: {p}")
+        return brief
     if args.prompt is not None:
         if not args.prompt.strip():
             die("the brief is empty")
+        if looks_like_file_name(args.prompt):
+            log(f"WARNING: --prompt looks like a file name ({args.prompt.strip()}); it is used as the brief text. "
+                f"To read the brief from a file, use --prompt-file")
         return args.prompt.strip()
     die("give --prompt or --prompt-file")
     return ""
 
 
-def parse_refs(items) -> list:
+def parse_refs(items, bases=()) -> list:
+    """--ref PATH[=ROLE] values -> [(path, role)]. Relative paths are looked up in `bases`, then the current folder."""
     refs = []
     for it in items or []:
-        path, _, role = it.partition("=")
-        p = Path(path).expanduser().resolve()
-        if not p.exists():
-            die(f"reference image not found: {p}")
+        whole = find_input(it, bases)  # a file name that itself contains "=" is a path with no role
+        path, _, role = (it, "", "") if whole is not None and whole.is_file() else it.partition("=")
+        p = find_input(path, bases)
+        if p is None or not p.is_file():
+            die(f"reference image not found: {Path(path).expanduser()}")
         refs.append((p, role.strip() or "reference"))
     return refs
 
@@ -469,7 +553,7 @@ def director_prompt(mode: str, brief: str, outputs: list, aspect: str, refs: lis
 
 
 # ----------------------------------------------------------------------------- telemetry + logs
-TELEMETRY = {"records": [], "log_dir": None, "phase": "generate", "seq": 0}
+TELEMETRY = {"records": [], "log_dir": None, "fail_dir": None, "phase": "generate", "seq": 0}
 TLOCK = threading.Lock()
 
 
@@ -489,6 +573,25 @@ def log_file(name: str, content) -> None:
                      json.dumps(content, indent=2, ensure_ascii=False, default=str))
     except OSError as e:  # logs are best effort: a full disk or a bad --log-dir must not cost an image
         log(f"WARNING: could not write log {name} ({e!r})")
+
+
+def keep_failed_log(tag: str, stdout: str, stderr: str = "") -> str:
+    """Keep a failed session's event stream (and its stderr) after the run: in --log-dir, else in the run's failure
+    folder (<out-dir>/logs). The temp folders are removed at exit, so without this the real error is lost.
+    Returns the path of the kept events file, or "" when there is nowhere to keep it."""
+    d = TELEMETRY.get("log_dir") or TELEMETRY.get("fail_dir")
+    if not d:
+        return ""
+    p = Path(d) / f"{tag}.events.jsonl"
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        write_atomic(p, stdout or "")
+        if (stderr or "").strip():
+            write_atomic(p.with_name(f"{tag}.stderr.txt"), stderr)
+    except OSError as e:
+        log(f"WARNING: could not keep the session log {p.name} ({e!r})")
+        return ""
+    return str(p)
 
 
 def find_rollout(thread_id):
@@ -701,22 +804,13 @@ def run_codex_once(bin_, prompt, workdir, add_dirs, attach, effort, model, use_s
     run = run_group(cmd, prompt, timeout, tmp)  # own process group: a timeout or stop ends Codex and its helpers
     out = run["stdout"]
     if run["error"]:
-        return {"ok": False, "error": run["error"], "thread_id": thread_from(out),
-                "elapsed": time.time() - started, "last": None, "stdout": out}
-    thread_id, fatal = thread_from(out), None
-    for line in out.splitlines():
-        try:
-            ev = json.loads(line)
-        except ValueError:
-            continue
-        if ev.get("type") == "error":
-            fatal = ev.get("message")
-        elif ev.get("type") == "turn.failed":
-            fatal = (ev.get("error") or {}).get("message") or fatal or "turn failed"
+        return {"ok": False, "error": session_error(run), "thread_id": thread_from(out),
+                "elapsed": time.time() - started, "last": None, "stdout": out, "stderr": run["stderr"]}
+    thread_id, fatal = thread_from(out), codex_error(out)
     last_text = last.read_text(encoding="utf-8") if last.exists() else None
     ok = run["returncode"] == 0 and not fatal
     return {"ok": ok, "error": fatal or (None if ok else (run["stderr"] or "")[-600:]), "thread_id": thread_id,
-            "elapsed": time.time() - started, "last": last_text, "stdout": out}
+            "elapsed": time.time() - started, "last": last_text, "stdout": out, "stderr": run["stderr"]}
 
 
 def thread_from(stdout: str):
@@ -728,6 +822,66 @@ def thread_from(stdout: str):
         if ev.get("type") == "thread.started":
             return ev.get("thread_id")
     return None
+
+
+def codex_error(stdout: str):
+    """The error Codex reported in its JSON event stream (an `error` event or a failed turn), else None."""
+    fatal = None
+    for line in (stdout or "").splitlines():
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("type") == "error":
+            fatal = ev.get("message") or fatal
+        elif ev.get("type") == "turn.failed":
+            fatal = (ev.get("error") or {}).get("message") or fatal or "turn failed"
+    return fatal
+
+
+def codex_said(run: dict) -> str:
+    """What Codex itself said about a failed session: its error event, else the last line of its stderr when it
+    exited with an error, else ""."""
+    said = codex_error(run.get("stdout"))
+    if said:
+        return str(said)[:500]
+    tail = [l for l in (run.get("stderr") or "").splitlines() if l.strip()]
+    if tail and run.get("returncode") not in (0, None):
+        return tail[-1].strip()[:500]
+    return ""
+
+
+def session_error(run: dict) -> str:
+    """Why a Codex session gave no result, in Codex's own words when it gave any: the timeout or stop, else what
+    Codex said, else a plain note."""
+    if run.get("error") == "stopped" and _LIVE["fatal"]:
+        return f"stopped: {_LIVE['fatal']}"
+    return run.get("error") or codex_said(run) or "no result from the Codex session"
+
+
+def retry_worth(err) -> bool:
+    """A quick failure gets one more session. A timeout, a stop or a usage-limit or login error does not: a retry
+    would only repeat the same long wait or the same error."""
+    e = str(err or "")
+    return not (_LIVE["stop"] or e.startswith(("timed out", "stopped", "cancelled")) or fatal_error(e))
+
+
+def explain_failures(results: list, run: dict, tag: str) -> None:
+    """Every failed result of one image session gets its reason (Codex's own words when it said any) and the path of
+    the kept events file. A usage-limit or login error stops the whole run."""
+    failed = [r for r in results if not r["ok"]]
+    if not failed:
+        return
+    why = session_error(run)
+    said = next((str(r["err"]) for r in failed if fatal_error(r.get("err"))), "") or codex_said(run)
+    if fatal_error(said):
+        stop_run(said)
+    kept = "" if run.get("error") in ("cancelled", "stopped") else keep_failed_log(tag, run.get("stdout"),
+                                                                                 run.get("stderr", ""))
+    for r in failed:
+        r["err"] = (r.get("err") or why) + (f" (events: {kept})" if kept else "")
 
 
 def engine_codex(args, brief, outputs, refs, target, workdir):
@@ -751,12 +905,19 @@ def engine_codex(args, brief, outputs, refs, target, workdir):
         log(f"codex exec: effort={effort or 'config'} model={model or 'config default'} schema={use_schema}")
         res = run_codex_once(bin_, prompt, workdir, add_dirs, attach, effort, model, use_schema, args.timeout, tmp,
                              summary)
-        record_run(args.cmd, prompt, res.get("stdout"), res.get("thread_id"), res["elapsed"],
-                   {"ok": res["ok"], "error": res.get("error"), "requested_effort": effort,
-                    "requested_model": model or "config default"})
+        rec = record_run(args.cmd, prompt, res.get("stdout"), res.get("thread_id"), res["elapsed"],
+                         {"ok": res["ok"], "error": res.get("error"), "requested_effort": effort,
+                          "requested_model": model or "config default"})
         if res["ok"]:
             break
-        err = (res["error"] or "").lower()
+        err = (res["error"] or "").lower()  # the retry decisions below read Codex's own words, not the log path
+        if fatal_error(res.get("error")):
+            stop_run(res["error"])
+        kept = keep_failed_log(rec["step"], res.get("stdout"), res.get("stderr", ""))
+        if kept:
+            res["error"] = f"{res.get('error') or 'the Codex session failed'} (events: {kept})"
+        if _LIVE["stop"]:
+            break
         if "summary" in err and summary not in (None, "none"):
             log("reasoning summaries not supported by this model; retrying without them")
             summary = None
@@ -1078,10 +1239,10 @@ JUDGE_RETRY_WAIT = 3.0
 
 
 def run_judge(image: Path, brief: str, threshold: int = 4, model=None, effort: str = "high",
-              timeout: int = 420, checklist=None, job=None, cancel=None) -> dict:
+              timeout: int = JUDGE_TIMEOUT, checklist=None, job=None, cancel=None) -> dict:
     """Fresh, read-only Codex session that grades one image; the verdict is computed here, never by the judge.
     An image whose judge errored is neither exported nor fixed, so a quick error gets one more fresh session (a
-    timeout does not: the worst case stays one timeout)."""
+    timeout does not: the worst case stays one timeout; nor does a usage-limit or login error)."""
     data = {}
     for attempt in range(JUDGE_RETRIES + 1):
         try:
@@ -1089,11 +1250,22 @@ def run_judge(image: Path, brief: str, threshold: int = 4, model=None, effort: s
         except Exception as e:  # e.g. an answer without scores
             data = {"computed_verdict": "ERROR", "error": f"judge answer unusable: {e!r}"[:300]}
         if data.get("computed_verdict") != "ERROR" or attempt == JUDGE_RETRIES or _LIVE["stop"] or \
-                (cancel is not None and cancel.is_set()) or str(data.get("error", "")).startswith("judge timed out"):
+                (cancel is not None and cancel.is_set()) or str(data.get("error", "")).startswith("judge timed out") \
+                or fatal_error(data.get("error")):
             return data
         log(f"judge of {Path(image).name} failed ({str(data.get('error'))[:120]}); retrying once")
         time.sleep(JUDGE_RETRY_WAIT)
     return data
+
+
+def judge_error(why: str, tag: str, run: dict) -> dict:
+    """The ERROR verdict of a judge session that gave no answer: Codex's reason plus where its events are kept. A
+    usage-limit or login error stops the whole run."""
+    said = codex_said(run)
+    if fatal_error(said):
+        stop_run(said)
+    kept = "" if run.get("error") == "stopped" else keep_failed_log(tag, run.get("stdout"), run.get("stderr", ""))
+    return {"computed_verdict": "ERROR", "error": why + (f" (events: {kept})" if kept else "")}
 
 
 def _judge_once(image, brief, threshold, model, effort, timeout, checklist, job, cancel) -> dict:
@@ -1117,17 +1289,18 @@ def _judge_once(image, brief, threshold, model, effort, timeout, checklist, job,
         cmd.append("-")
         t0 = time.time()
         run = run_group(cmd, prompt, timeout, tmp, cancel)  # own process group: a timeout ends Codex and its helpers
-        record_run("judge", prompt, run["stdout"], thread_from(run["stdout"]), time.time() - t0,
-                   {"image": str(image), "judge_model": m or "config default", "judge_effort": effort,
-                    **({"error": run["error"]} if run["error"] else {})}, job)
+        rec = record_run("judge", prompt, run["stdout"], thread_from(run["stdout"]), time.time() - t0,
+                         {"image": str(image), "judge_model": m or "config default", "judge_effort": effort,
+                          **({"error": run["error"]} if run["error"] else {})}, job)
         if run["error"] == "cancelled":
             return {"computed_verdict": "CANCELLED", "error": "not judged: another candidate was usable first"}
         if run["error"]:
-            return {"computed_verdict": "ERROR", "error": f"judge {run['error']}"}
+            return judge_error(f"judge {session_error(run)}", rec["step"], run)
         if last.exists():
             break
         if "newer version of codex" not in run["stdout"].lower() or m == FALLBACK_CODEX_MODEL:
-            return {"computed_verdict": "ERROR", "error": (run["stdout"] + run["stderr"])[-500:]}
+            return judge_error(str(codex_error(run["stdout"]) or (run["stdout"] + run["stderr"])[-500:]), rec["step"],
+                               run)
     try:
         data = json.loads(last.read_text(encoding="utf-8"))
     except ValueError:
@@ -1219,7 +1392,8 @@ def judge_and_fix(args, brief, items, workdir, engine, refs=(), target=None):
             meta["sized"] = True
         log(f"independent judge: {p.name}")
         set_phase("initial")
-        j = run_judge(p, brief, args.threshold, args.judge_model, args.judge_effort)
+        j = run_judge(p, brief, args.threshold, args.judge_model, args.judge_effort,
+                      getattr(args, "judge_timeout", None) or JUDGE_TIMEOUT)
         meta.update(judge=j, edit_chain=0)
         best, cands, history, tried = (p, meta), [p], [judge_digest(p, j, "initial")], set()
         for r in range(1, rounds + 1):
@@ -1249,7 +1423,8 @@ def judge_and_fix(args, brief, items, workdir, engine, refs=(), target=None):
             if args.size:
                 fmeta["raw_copy"] = str(fit_to_size(fp, *parse_size(args.size)))
                 fmeta["sized"] = True
-            fj = run_judge(fp, brief, args.threshold, args.judge_model, args.judge_effort)
+            fj = run_judge(fp, brief, args.threshold, args.judge_model, args.judge_effort,
+                           getattr(args, "judge_timeout", None) or JUDGE_TIMEOUT)
             fmeta = dict(meta, **fmeta, judge=fj, fix_of=str(best[0]), fix_mode=mode, fix_instruction=fix,
                          edit_chain=best[1].get("edit_chain", 0) + 1 if mode == "edit" else 0)
             cands.append(fp)
@@ -1547,8 +1722,12 @@ def codex_lite_job(job_id: str, brief: str, hints: list, aspect, k: int, refs: l
         src = Path(r["path"]) if r.get("ok") and r.get("path") else None
         results.append({"ok": bool(src and src.exists()), "src": str(src) if src else None, "ms": r.get("ms"),
                         "err": r.get("err") or r.get("note")})
+    answered = bool(results)
+    if not answered:  # no result line: every candidate failed for the session's own reason
+        results = [{"ok": False, "src": None, "ms": None, "err": None} for _ in range(k)]
+    explain_failures(results, run, rec["step"])
     return {"results": results, "prompt": (parsed or {}).get("prompt"), "wall_s": round(wall, 1), "thread_id": tid,
-            "error": err if not results else None, "tokens": (rec.get("digest") or {}).get("tokens")}
+            "error": None if answered else results[0]["err"], "tokens": (rec.get("digest") or {}).get("tokens")}
 
 
 # ----------------------------------------------------------------------------- place, culture and people
@@ -1995,15 +2174,16 @@ def codex_parallel_images(tasks: list, workdir: Path, effort: str, timeout: int,
         src = Path(r["path"]) if r.get("ok") and r.get("path") else None
         results[r.get("id")] = {"ok": bool(src and src.exists()), "src": str(src) if src else None,
                                 "ms": r.get("ms"), "err": r.get("err") or r.get("note")}
-    for t in tasks:
-        results.setdefault(t["id"], {"ok": False, "src": None, "ms": None,
-                                     "err": err or "no result from the Codex session"})
+    for t in tasks:  # no result line for a task: it failed for the session's own reason
+        results.setdefault(t["id"], {"ok": False, "src": None, "ms": None, "err": None})
+    explain_failures([results[t["id"]] for t in tasks], run, rec["step"])
     return {"results": results, "wall_s": round(wall, 1), "thread_id": tid, "session_total_ms": (parsed or {}).get(
         "total_ms"), "tokens": (rec.get("digest") or {}).get("tokens")}
 
 
 def generate_parallel(tasks: list, workdir: Path, args, kind: str = "generate") -> dict:
-    """Chunk tasks into sessions of --max-parallel, run the sessions concurrently, retry failures once."""
+    """Chunk tasks into sessions of --max-parallel, run the sessions concurrently, retry quick failures once (never a
+    timeout, a stop or a usage-limit or login error)."""
     import concurrent.futures as cf
     size = max(1, args.max_parallel)
     chunks = [tasks[i:i + size] for i in range(0, len(tasks), size)]
@@ -2012,7 +2192,7 @@ def generate_parallel(tasks: list, workdir: Path, args, kind: str = "generate") 
         for res in ex.map(lambda ch: codex_parallel_images(ch, workdir, args.gen_effort, args.timeout, kind), chunks):
             merged.update(res["results"])
             sessions.append({k: v for k, v in res.items() if k != "results"})
-    failed = [t for t in tasks if not merged[t["id"]]["ok"]]
+    failed = [t for t in tasks if not merged[t["id"]]["ok"] and retry_worth(merged[t["id"]].get("err"))]
     if failed:
         log(f"{len(failed)} image(s) failed ({', '.join(t['id'] for t in failed)}); retrying once")
         res = codex_parallel_images(failed, workdir, args.gen_effort, args.timeout, kind + "-retry")
@@ -2030,8 +2210,9 @@ def judge_parallel(entries: list, args, cancel=None) -> dict:
     if not entries:
         return {}
     out, kw = {}, ({"cancel": cancel} if cancel is not None else {})
-    with cf.ThreadPoolExecutor(max_workers=max(1, min(args.judge_workers, len(entries)))) as ex:
-        futs = {ex.submit(run_judge, Path(img), brief, args.threshold, args.judge_model, args.judge_effort, 420,
+    timeout = getattr(args, "judge_timeout", None) or JUDGE_TIMEOUT
+    with cf.ThreadPoolExecutor(max_workers=max(1, min(getattr(args, "judge_workers", 10), len(entries)))) as ex:
+        futs = {ex.submit(run_judge, Path(img), brief, args.threshold, args.judge_model, args.judge_effort, timeout,
                           checklist, jid, **kw): jid for jid, img, brief, checklist in entries}
         for fu in cf.as_completed(futs):
             try:
@@ -2325,9 +2506,10 @@ def gen_candidates(j: dict, job_id: str, brief: str, k: int, refs: list, args, w
             res = codex_lite_job(job_id, brief, j["hints"], j.get("aspect"), k, refs, args, kind, edit)
             sessions.append({kk: v for kk, v in res.items() if kk != "results"})
             out = [dict(r, prompt=res.get("prompt") or brief) for r in res["results"]]
-            if any(r["ok"] for r in out):
+            why = res.get("error") or next((r.get("err") for r in out if r.get("err")), None) or "no result"
+            if any(r["ok"] for r in out) or attempt or not retry_worth(why):
                 break
-            log(f"{job_id}: no image from the Codex session ({res.get('error') or 'no result'}); retrying once")
+            log(f"{job_id}: no image from the Codex session ({why}); retrying once")
         return out, sessions
     prompt = brief if getattr(args, "raw_prompt", False) else \
         compile_prompt(brief, j.get("aspect"), edit=edit or bool(j.get("target")))[0]
@@ -2382,10 +2564,13 @@ def job_pipeline(j: dict, args, workdir: Path, out_dir: Path) -> dict:
                     cands.append(c)
                     j.setdefault("t_generated", round(time.time() - t0, 1))
                     pending[ex.submit(_judge_many, [c], j, args, cancel)] = c
-        if not cands:  # every session failed: one plain retry
-            results, sessions = gen_candidates(j, name, j["brief"], 1, j["refs_all"], args, workdir, kind,
-                                               bool(j.get("target")))
-            j["sessions"] += sessions
+        if not cands and results and all(retry_worth(r.get("err")) for r in results):
+            # every session failed quickly: one plain retry (never after a timeout, a stop or a usage-limit error)
+            log(f"{name}: no image from {len(results)} session(s); retrying once")
+            res = codex_parallel_images([{"id": f"{name}-c1", "prompt": prompt, "refs": j["refs_all"]}], workdir,
+                                        args.gen_effort, args.timeout, kind + "-retry")
+            j["sessions"].append({kk: v for kk, v in res.items() if kk != "results"})
+            results = [dict(r, prompt=prompt) for r in res["results"].values()]
     else:
         results, sessions = gen_candidates(j, name, j["brief"], k, j["refs_all"], args, workdir, kind,
                                            bool(j.get("target")))
@@ -2399,7 +2584,7 @@ def job_pipeline(j: dict, args, workdir: Path, out_dir: Path) -> dict:
                               "gen_ms": r.get("ms"), "prompt": r.get("prompt")})
         j["t_generated"] = round(time.time() - t0, 1)
     if not cands:
-        j["error"] = "; ".join(str(r.get("err")) for r in results) or "no image produced"
+        j["error"] = "; ".join(dict.fromkeys(str(r.get("err")) for r in results)) or "no image produced"
         j["candidates_out"] = []
         return j
     _judge_many(cands, j, args)
@@ -2480,11 +2665,15 @@ def job_pipeline(j: dict, args, workdir: Path, out_dir: Path) -> dict:
     return j
 
 
-def fast_pipeline(jobs: list, args, workdir: Path, out_dir: Path) -> dict:
+def fast_pipeline(jobs: list, args, workdir: Path, out_dir: Path, rep=None, progress=None) -> dict:
     """jobs: [{"name", "brief", "aspect"?, "size"?, "refs"?, "target"?, "candidates"?}] -> report dict.
-    Every job runs its own pipeline concurrently, so one slow image never holds up the others."""
+    Every job runs its own pipeline concurrently, so one slow image never holds up the others. Each job writes its
+    <name>.meta.json (and a line in `progress`) the moment it ends, and `rep` (when given) holds the rows finished so
+    far, so a run that is cut short still keeps and reports every finished job."""
     import concurrent.futures as cf
     t0 = time.time()
+    rep = {} if rep is None else rep
+    rep.update(mode="fast", images=[])
     set_phase("run")
     for j in jobs:
         if j.get("transparent") and not re.search(r"transparent background", j["brief"], re.I):
@@ -2507,99 +2696,249 @@ def fast_pipeline(jobs: list, args, workdir: Path, out_dir: Path) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     log(f"fast: {len(jobs)} job(s) in parallel; candidates per job: "
         + ", ".join(f"{j['name']}={_job_candidates(j, args)}" for j in jobs))
+    rows, lock = {}, threading.Lock()
+
     def safe(jj):
         try:
-            return job_pipeline(jj, args, workdir, out_dir)
-        except Exception as e:  # one broken job must not lose the rest of the batch
-            log(f"{jj['name']}: job failed: {e!r}")
-            jj.update(error=f"job failed: {e!r}", candidates_out=[])
-            return jj
+            jj = job_pipeline(jj, args, workdir, out_dir)
+        except (Exception, SystemExit) as e:  # one broken job must not lose the rest of the batch
+            why = getattr(e, "message", None) or repr(e)
+            log(f"{jj['name']}: job failed: {why}")
+            jj.update(error=f"job failed: {why}", candidates_out=[])
+        try:
+            row = job_row(jj)  # its meta.json is written now, not after the whole batch
+        except Exception as e:
+            row = {"name": jj["name"], "path": None, "error": f"could not write the job's meta.json: {e!r}"}
+        with lock:
+            rows[jj["name"]] = row
+            rep["images"] = [rows[x["name"]] for x in jobs if x["name"] in rows]
+        note_progress(progress, row)
+        return jj
 
     with cf.ThreadPoolExecutor(max_workers=max(1, min(args.concurrency, len(jobs)))) as ex:
         done = list(ex.map(safe, jobs))
-    images = []
-    for j in done:
-        cands = j.get("candidates_out") or []
-        if not cands:
-            images.append({"name": j["name"], "path": None, "error": j.get("error")})
-            continue
-        best = j["best"]
-        jd = best.get("judge") or {}
-        info = png_info(Path(best["path"]))
-        rounds = [{"path": c["path"], "mode": c["mode"], "gen_ms": c.get("gen_ms"),
-                   "verdict": (c.get("judge") or {}).get("computed_verdict"),
-                   "score_total": (c.get("judge") or {}).get("score_total"),
-                   "scores": (c.get("judge") or {}).get("scores"), "gates": (c.get("judge") or {}).get("gates"),
-                   "fix_instruction": c.get("fix_instruction")} for c in cands]
-        meta = {"created": dt.datetime.now().astimezone().isoformat(timespec="seconds"), "engine": "codex-fast",
-                "name": j["name"], "brief": j["brief"], "aspect": j.get("aspect"), "lint": j["lint"],
-                "risks": j["risks"], "place": j.get("place"), "look": j.get("look"), "finish": j.get("finish_info"),
-                "prompt_time_checks": j["hints"],
-                "final_prompt": best["prompt"],
-                "output_path": best["path"], "source_path": best["src"],
-                "image_model": "codex built-in image_gen (client requests gpt-image-2)", "judge": jd,
-                "rounds": rounds, "rejected": [c["path"] for c in cands if c is not best],
-                "timing_s": {"generated": j.get("t_generated"), "judged": j.get("t_judged"), "total": j.get("t_total")},
-                "sessions": j.get("sessions"), "model_limit": j.get("model_limit"), "early_exit": j.get("early_exit"),
-                **info}
-        mp = Path(best["path"]).with_name(f"{Path(best['path']).stem}.meta.json")
-        write_atomic(mp, json.dumps(meta, indent=2, ensure_ascii=False, default=str))
-        images.append({"name": j["name"], "path": best["path"], "width": info.get("width"),
-                       "height": info.get("height"), "verdict": jd.get("computed_verdict"), "scores": jd.get("scores"),
-                       "first_pass": j.get("first_pass"), "risks": j["risks"], "place": j.get("place"),
-                       "look": j.get("look"),
-                       "rounds": [(Path(c["path"]).name, c["mode"], (c.get("judge") or {}).get("computed_verdict"),
-                                   (c.get("judge") or {}).get("score_total")) for c in cands],
-                       "gen_s": round(max((c.get("gen_ms") or 0) for c in cands[:1]) / 1000, 1),
-                       "timing_s": {"generated": j.get("t_generated"), "judged": j.get("t_judged"),
-                                    "total": j.get("t_total")},
-                       "remaining_fix": jd.get("fix_instruction"), "model_limit": j.get("model_limit"),
-                       "judge_error": jd.get("error") if jd.get("computed_verdict") == "ERROR" else None,
-                       "defects": [d.get("what", "") for d in (jd.get("defects") or [])[:2]],
-                       "early_exit": j.get("early_exit"),
-                       "meta": str(mp), "lint": j["lint"]})
+    images = rep["images"]
     totals = [i["timing_s"]["total"] for i in images if i.get("timing_s")]
     timing = {"total_s": round(time.time() - t0, 1), "slowest_job_s": max(totals) if totals else None,
               "median_job_s": sorted(totals)[len(totals) // 2] if totals else None}
-    return {"mode": "fast", "images": images, "timing": timing,
-            "sessions": [s for j in done for s in (j.get("sessions") or [])],
-            "passed": sum(1 for i in images if i.get("verdict") in VERDICT_LEVEL),
-            "first_pass": sum(1 for i in images if i.get("first_pass") in VERDICT_LEVEL)}
+    rep.update(timing=timing, sessions=[s for j in done for s in (j.get("sessions") or [])],
+               passed=sum(1 for i in images if i.get("verdict") in VERDICT_LEVEL),
+               first_pass=sum(1 for i in images if i.get("first_pass") in VERDICT_LEVEL))
+    if _LIVE["fatal"]:
+        rep["stopped"] = _LIVE["fatal"]
+    return rep
+
+
+def job_row(j: dict) -> dict:
+    """The report row of one finished job. Writes the job's <name>.meta.json next to its image first."""
+    cands = j.get("candidates_out") or []
+    if not cands:
+        return {"name": j["name"], "path": None, "error": j.get("error")}
+    best = j["best"]
+    jd = best.get("judge") or {}
+    info = png_info(Path(best["path"]))
+    rounds = [{"path": c["path"], "mode": c["mode"], "gen_ms": c.get("gen_ms"),
+               "verdict": (c.get("judge") or {}).get("computed_verdict"),
+               "score_total": (c.get("judge") or {}).get("score_total"),
+               "scores": (c.get("judge") or {}).get("scores"), "gates": (c.get("judge") or {}).get("gates"),
+               "fix_instruction": c.get("fix_instruction")} for c in cands]
+    meta = {"created": dt.datetime.now().astimezone().isoformat(timespec="seconds"), "engine": "codex-fast",
+            "name": j["name"], "brief": j["brief"], "aspect": j.get("aspect"), "lint": j["lint"],
+            "risks": j["risks"], "place": j.get("place"), "look": j.get("look"), "finish": j.get("finish_info"),
+            "prompt_time_checks": j["hints"],
+            "final_prompt": best["prompt"],
+            "output_path": best["path"], "source_path": best["src"],
+            "image_model": "codex built-in image_gen (client requests gpt-image-2)", "judge": jd,
+            "first_pass": j.get("first_pass"), "transparent": bool(j.get("transparent")),
+            "rounds": rounds, "rejected": [c["path"] for c in cands if c is not best],
+            "timing_s": {"generated": j.get("t_generated"), "judged": j.get("t_judged"), "total": j.get("t_total")},
+            "sessions": j.get("sessions"), "model_limit": j.get("model_limit"), "early_exit": j.get("early_exit"),
+            **info}
+    mp = Path(best["path"]).with_name(f"{Path(best['path']).stem}.meta.json")
+    write_atomic(mp, json.dumps(meta, indent=2, ensure_ascii=False, default=str))
+    return {"name": j["name"], "path": best["path"], "width": info.get("width"),
+            "height": info.get("height"), "verdict": jd.get("computed_verdict"), "scores": jd.get("scores"),
+            "first_pass": j.get("first_pass"), "risks": j["risks"], "place": j.get("place"),
+            "look": j.get("look"),
+            "rounds": [(Path(c["path"]).name, c["mode"], (c.get("judge") or {}).get("computed_verdict"),
+                        (c.get("judge") or {}).get("score_total")) for c in cands],
+            "gen_s": round(max((c.get("gen_ms") or 0) for c in cands[:1]) / 1000, 1),
+            "timing_s": {"generated": j.get("t_generated"), "judged": j.get("t_judged"),
+                         "total": j.get("t_total")},
+            "remaining_fix": jd.get("fix_instruction"), "model_limit": j.get("model_limit"),
+            "judge_error": jd.get("error") if jd.get("computed_verdict") == "ERROR" else None,
+            "defects": [d.get("what", "") for d in (jd.get("defects") or [])[:2]],
+            "early_exit": j.get("early_exit"),
+            "meta": str(mp), "lint": j["lint"]}
+
+
+def latest_meta(name: str, out_dir: Path):
+    """The newest meta.json that out_dir holds for job `name` and whose image still exists: (path, meta) or None."""
+    best = None
+    for mp in Path(out_dir).glob(f"{name}*.meta.json"):
+        try:
+            meta = json.loads(mp.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(meta, dict) or meta.get("name") != name or \
+                not Path(str(meta.get("output_path") or "")).is_file():
+            continue
+        if best is None or mp.stat().st_mtime_ns > best[0].stat().st_mtime_ns:
+            best = (mp, meta)
+    return best
+
+
+def row_from_meta(meta: dict, mp: Path) -> dict:
+    """A report row rebuilt from a job's meta.json (for --resume and --rejudge)."""
+    jd = meta.get("judge") or {}
+    rounds = meta.get("rounds") or []
+    first = [r.get("verdict") for r in rounds if str(r.get("mode") or "").startswith(("initial", "candidate"))]
+    return {"name": meta.get("name"), "path": meta.get("output_path"), "width": meta.get("width"),
+            "height": meta.get("height"), "verdict": jd.get("computed_verdict"), "scores": jd.get("scores"),
+            "first_pass": meta.get("first_pass") or max(first, key=lambda v: VERDICT_LEVEL.get(v, 0), default=None),
+            "risks": meta.get("risks") or [], "place": meta.get("place"), "look": meta.get("look"),
+            "rounds": [(Path(str(r.get("path"))).name, r.get("mode"), r.get("verdict"), r.get("score_total"))
+                       for r in rounds],
+            "gen_s": round((rounds[0].get("gen_ms") or 0) / 1000, 1) if rounds else None,
+            "timing_s": meta.get("timing_s") or {}, "remaining_fix": jd.get("fix_instruction"),
+            "model_limit": meta.get("model_limit"),
+            "judge_error": jd.get("error") if jd.get("computed_verdict") == "ERROR" else None,
+            "defects": [d.get("what", "") for d in (jd.get("defects") or [])[:2]],
+            "early_exit": meta.get("early_exit"), "meta": str(mp), "lint": meta.get("lint") or []}
+
+
+def rejudge_jobs(jobs: list, args, out_dir: Path, rep: dict) -> dict:
+    """Judge again the images a batch already made (after a judge that timed out or failed), all at once, from each
+    job's newest meta.json: the same brief and checks, no new image. Each meta.json gets the new verdict."""
+    t0 = time.time()
+    set_phase("rejudge")
+    found, rows = {}, {}
+    for j in jobs:
+        m = latest_meta(j["name"], out_dir)
+        if m:
+            found[j["name"]] = m
+        else:
+            rows[j["name"]] = {"name": j["name"], "path": None,
+                               "error": f"nothing to re-judge: no image with a meta.json for this job in {out_dir}"}
+    entries = []
+    for name, (mp, meta) in found.items():
+        img = Path(meta["output_path"])
+        if meta.get("transparent"):  # judged on grey, as in the first run
+            try:
+                img = judge_view(img)
+            except Exception as e:
+                log(f"{img.name}: grey judge view failed ({e!r}); judging the file as is")
+        entries.append((name, str(img), meta.get("brief") or "", meta.get("prompt_time_checks") or []))
+    log(f"re-judging {len(entries)} image(s) at once")
+    verdicts = judge_parallel(entries, args)
+    now = dt.datetime.now().astimezone().isoformat(timespec="seconds")
+    for name, (mp, meta) in found.items():
+        jd = verdicts.get(name) or {"computed_verdict": "ERROR", "error": "no verdict"}
+        meta["judge"], meta["rejudged"] = jd, now
+        meta.setdefault("rounds", []).append({"path": meta["output_path"], "mode": "rejudge", "gen_ms": None,
+                                              "verdict": jd.get("computed_verdict"),
+                                              "score_total": jd.get("score_total"), "scores": jd.get("scores"),
+                                              "gates": jd.get("gates"), "fix_instruction": jd.get("fix_instruction")})
+        write_atomic(mp, json.dumps(meta, indent=2, ensure_ascii=False, default=str))
+        rows[name] = dict(row_from_meta(meta, mp), rejudged=True)
+        note_progress(None, rows[name])
+    rep["images"] = [rows[j["name"]] for j in jobs if j["name"] in rows]
+    rep["timing"] = {"total_s": round(time.time() - t0, 1), "slowest_job_s": None, "median_job_s": None}
+    return rep
+
+
+def order_rows(rows: list, jobs: list) -> list:
+    """Report rows in the jobs file's order, one per job."""
+    pos = {j["name"]: i for i, j in enumerate(jobs)}
+    by = {r["name"]: r for r in rows}
+    return [by[n] for n in sorted(by, key=lambda n: pos.get(n, len(pos)))]
+
+
+PROGRESS_LOCK = threading.Lock()
+
+
+def note_progress(path, row: dict) -> None:
+    """Log a finished job and add one JSON line to `path` (<out>/batch-progress.jsonl), so a long batch can be
+    checked while it runs."""
+    log(f"done: {row['name']} {row.get('verdict') or row.get('error') or 'no verdict'}"
+        + (f" ({row['path']})" if row.get("path") else ""))
+    if not path:
+        return
+    line = json.dumps({"time": dt.datetime.now().astimezone().isoformat(timespec="seconds"), "name": row["name"],
+                       "verdict": row.get("verdict"), "path": row.get("path"), "meta": row.get("meta"),
+                       "error": row.get("error")}, ensure_ascii=False)
+    try:
+        with PROGRESS_LOCK, open(path, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except OSError as e:
+        log(f"WARNING: could not write {Path(path).name} ({e!r})")
 
 
 def fast_report_md(rep: dict) -> str:
-    t = rep["timing"]
-    L = [f"# Fast batch report · {rep.get('created', '')}", "",
-         f"- Images: {len(rep['images'])} · passed (PASS or PASS_WITH_NOTES): {rep['passed']} · first-pass: "
-         f"{rep['first_pass']}",
-         f"- Wall time: **{t['total_s']} s** for the whole batch (slowest job {t.get('slowest_job_s')} s, median job "
-         f"{t.get('median_job_s')} s); jobs run concurrently", "",
-         "| Image | Verdict | First pass | Scores R/A/P/C/B | Candidates / rounds | Risks | Place | Look | Job s |",
-         "|---|---|---|---|---|---|---|---|---|"]
-    for im in rep["images"]:
+    t, imgs = rep.get("timing") or {}, rep.get("images") or []
+    L = [f"# Fast batch report · {rep.get('created', '')}", ""]
+    if rep.get("stopped"):
+        L += [f"**Stopped.** Codex said: {rep['stopped']}", "",
+              "Every later session would fail the same way, so the run stopped at once. Fix that first (a usage "
+              "limit: wait until the plan resets; a login error: run `codex login`), then continue with `--resume`.",
+              ""]
+    L += [f"- Images: {len(imgs)} · passed (PASS or PASS_WITH_NOTES): {rep.get('passed')} · first-pass: "
+          f"{rep.get('first_pass')}",
+          f"- Wall time: **{t.get('total_s')} s** for the whole batch (slowest job {t.get('slowest_job_s')} s, median "
+          f"job {t.get('median_job_s')} s); jobs run concurrently"]
+    if rep.get("unfinished"):
+        L.append(f"- Not finished (the run was cut short): {', '.join(rep['unfinished'])}. Rerun the same command with "
+                 f"`--resume`: it keeps the images that passed and makes only the rest.")
+    L += ["", "| Image | Verdict | First pass | Scores R/A/P/C/B | Candidates / rounds | Risks | Place | Look | Job s |",
+          "|---|---|---|---|---|---|---|---|---|"]
+    for im in imgs:
         sc = im.get("scores") or {}
         s = "/".join(str(sc.get(k, "-")) for k in ("realism", "artifacts", "physics_plausibility", "composition",
                                                    "brief_fidelity"))
         rounds = " → ".join(f"{m}:{v}" for _, m, v, _ in im.get("rounds") or [])
-        L.append(f"| {im['name']} | {im.get('verdict') or im.get('error')} | {im.get('first_pass')} | {s} | "
+        verdict = (im.get("verdict") or ("-" if im.get("path") else "no image")) + \
+            (" (kept from an earlier run)" if im.get("resumed") else " (re-judged)" if im.get("rejudged") else "")
+        L.append(f"| {im['name']} | {verdict} | {im.get('first_pass')} | {s} | "
                  f"{rounds or '-'} | {', '.join(im.get('risks') or []) or '-'} | {place_label(im.get('place'))} | {im.get('look') or '-'} | "
                  f"{(im.get('timing_s') or {}).get('total', '-')} |")
-    # an unjudged image (judge ERROR) is not exported either, so it is listed with the failures
-    failed = [im for im in rep["images"] if im.get("verdict") in ("FAIL", "ERROR") or im.get("error")]
-    if failed:
-        L += ["", "## Next steps for failed images", "",
+    rejected = [im for im in imgs if im.get("verdict") == "FAIL"]
+    unjudged = [im for im in imgs if im.get("verdict") == "ERROR"]  # an image exists; only its judge failed
+    no_image = [im for im in imgs if not im.get("path") and not im.get("verdict")]
+    export_errors = [im for im in imgs if im.get("export_error")]
+
+    def rerun(group, extra=""):
+        return (f"`python3 ~/.claude/skills/codex-imagegen/scripts/codex_image.py batch --jobs \"{rep['jobs_file']}\" "
+                f"--only {','.join(im['name'] for im in group)} --out-dir \"{rep.get('out_dir', '')}\"{extra}`")
+    if rejected or unjudged or no_image or export_errors:
+        L += ["", "## Next steps for failed images"]
+    if rejected:
+        L += ["", "### FAIL: the judge rejected the image. Make a new one.", "",
               "Failed images are not exported. Simplify each brief as the judge says (text-bearing objects, colour-"
               "matched sets and model limits are the usual causes), then rerun only those jobs. Export an image "
               "anyway only if you accept it (`export --src <name>.png`).", ""]
-        for im in failed:
-            why = "; ".join(im.get("defects") or []) or im.get("error") or (
-                f"not judged ({im['judge_error']})" if im.get("judge_error") else "see meta")
-            L.append(f"- **{im['name']}**: {why}" + (f" Fix: {im['remaining_fix']}" if im.get("remaining_fix") else "")
+        for im in rejected:
+            L.append(f"- **{im['name']}**: {'; '.join(im.get('defects') or []) or 'see meta'}"
+                     + (f" Fix: {im['remaining_fix']}" if im.get("remaining_fix") else "")
                      + (f" Model limit: {im['model_limit']}." if im.get("model_limit") else ""))
         if rep.get("jobs_file"):
-            L += ["", f"Rerun: `python3 ~/.claude/skills/codex-imagegen/scripts/codex_image.py batch --jobs "
-                  f"\"{rep['jobs_file']}\" --only {','.join(im['name'] for im in failed)} --out-dir "
-                  f"\"{rep.get('out_dir', '')}\"`"]
+            L += ["", f"Rerun (new images): {rerun(rejected)}"]
+    if unjudged:
+        L += ["", "### ERROR: the judge failed, not the image. Judge it again.", "",
+              "These images exist but were never judged, so they were not exported. No new image is needed.", ""]
+        L += [f"- **{im['name']}**: not judged ({im.get('judge_error') or 'no verdict'})" for im in unjudged]
+        if rep.get("jobs_file"):
+            L += ["", f"Re-judge (no new image): {rerun(unjudged, ' --rejudge')} (add `--export-dir <dir>` to export "
+                      f"the ones that pass)"]
+    if no_image:
+        L += ["", "### No image: the Codex session failed.", "",
+              "Read each error (and its events log), fix the cause, then make these again.", ""]
+        L += [f"- **{im['name']}**: {im.get('error') or 'no image produced'}" for im in no_image]
+        if rep.get("jobs_file"):
+            L += ["", f"Rerun: {rerun(no_image)}"]
+    if export_errors:
+        L += ["", "### Export failed (the image itself is fine).", ""]
+        L += [f"- **{im['name']}**: {im['export_error']}. Export it again with `export --src \"{im['path']}\" --out "
+              f"<dir>`." for im in export_errors]
     return "\n".join(L) + "\n"
 
 
@@ -3253,22 +3592,26 @@ def audit_site(root: Path) -> dict:
             "inventory": sorted(images.values(), key=lambda i: -i["bytes"])[:200], "refs": refs[:500]}
 
 
-def style_block(style) -> str:
-    """Shared style lock (brand DNA) appended to every brief of a set so all images match."""
+STYLE_FILE = re.compile(r"[^\n]*\.(json|txt|md|ya?ml)", re.I)  # a style value that names a file, not a style
+
+
+def style_block(style, bases=()) -> str:
+    """Shared style lock (brand DNA) appended to every brief of a set so all images match. A string is a file when
+    one exists (relative paths are looked up in `bases`, then the current folder), else the style text itself; a
+    value that looks like a file name but is not found stops the run instead of becoming the style text."""
     if not style:
         return ""
     if isinstance(style, str):
-        p = Path(style).expanduser()
-        try:
-            is_file = len(style) < 400 and "\n" not in style and p.is_file()
-        except OSError:  # style text longer than a file name (255 bytes) is text, not a path
-            is_file = False
-        if is_file:
+        p = find_input(style.strip(), bases) if len(style) < 400 and "\n" not in style else None
+        if p is not None and p.is_file():
             style = p.read_text(encoding="utf-8")
             try:
                 style = json.loads(style)
             except ValueError:
                 pass
+        elif STYLE_FILE.fullmatch(style.strip()):
+            die(f"style file not found: {style.strip()} (relative paths are looked up next to the jobs file, in "
+                f"--workdir and in the current folder)")
     if isinstance(style, dict):
         label = {"palette": "palette (for graphics; in photos only one small object in these colours)"}
         style = "\n".join(f"- {label.get(k, k.replace('_', ' '))}: "
@@ -3298,15 +3641,24 @@ BUDGET = ImageBudget()
 
 # ----------------------------------------------------------------------------- commands
 def cmd_judge(args) -> None:
+    """Judge existing images against one brief, all at once. Every path is checked before any judge starts, and
+    every result is printed, also when one judge fails."""
     brief = read_brief(args)
-    out = []
-    for img in args.image:
-        p = Path(img).expanduser().resolve()
-        if not p.exists():
-            die(f"image not found: {p}")
-        log(f"judging {p.name}")
-        out.append({"image": str(p), **run_judge(p, brief, args.threshold, args.judge_model, args.judge_effort)})
+    imgs = [Path(i).expanduser().resolve() for i in args.image]
+    missing = [str(p) for p in imgs if not p.is_file()]
+    if missing:
+        die("image not found: " + ", ".join(missing))
+    TELEMETRY["fail_dir"] = str(Path.cwd() / "output" / "imagegen" / "logs")  # a failed judge's events are kept here
+    log(f"judging {len(imgs)} image(s) at once")
+    res = judge_parallel([(str(i), str(p), brief, None) for i, p in enumerate(imgs)],
+                         argparse.Namespace(threshold=args.threshold, judge_model=args.judge_model,
+                                            judge_effort=args.judge_effort, judge_timeout=args.timeout,
+                                            judge_workers=len(imgs)))
+    out = [{"image": str(p), **(res.get(str(i)) or {"computed_verdict": "ERROR", "error": "no verdict"})}
+           for i, p in enumerate(imgs)]
     print(json.dumps(out if len(out) > 1 else out[0], indent=2, ensure_ascii=False))
+    if _LIVE["fatal"]:
+        raise SystemExit(3)
 
 
 def cmd_compare(args) -> None:
@@ -3340,21 +3692,31 @@ def cmd_compare(args) -> None:
         print(json.dumps({"brief": brief, "results": rows, "best": best["model"]}, indent=2, ensure_ascii=False))
 
 
-def export_many(calls: list) -> list:
+def export_many(calls: list, keep_going: bool = False) -> list:
     """web_export(*a, **kw) for every (a, kw) in calls, in parallel, results in call order (Pillow's encoders
     release the GIL; 3 photos + 1 transparent asset: 10.6 s -> 3.1 s, byte-identical files). Files with the same
-    export name run one after another, as before, so two exports never write the same file at once."""
+    export name run one after another, as before, so two exports never write the same file at once. With
+    keep_going, an image that fails gives {"error": ...} and the others are still exported."""
     import concurrent.futures as cf
+
+    def one(c):
+        try:
+            return web_export(*c[0], **c[1])
+        except Exception as e:
+            if not keep_going:
+                raise
+            return {"error": f"{type(e).__name__}: {e}"}
     names = [kw.get("name") or Path(a[0]).stem for a, kw in calls]
     workers = min(len(calls), os.cpu_count() or 4, 8)
     if workers < 2 or len(set(names)) != len(names):
-        return [web_export(*a, **kw) for a, kw in calls]
+        return [one(c) for c in calls]
     with cf.ThreadPoolExecutor(max_workers=workers) as ex:
-        return list(ex.map(lambda c: web_export(*c[0], **c[1]), calls))
+        return list(ex.map(one, calls))
 
 
 def export_results(rep: dict, jobs: list, export_dir: Path, args) -> list:
-    """Web-export every usable final image (PASS / PASS_WITH_NOTES, or all with --export-all)."""
+    """Web-export every usable final image (PASS / PASS_WITH_NOTES, or all with --export-all). An image that fails
+    to export gets "export_error" in its row; the others are exported."""
     by_name = {j["name"]: j for j in jobs}
     todo, calls = [], []
     for im in rep["images"]:
@@ -3365,9 +3727,14 @@ def export_results(rep: dict, jobs: list, export_dir: Path, args) -> list:
         calls.append(((Path(im["path"]), export_dir), dict(
             widths=j.get("widths"), alt=j.get("alt", ""), name=j.get("export_name") or im["name"],
             sizes=j.get("sizes", "100vw"), eager=bool(j.get("eager")), url_prefix=getattr(args, "url_prefix", None))))
-    entries = export_many(calls)
-    for im, e in zip(todo, entries):
+    entries = []
+    for im, e in zip(todo, export_many(calls, keep_going=True)):
+        if e.get("error"):
+            im["export_error"] = e["error"]
+            log(f"{im['name']}: export failed ({e['error']}); the image itself is kept")
+            continue
         im["export"] = {"html": e["html"], "variants": len(e["variants"]), "bytes_total": e["bytes_total"]}
+        entries.append(e)
     if entries:
         rep["assets_manifest"] = str(update_manifest(export_dir, entries))
         log(f"exported {len(entries)} image(s) to {export_dir} (assets.json has srcset/<picture> markup)")
@@ -3377,6 +3744,8 @@ def export_results(rep: dict, jobs: list, export_dir: Path, args) -> list:
 def fast_args(args):
     """Normalize flags for the fast pipeline (judge on unless --no-judge; one fix round unless given)."""
     args.judge = not getattr(args, "no_judge", False)
+    if getattr(args, "timeout", None) is None:
+        args.timeout = GEN_TIMEOUT
     STRICT["on"] = bool(getattr(args, "strict", False))
     if getattr(args, "fix_rounds", None) is None:
         args.fix_rounds = 1
@@ -3405,6 +3774,41 @@ def write_fast_outputs(rep: dict, out_dir: Path, print_summary: bool = True) -> 
         print(json.dumps(rep, indent=2, ensure_ascii=False, default=str))
 
 
+def finish_batch_report(rep: dict, jobs: list, args, out_dir: Path) -> None:
+    """Write batch-report.json and batch-report.md with whatever the run finished, also when it was cut short (a
+    stop, a crash): jobs that never ended are listed as unfinished."""
+    images = rep.setdefault("images", [])
+    done = {i["name"] for i in images}
+    unfinished = [j["name"] for j in jobs if j["name"] not in done]
+    if unfinished:
+        rep["unfinished"] = unfinished
+    rep.setdefault("timing", {"total_s": None, "slowest_job_s": None, "median_job_s": None})
+    rep["passed"] = sum(1 for i in images if i.get("verdict") in VERDICT_LEVEL)
+    rep["first_pass"] = sum(1 for i in images if i.get("first_pass") in VERDICT_LEVEL)
+    if _LIVE["fatal"]:
+        rep["stopped"] = _LIVE["fatal"]
+    try:
+        rep["codex_version"] = codex_version(codex_bin())
+    except SystemExit:
+        rep["codex_version"] = "not found"
+    rep["jobs_file"], rep["out_dir"] = str(Path(args.jobs).expanduser().resolve()), str(out_dir)
+    write_fast_outputs(rep, out_dir, print_summary=False)
+    write_atomic(out_dir / "batch-report.json", json.dumps(rep, indent=2, ensure_ascii=False, default=str))
+    write_atomic(out_dir / "batch-report.md", fast_report_md(rep))
+
+
+def print_batch_summary(rep: dict, out_dir: Path) -> None:
+    """The short stdout of a batch: where the report is, the timing, and one [file, verdict] pair per job."""
+    extra = {k: rep[k] for k in ("stopped", "unfinished") if rep.get(k)}
+    errs = [i["name"] for i in rep["images"] if i.get("export_error")]
+    if errs:
+        extra["export_errors"] = errs
+    print(json.dumps({"out_dir": str(out_dir), "report": str(out_dir / "batch-report.md"), "timing": rep["timing"],
+                      "passed": rep["passed"], "first_pass": rep["first_pass"],
+                      "images": [(Path(i["path"]).name if i.get("path") else None, i.get("verdict"))
+                                 for i in rep["images"]], **extra}, indent=2, ensure_ascii=False))
+
+
 def cmd_generate_fast(args, workdir: Path, brief: str, refs, target) -> None:
     fast_args(args)
     if args.out:
@@ -3418,12 +3822,14 @@ def cmd_generate_fast(args, workdir: Path, brief: str, refs, target) -> None:
     if args.log_dir and not args.dry_run:
         ld = Path(args.log_dir).expanduser()
         TELEMETRY["log_dir"] = str(ld if ld.is_absolute() else workdir / ld)
+    if not args.dry_run:
+        TELEMETRY["fail_dir"] = str(out_dir / "logs")  # a failed session's events are kept here
     jobs = []
     for i in range(args.n):
         b = brief if not args.explore or args.n == 1 else \
             f"{brief}\nVariant direction: {EXPLORE_DIRECTIONS[i % len(EXPLORE_DIRECTIONS)]}."
         if getattr(args, "style", None):
-            b = f"{b}\n{style_block(args.style)}"
+            b = f"{b}\n{style_block(args.style, [Path.cwd(), workdir])}"
         jobs.append({"name": name if args.n == 1 else f"{name}-{i + 1}", "brief": b, "aspect": args.aspect,
                      "size": args.size, "refs": [str(r) for r, _ in refs], "target": str(target) if target else None,
                      "transparent": getattr(args, "transparent", False), "alt": getattr(args, "alt", "") or "",
@@ -3443,18 +3849,34 @@ def cmd_generate_fast(args, workdir: Path, brief: str, refs, target) -> None:
         ed = Path(args.export_dir).expanduser()
         export_results(rep, jobs, ed if ed.is_absolute() else workdir / ed, args)
     write_fast_outputs(rep, out_dir)
+    if _LIVE["fatal"]:
+        raise SystemExit(3)
     if not any(i.get("path") for i in rep["images"]):
         raise SystemExit(2)
+
+
+def edit_target(args, bases):
+    """The `edit --image` file (None for generate); a missing file stops the run before any Codex session."""
+    if args.cmd != "edit":
+        return None
+    p = find_input(args.image, bases)
+    if p is None or not p.is_file():
+        die(f"edit target not found: {Path(args.image).expanduser()}")
+    return p
 
 
 def cmd_generate_or_edit(args) -> None:
     workdir = Path(args.workdir).expanduser().resolve() if args.workdir else Path.cwd().resolve()
     brief = with_look(with_locale(read_brief(args), getattr(args, "locale", None)), getattr(args, "look", None))
+    if args.timeout is None:
+        args.timeout = GEN_TIMEOUT if args.mode == "fast" and args.engine != "api" else AGENT_TIMEOUT
+    if args.size:  # checked before any Codex session
+        check_size(args.size, "--size")
+    check_candidates(getattr(args, "candidates", None), "--candidates")
+    bases = [Path.cwd(), workdir]  # relative input paths: the current folder first, then --workdir
     if args.mode == "fast" and args.engine != "api":
-        refs = parse_refs(args.ref)
-        target = Path(args.image).expanduser().resolve() if args.cmd == "edit" else None
-        if target is not None and not target.exists():
-            die(f"edit target not found: {target}")
+        refs = parse_refs(args.ref, bases)
+        target = edit_target(args, bases)
         if len(refs) + (1 if target else 0) > 5:
             die("Codex's image tool accepts at most 5 input images (edit target + references)")
         return cmd_generate_fast(args, workdir, brief, refs, target)
@@ -3463,16 +3885,12 @@ def cmd_generate_or_edit(args) -> None:
     if args.judge_effort is None:
         args.judge_effort = "high"
     if getattr(args, "style", None):
-        brief = f"{brief}\n{style_block(args.style)}"
+        brief = f"{brief}\n{style_block(args.style, bases)}"
     if getattr(args, "transparent", False) and not re.search(r"transparent background", brief, re.I):
         brief += ("\nOutput: fully transparent background (PNG alpha); the subject isolated with clean edges; no "
                   "backdrop, floor, frame or shadow plane.")
-    refs = parse_refs(args.ref)
-    target = None
-    if args.cmd == "edit":
-        target = Path(args.image).expanduser().resolve()
-        if not target.exists():
-            die(f"edit target not found: {target}")
+    refs = parse_refs(args.ref, bases)
+    target = edit_target(args, bases)
     if len(refs) + (1 if target else 0) > 5 and args.engine != "api":
         die("Codex's image tool accepts at most 5 input images (edit target + references)")
     outputs = plan_outputs(args, brief, workdir)
@@ -3485,6 +3903,8 @@ def cmd_generate_or_edit(args) -> None:
         log_file("brief.txt", brief)
         log_file("lint.json", lint)
         log_file("args.json", {k: v for k, v in vars(args).items() if k not in ("prompt", "func")})
+    if not args.dry_run:
+        TELEMETRY["fail_dir"] = str(outputs[0].parent / "logs")  # a failed session's events are kept here
     set_phase("initial")
     engine = args.engine
     if engine == "auto":
@@ -3583,7 +4003,11 @@ def cmd_generate_or_edit(args) -> None:
             lines += [f"  thinking: {x}" for x in dg.get("reasoning_summaries") or []]
         log_file("run.log", "\n".join(lines) + "\n")
         log_file("summary.json", summary)
+    if _LIVE["fatal"]:
+        summary["stopped"] = _LIVE["fatal"]
     print(json.dumps(summary, indent=2, ensure_ascii=False))
+    if _LIVE["fatal"]:
+        raise SystemExit(3)
     if not summary["images"]:
         raise SystemExit(2)
 
@@ -3594,19 +4018,48 @@ def cmd_batch(args) -> None:
     import concurrent.futures as cf
     import threading
     workdir = Path(args.workdir).expanduser().resolve() if args.workdir else Path.cwd().resolve()
+    if args.timeout is None:
+        args.timeout = GEN_TIMEOUT if args.mode == "fast" else AGENT_TIMEOUT
+    for flag in ("resume", "rejudge"):
+        if getattr(args, flag, False) and (args.mode != "fast" or not args.out_dir):
+            die(f"--{flag} needs fast mode and the --out-dir of the run it continues")
     try:
         spec = json.loads(Path(args.jobs).expanduser().read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         die(f"cannot read the jobs file {args.jobs}: {e}")
-    jobs = spec["jobs"] if isinstance(spec, dict) else spec
-    if not isinstance(jobs, list) or not all(isinstance(j, dict) and j.get("name") and j.get("brief") for j in jobs):
-        die("the jobs file must be a list of jobs (or {\"jobs\": [...]}) and every job needs a name and a brief")
-    for j in jobs:
+    jobs = spec.get("jobs") if isinstance(spec, dict) else spec
+    if not isinstance(jobs, list) or not all(isinstance(j, dict) and j.get("name") and isinstance(j.get("brief"), str)
+                                             and j["brief"].strip() for j in jobs):
+        die("the jobs file must be a list of jobs (or {\"jobs\": [...]}) and every job needs a name and a brief "
+            "(non-empty text)")
+    # relative paths in the jobs file (style, refs, target): next to the jobs file, then --workdir, then here
+    bases = list(dict.fromkeys([Path(args.jobs).expanduser().resolve().parent, workdir]))
+    check_candidates(getattr(args, "candidates", None), "--candidates")
+    for j in jobs:  # everything is checked here, before any Codex session
         check_name(j["name"])
+        what = f"job {j['name']}"
         if j.get("export_name"):
             check_name(j["export_name"], "export_name")
         if j.get("aspect") and j["aspect"] not in ASPECTS:
-            die(f"job {j['name']}: unknown aspect {j['aspect']!r}; use one of {', '.join(ASPECTS)}")
+            die(f"{what}: unknown aspect {j['aspect']!r}; use one of {', '.join(ASPECTS)}")
+        if j.get("size"):
+            check_size(j["size"], what)
+        check_candidates(j.get("candidates"), what)
+        inputs = 0
+        for key, label in (("refs", "reference image"), ("target", "edit target")):
+            if j.get(key):
+                vals = j[key] if isinstance(j[key], list) else [j[key]]
+                found = [find_input(v, bases) for v in vals]
+                for v, p in zip(vals, found):
+                    if p is None or not p.is_file():
+                        die(f"{what}: {label} not found: {v}")
+                j[key] = [str(p) for p in found] if key == "refs" else str(found[0])
+                inputs += len(found)
+        if inputs > 5:
+            die(f"{what}: Codex's image tool accepts at most 5 input images (edit target + references), got {inputs}")
+        if looks_like_file_name(j["brief"]):
+            log(f"WARNING: {what}: the brief looks like a file name ({j['brief'].strip()}); it is used as the brief "
+                f"text. Put the brief itself in the jobs file")
     shared_locale = (spec.get("locale") if isinstance(spec, dict) else None) or getattr(args, "locale", None)
     shared_look = (spec.get("look") if isinstance(spec, dict) else None) or getattr(args, "look", None)
     shared_finish = (spec.get("finish") if isinstance(spec, dict) else None) or getattr(args, "finish", None)
@@ -3616,11 +4069,14 @@ def cmd_batch(args) -> None:
     for j in jobs:
         j["brief"] = with_look(with_locale(j["brief"], j.get("locale") or shared_locale), j.get("look") or shared_look)
     shared_style = (spec.get("style") if isinstance(spec, dict) else None) or getattr(args, "style", None)
-    if shared_style:
-        block = style_block(shared_style)
-        for j in jobs:
-            if j.get("style", True) is not False:
-                j["brief"] = f"{j['brief'].rstrip()}\n{block}"
+    block = style_block(shared_style, bases) if shared_style else ""
+    for j in jobs:  # a job's own "style" (file, text or object) replaces the shared lock; "style": false skips it
+        own = j.get("style")
+        if own is False:
+            continue
+        b = style_block(own, bases) if own not in (None, True, "") else block
+        if b:
+            j["brief"] = f"{j['brief'].rstrip()}\n{b}"
     if getattr(args, "auto_cast", True):
         n_cast = auto_cast(jobs)
         if n_cast:
@@ -3638,51 +4094,74 @@ def cmd_batch(args) -> None:
         workdir / "output" / "imagegen" / f"batch-{dt.datetime.now():%Y%m%d-%H%M}"
     out_dir = out_dir if out_dir.is_absolute() else workdir / out_dir
     (out_dir / "logs").mkdir(parents=True, exist_ok=True)
-    if getattr(args, "dry_run", False):
+    if getattr(args, "dry_run", False):  # compact: the full prompts go to files, not to stdout
+        pdir = out_dir / "prompts"
+        pdir.mkdir(parents=True, exist_ok=True)
         rows = []
         for j in jobs:
             edit = bool(j.get("target"))
             prompt, hints = compile_prompt(j["brief"], j.get("aspect"), edit=edit)
-            body = place_context(j["brief"])[0]
-            rows.append({"name": j["name"], "aspect": j.get("aspect"), "place": place_label(place_context(j["brief"])[1]),
-                         "look": pick_look(body)[0] if not is_non_photo(j["brief"]) and not edit else "-",
-                         "finish": with_finish_default(dict(j, look=pick_look(body)[0]
-                                                            if not is_non_photo(j["brief"]) else "-")),
-                         "lint": lint_brief(j["brief"], j.get("aspect")), "checks": hints, "prompt": prompt})
-        print(json.dumps({"out_dir": str(out_dir), "jobs": rows}, indent=2, ensure_ascii=False))
+            body, place = place_context(j["brief"])
+            look = pick_look(body)[0] if not is_non_photo(j["brief"]) else "-"
+            pf = pdir / f"{j['name']}.txt"
+            write_atomic(pf, prompt + "\n")
+            rows.append({"name": j["name"], "lint": lint_brief(j["brief"], j.get("aspect")),
+                         "risks": brief_risks(j["brief"]), "place": place_label(place),
+                         "look": look if not edit else "-", "finish": with_finish_default(dict(j, look=look)),
+                         "checks": len(hints), "prompt": str(pf)})
+        print(json.dumps({"out_dir": str(out_dir), "prompts": str(pdir), "jobs": rows}, indent=2, ensure_ascii=False))
         return
     if args.mode == "fast":
         fast_args(args)
         TELEMETRY["log_dir"] = str(out_dir / "logs")
-        for j in jobs:
-            for key in ("refs", "target"):
-                if j.get(key):
-                    vals = j[key] if isinstance(j[key], list) else [j[key]]
-                    vals = [str((Path(v).expanduser() if Path(v).expanduser().is_absolute() else workdir / v).resolve())
-                            for v in vals]
-                    j[key] = vals if key == "refs" else vals[0]
+        if getattr(args, "rejudge", False):  # judge the existing images again; nothing is generated
+            rep = {"mode": "fast", "images": []}
+            try:
+                rejudge_jobs(jobs, args, out_dir, rep)
+                if getattr(args, "export_dir", None):
+                    ed = Path(args.export_dir).expanduser()
+                    export_results(rep, jobs, ed if ed.is_absolute() else workdir / ed, args)
+            finally:
+                finish_batch_report(rep, jobs, args, out_dir)
+            print_batch_summary(rep, out_dir)
+            if _LIVE["fatal"]:
+                raise SystemExit(3)
+            return
+        resumed, left = [], jobs
+        if getattr(args, "resume", False):  # jobs that already passed in this --out-dir are kept, not made again
+            found = {j["name"]: latest_meta(j["name"], out_dir) for j in jobs}
+            resumed = [dict(row_from_meta(found[j["name"]][1], found[j["name"]][0]), resumed=True) for j in jobs
+                       if found[j["name"]] and (found[j["name"]][1].get("judge") or {}).get("computed_verdict")
+                       in VERDICT_LEVEL]
+            kept = {r["name"] for r in resumed}
+            left = [j for j in jobs if j["name"] not in kept]
+            log(f"--resume: {len(resumed)} job(s) already passed and are kept; {len(left)} to run")
+        for j in left:
             for w in lint_brief(j["brief"], j.get("aspect")):
                 log(f"lint ({j['name']}): {w}")
-        rep = fast_pipeline(jobs, args, workdir, out_dir)
-        if getattr(args, "export_dir", None):
-            ed = Path(args.export_dir).expanduser()
-            export_results(rep, jobs, ed if ed.is_absolute() else workdir / ed, args)
-        rep["codex_version"] = codex_version(codex_bin())
-        rep["jobs_file"], rep["out_dir"] = str(Path(args.jobs).expanduser().resolve()), str(out_dir)
-        write_fast_outputs(rep, out_dir, print_summary=False)
-        write_atomic(out_dir / "batch-report.json", json.dumps(rep, indent=2, ensure_ascii=False, default=str))
-        write_atomic(out_dir / "batch-report.md", fast_report_md(rep))
-        print(json.dumps({"out_dir": str(out_dir), "timing": rep["timing"], "passed": rep["passed"],
-                          "first_pass": rep["first_pass"], "images": [(Path(i["path"]).name if i.get("path") else None,
-                                                                       i.get("verdict")) for i in rep["images"]]},
-                         indent=2, ensure_ascii=False))
+        progress = out_dir / "batch-progress.jsonl"
+        write_atomic(progress, "")
+        rep = {"mode": "fast", "images": []}
+        try:
+            if left:
+                fast_pipeline(left, args, workdir, out_dir, rep=rep, progress=progress)
+            rep["images"] = order_rows(resumed + rep["images"], jobs)
+            if getattr(args, "export_dir", None):
+                ed = Path(args.export_dir).expanduser()
+                export_results(rep, jobs, ed if ed.is_absolute() else workdir / ed, args)
+        finally:  # the report is written even when the run is cut short, with every job that finished
+            rep["images"] = order_rows(resumed + [i for i in rep.get("images") or [] if not i.get("resumed")], jobs)
+            finish_batch_report(rep, jobs, args, out_dir)
+        print_batch_summary(rep, out_dir)
+        if _LIVE["fatal"]:
+            raise SystemExit(3)
         return
     if args.fix_rounds is None:
         args.fix_rounds = 2
     if args.judge_effort is None:
         args.judge_effort = "high"
     common = ["--mode", "agent", "--effort", args.effort, "--max-attempts", str(args.max_attempts),
-              "--timeout", str(args.timeout),
+              "--timeout", str(args.timeout), "--judge-timeout", str(args.judge_timeout),
               "--threshold", str(args.threshold), "--judge-effort", args.judge_effort]
     common += (["--judge"] if args.judge else []) + (["--auto-fix", "--fix-rounds", str(args.fix_rounds)]
                                                        if args.auto_fix else [])
@@ -3829,7 +4308,10 @@ def cmd_cutout(args) -> None:
 
 
 def cmd_audit(args) -> None:
-    rep = audit_site(Path(args.root).expanduser().resolve())
+    root = Path(args.root).expanduser().resolve()
+    if not root.is_dir():  # a typo used to give a clean report with 0 images and a "global" place
+        die(f"not a folder: {root}")
+    rep = audit_site(root)
     if args.out:
         Path(args.out).write_text(json.dumps(rep, indent=2, ensure_ascii=False), encoding="utf-8")
     brief = {k: rep[k] for k in ("root", "images", "references", "issue_counts", "locale")}
@@ -3965,7 +4447,10 @@ def main() -> None:
         p.add_argument("--codex-model", help="Codex agent model override (-m)")
         p.add_argument("--max-attempts", type=int, default=2, help="generations per deliverable incl. retries")
         p.add_argument("--no-qa", action="store_true", help="skip the Codex self-QA/retry loop")
-        p.add_argument("--timeout", type=int, default=900, help="seconds for the whole Codex run / API call")
+        p.add_argument("--timeout", type=int, default=None,
+                       help=f"seconds per Codex image session (fast default {GEN_TIMEOUT}; agent mode and the API "
+                            f"engine {AGENT_TIMEOUT})")
+        p.add_argument("--judge-timeout", type=int, default=JUDGE_TIMEOUT, help="seconds per judge session")
         p.add_argument("--workdir", help="project root Codex may write in (default: current directory)")
         p.add_argument("--dry-run", action="store_true", help="print the plan/prompt without generating")
         p.add_argument("--judge", action="store_true", help="grade each image in a fresh, independent Codex session")
@@ -4011,13 +4496,14 @@ def main() -> None:
         p.add_argument("--log-dir", help="write prompts, Codex event streams, rollout digests, run.log and "
                                          "telemetry.json into this folder")
         p.set_defaults(func=cmd_generate_or_edit)
-    j = sub.add_parser("judge", help="independent QA verdict for existing image(s)")
-    j.add_argument("--image", action="append", required=True)
+    j = sub.add_parser("judge", help="independent QA verdict for existing image(s), judged at once")
+    j.add_argument("--image", action="append", required=True, help="image to judge (repeat for more)")
     j.add_argument("--prompt")
     j.add_argument("--prompt-file")
     j.add_argument("--threshold", type=int, default=4)
     j.add_argument("--judge-model")
-    j.add_argument("--judge-effort", default="high")
+    j.add_argument("--judge-effort", default="medium", help="medium (default) or high: same pass/fail, high is slower")
+    j.add_argument("--timeout", type=int, default=JUDGE_TIMEOUT, help="seconds per judge session")
     j.set_defaults(func=cmd_judge)
     c = sub.add_parser("compare", help="same brief on several API models, each judged (needs OPENAI_API_KEY)")
     c.add_argument("--prompt")
@@ -4041,6 +4527,12 @@ def main() -> None:
     b = sub.add_parser("batch", help="run many generate jobs from a JSON file with bounded concurrency + report")
     b.add_argument("--jobs", required=True, help='JSON list: [{"name", "brief", "aspect", "size"?, "args"?: [...]}]')
     b.add_argument("--only", help="comma-separated job names to run (rerun failures; casting stays as in the full set)")
+    b.add_argument("--resume", action="store_true",
+                   help="fast mode: keep the jobs whose image and meta.json in --out-dir already passed (PASS or "
+                        "PASS_WITH_NOTES) and run only the others")
+    b.add_argument("--rejudge", action="store_true",
+                   help="fast mode: judge the images already in --out-dir again from their meta.json (after a judge "
+                        "ERROR); no new image is made; add --export-dir to export the ones that pass")
     b.add_argument("--concurrency", type=int, default=10, help="fast: jobs at once (agent mode: use 3)")
     b.add_argument("--dry-run", action="store_true", help="print every job's compiled prompt, checks, lint, place, look and finish; generate nothing")
     b.add_argument("--out-dir", help="default <workdir>/output/imagegen/batch-<timestamp>")
@@ -4077,7 +4569,9 @@ def main() -> None:
     b.add_argument("--codex-model")
     b.add_argument("--candidates", type=int, default=1)
     b.add_argument("--no-auto-candidates", dest="auto_candidates", action="store_false")
-    b.add_argument("--timeout", type=int, default=900)
+    b.add_argument("--timeout", type=int, default=None,
+                   help=f"seconds per Codex image session (fast default {GEN_TIMEOUT}, agent mode {AGENT_TIMEOUT})")
+    b.add_argument("--judge-timeout", type=int, default=JUDGE_TIMEOUT, help="seconds per judge session")
     b.set_defaults(func=cmd_batch)
     x = sub.add_parser("export", help="web-ready responsive variants + <picture> markup + assets.json")
     x.add_argument("--src", nargs="+", required=True, help="image files or folders")
@@ -4145,7 +4639,10 @@ def main() -> None:
     d.set_defaults(func=cmd_doctor)
     args = ap.parse_args()
     install_stop_handlers()
-    args.func(args)
+    try:
+        args.func(args)
+    except (OSError, ValueError) as e:  # a missing file or a bad value: one clear line instead of a traceback
+        die(f"{type(e).__name__}: {e}")
 
 
 if __name__ == "__main__":

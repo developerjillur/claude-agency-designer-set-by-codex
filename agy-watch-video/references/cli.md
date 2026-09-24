@@ -15,6 +15,7 @@ or clock form (`0:12.5`, `1:02:03`). A path can be any video or audio file ffmpe
 | `AWV_MODEL_FAST` | `gemini-3.8-flash-high` | overview, audio, second opinions |
 | `AWV_MODEL_LIGHT` | `gemini-3.8-flash-medium` | quick overview, subject boxes, smoke test |
 | `AWV_MODEL_DEEP` | `gemini-3.1-pro-high` | frame batches, text reading, review, careful answers |
+| `AWV_CALL_TIMEOUT` | by kind of call | one time limit in seconds for every agy call (defaults: 900 for a proxy video, 600 for audio, 420 for frames, 360 for the review, 240 for other text) |
 | `AWV_TIME_BARS` | off | `1` writes each frame's time in a bar above the frames sent to Gemini (the research favours plain text times, which the prompts always give) |
 | `AGY_BIN`, `FFMPEG`, `FFPROBE` | found on PATH (`~/.local/bin/agy` for agy) | tool paths |
 

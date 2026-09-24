@@ -11,6 +11,7 @@ import sys
 import itertools
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -627,11 +628,11 @@ class Production(unittest.TestCase):
         self.counter = itertools.count()
         self.saved = (ci.codex_parallel_images, ci.run_judge, ci.finish_image, ci.codex_bin, ci.codex_version,
                       ci.cmd_generate_or_edit, ci.CODEX_HOME, ci.LOCALE_FILE, ci.engine_codex)
-        self.log_dir = ci.TELEMETRY.get("log_dir")
+        self.log_dir, self.fail_dir = ci.TELEMETRY.get("log_dir"), ci.TELEMETRY.get("fail_dir")
         ci.BUDGET.used = 0
 
     def tearDown(self):
-        ci.TELEMETRY["log_dir"] = self.log_dir
+        ci.TELEMETRY["log_dir"], ci.TELEMETRY["fail_dir"] = self.log_dir, self.fail_dir
         (ci.codex_parallel_images, ci.run_judge, ci.finish_image, ci.codex_bin, ci.codex_version,
          ci.cmd_generate_or_edit, ci.CODEX_HOME, ci.LOCALE_FILE, ci.engine_codex) = self.saved
         ci._LOC.clear()
@@ -875,8 +876,22 @@ class Production(unittest.TestCase):
         by = {r["name"]: r for r in out["jobs"]}
         self.assertEqual((by["a"]["look"], by["a"]["finish"]), ("interior", "clean"))
         self.assertEqual((by["b"]["look"], by["b"]["finish"]), ("-", "none"))
-        self.assertIn("Capture:", by["a"]["prompt"])
+        self.assertIn("Capture:", Path(by["a"]["prompt"]).read_text(encoding="utf-8"))  # the prompt is in a file
         self.assertEqual(calls, [])
+
+    def test_batch_dry_run_stays_small_and_names_the_prompt_files(self):
+        self.fake()
+        jf = self.tmp / "j.json"
+        jf.write_text(json.dumps({"style": {"palette": ["#0ea5e9"], "mood": "calm, honest, daylight"}, "jobs": [
+            {"name": f"img{i}", "aspect": "3:2", "brief": "Intent: website photo for a family dental clinic\n"
+             f"Scene: room {i}, a hygienist explains an X-ray to one patient\nCamera: eye level, 35mm\n"
+             "Light: overcast window light mixing with ceiling LEDs\nConstraints: no readable text, no logos"}
+            for i in range(10)]}), encoding="utf-8")
+        text = self.cli("batch", "--jobs", str(jf), "--dry-run", "--out-dir", str(self.tmp / "o"))
+        self.assertLess(len(text), 8000)  # was about 60 KB for ten jobs: every compiled prompt on stdout
+        rows = json.loads(text)["jobs"]
+        self.assertEqual(set(rows[0]), {"name", "lint", "risks", "place", "look", "finish", "checks", "prompt"})
+        self.assertTrue(all(Path(r["prompt"]).read_text(encoding="utf-8").startswith("Format:") for r in rows))
 
     def test_leftover_marks_get_a_local_edit_not_a_model_limit(self):
         seq = {"n": 0}
@@ -1131,6 +1146,257 @@ class Production(unittest.TestCase):
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
             run(api_size="1000x1000")  # not a multiple of 16
 
+    def test_bad_size_refs_candidates_and_style_stop_before_any_session(self):
+        self.fake()
+        calls = []
+        ci.codex_parallel_images = lambda *a, **k: calls.append(1)
+        jf = self.tmp / "j.json"
+        for i in range(6):
+            shutil.copy2(self.src, self.tmp / f"r{i}.png")
+        base = {"name": "a", "aspect": "1:1", "brief": "Intent: product photo\nSubject: one mug"}
+        for bad in ({"size": "1200 x 630"}, {"size": "1920X1080"}, {"candidates": "two"}, {"candidates": 9},
+                    {"refs": ["missing.png"]}, {"target": "missing.png"},
+                    {"refs": [f"r{i}.png" for i in range(6)]}):  # the image tool takes at most 5 inputs
+            jf.write_text(json.dumps([dict(base, **bad)]), encoding="utf-8")
+            with self.assertRaises(SystemExit, msg=str(bad)):
+                self.cli("batch", "--jobs", str(jf), "--out-dir", str(self.tmp / "o"), "--workdir", str(self.tmp))
+        jf.write_text(json.dumps({"style": "brand/style.json", "jobs": [base]}), encoding="utf-8")
+        with self.assertRaises(SystemExit):  # a style file that is missing is not used as the style text
+            self.cli("batch", "--jobs", str(jf), "--out-dir", str(self.tmp / "o"), "--workdir", str(self.tmp))
+        for bad in (("--size", "1920X1080"), ("--candidates", "7"), ("--style", "brand/missing.json")):
+            with self.assertRaises(SystemExit):
+                self.cli("generate", "--prompt", "Intent: product photo\nSubject: one mug", "--aspect", "1:1",
+                         "--out-dir", str(self.tmp / "g"), "--workdir", str(self.tmp), *bad)
+        self.assertEqual(calls, [])  # nothing reached Codex
+        jf.write_text(json.dumps([dict(base, refs=["r0.png"], size="1200x630", candidates=2)]), encoding="utf-8")
+        self.fake()
+        self.cli("batch", "--jobs", str(jf), "--out-dir", str(self.tmp / "ok"), "--workdir", str(self.tmp))
+        self.assertTrue((self.tmp / "ok" / "a.meta.json").exists())  # good values still run
+
+    def test_each_job_writes_its_meta_and_a_progress_line_as_it_ends(self):
+        self.fake()
+        out, seen = self.tmp / "out", {}
+        gen = ci.codex_parallel_images
+
+        def slow_gen(tasks, *a, **k):
+            if tasks[0]["id"].startswith("slow"):  # wait until the quick job is done, then look at the disk
+                t0 = time.time()
+                while not (out / "quick.meta.json").exists() and time.time() - t0 < 5:
+                    time.sleep(0.02)
+                seen["meta"] = (out / "quick.meta.json").exists()
+                seen["progress"] = (out / "progress.jsonl").read_text(encoding="utf-8")
+            return gen(tasks, *a, **k)
+        ci.codex_parallel_images = slow_gen
+        ci.fast_pipeline([{"name": "quick", "aspect": "1:1", "brief": "Intent: product photo\nSubject: one mug"},
+                          {"name": "slow", "aspect": "1:1", "brief": "Intent: product photo\nSubject: one jar"}],
+                         args_ns(), self.tmp, out, progress=out / "progress.jsonl")
+        self.assertTrue(seen["meta"])  # written while the other job was still running
+        self.assertEqual(json.loads(seen["progress"].splitlines()[0])["name"], "quick")
+        lines = [json.loads(l) for l in (out / "progress.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([(l["name"], l["verdict"]) for l in lines], [("quick", "PASS"), ("slow", "PASS")])
+
+    def test_report_is_written_when_the_run_is_cut_short(self):
+        self.fake()
+        real = ci.job_pipeline
+        out = self.tmp / "o"
+
+        def jp(j, *a):
+            if j["name"] == "b":  # the run is interrupted after job a has finished
+                t0 = time.time()
+                while not (out / "a.meta.json").exists() and time.time() - t0 < 5:
+                    time.sleep(0.02)
+                raise KeyboardInterrupt
+            return real(j, *a)
+        jf = self.tmp / "j.json"
+        jf.write_text(json.dumps([{"name": n, "aspect": "1:1", "brief": f"Intent: product photo\nSubject: one {n}"}
+                                  for n in ("a", "b")]), encoding="utf-8")
+        with mock.patch.object(ci, "job_pipeline", jp), self.assertRaises(KeyboardInterrupt):
+            self.cli("batch", "--jobs", str(jf), "--out-dir", str(out))
+        rep = json.loads((out / "batch-report.json").read_text(encoding="utf-8"))
+        self.assertEqual([i["name"] for i in rep["images"]], ["a"])
+        self.assertEqual(rep["unfinished"], ["b"])
+        self.assertIn('"a"', (out / "batch-progress.jsonl").read_text(encoding="utf-8"))
+
+    @unittest.skipUnless(HAVE_PIL, "Pillow not available (run doctor --setup)")
+    def test_one_export_error_keeps_the_other_exports_and_the_report(self):
+        self.fake()
+        real = ci.web_export
+
+        def flaky(src, *a, **k):
+            if Path(src).stem == "b":
+                raise OSError("encoder error")
+            return real(src, *a, **k)
+        jf = self.tmp / "j.json"
+        jf.write_text(json.dumps([{"name": n, "aspect": "1:1", "brief": f"Intent: product photo\nSubject: one {n}"}
+                                  for n in ("a", "b")]), encoding="utf-8")
+        with mock.patch.object(ci, "web_export", flaky):
+            out = json.loads(self.cli("batch", "--jobs", str(jf), "--out-dir", str(self.tmp / "o"), "--export-dir",
+                                      str(self.tmp / "web")))
+        self.assertEqual(out["export_errors"], ["b"])
+        self.assertIn("a", json.loads((self.tmp / "web" / "assets.json").read_text(encoding="utf-8")))
+        rep = json.loads((self.tmp / "o" / "batch-report.json").read_text(encoding="utf-8"))
+        self.assertIn("encoder error", {i["name"]: i for i in rep["images"]}["b"]["export_error"])
+
+    def test_resume_keeps_passed_jobs_and_runs_only_the_rest(self):
+        self.fake(verdicts=lambda job: judge_result("FAIL") if str(job).startswith("b") else judge_result("PASS"))
+        jf = self.tmp / "j.json"
+        jf.write_text(json.dumps([{"name": n, "aspect": "1:1", "brief": f"Intent: product photo\nSubject: one {n}"}
+                                  for n in ("a", "b")]), encoding="utf-8")
+        out = self.tmp / "o"
+        self.cli("batch", "--jobs", str(jf), "--out-dir", str(out))
+        calls = []
+        gen = ci.codex_parallel_images
+        ci.codex_parallel_images = lambda tasks, *a, **k: calls.append(tasks[0]["id"]) or gen(tasks, *a, **k)
+        res = json.loads(self.cli("batch", "--jobs", str(jf), "--out-dir", str(out), "--resume"))
+        self.assertTrue(calls and all(c.startswith("b") for c in calls))  # a passed before: it is not made again
+        self.assertFalse((out / "a-v2.png").exists())
+        self.assertEqual([n for n, _ in res["images"]][0], "a.png")
+        rep = json.loads((out / "batch-report.json").read_text(encoding="utf-8"))
+        self.assertTrue({i["name"]: i for i in rep["images"]}["a"]["resumed"])
+        with self.assertRaises(SystemExit):  # resume needs the folder of the run it continues
+            self.cli("batch", "--jobs", str(jf), "--resume")
+
+    @unittest.skipUnless(HAVE_PIL, "Pillow not available (run doctor --setup)")
+    def test_rejudge_judges_the_existing_image_again_and_exports_on_pass(self):
+        self.fake(verdicts=lambda job: {"computed_verdict": "ERROR", "error": "judge timed out after 150s"}
+                  if str(job).startswith("cup") else judge_result("PASS"))
+        jf = self.tmp / "j.json"
+        jf.write_text(json.dumps({"style": {"mood": "calm"}, "jobs": [
+            {"name": n, "aspect": "1:1", "brief": f"Intent: product photo\nSubject: one {n} on a table"}
+            for n in ("cup", "mug")]}), encoding="utf-8")
+        out, web = self.tmp / "o", self.tmp / "web"
+        self.cli("batch", "--jobs", str(jf), "--out-dir", str(out), "--export-dir", str(web))
+        md = (out / "batch-report.md").read_text(encoding="utf-8")
+        self.assertIn("### ERROR: the judge failed, not the image", md)
+        self.assertIn(f'--only cup --out-dir "{out}" --rejudge', md)
+        self.assertNotIn("cup", json.loads((web / "assets.json").read_text(encoding="utf-8")))  # unjudged: not exported
+        calls, seen = [], {}
+        ci.codex_parallel_images = lambda *a, **k: calls.append(1)
+
+        def judge(img, brief, threshold=4, model=None, effort="high", timeout=0, checklist=None, job=None, **k):
+            seen.update(brief=brief, checklist=checklist, effort=effort)
+            return judge_result("PASS")
+        ci.run_judge = judge
+        res = json.loads(self.cli("batch", "--jobs", str(jf), "--only", "cup", "--rejudge", "--out-dir", str(out),
+                                  "--export-dir", str(web)))
+        self.assertEqual(calls, [])  # no new image
+        self.assertEqual(res["images"], [["cup.png", "PASS"]])
+        meta = json.loads((out / "cup.meta.json").read_text(encoding="utf-8"))
+        self.assertEqual((meta["judge"]["computed_verdict"], meta["rounds"][-1]["mode"]), ("PASS", "rejudge"))
+        self.assertEqual((seen["brief"], seen["checklist"]), (meta["brief"], meta["prompt_time_checks"]))
+        self.assertIn("calm", seen["brief"])  # the same brief the first judge saw, style lock included
+        self.assertEqual(seen["effort"], "medium")
+        self.assertIn("cup", json.loads((web / "assets.json").read_text(encoding="utf-8")))  # exported on pass
+
+    def test_judge_command_checks_paths_first_runs_at_once_and_prints_every_result(self):
+        imgs = []
+        for n in ("a", "b", "c"):
+            p = self.tmp / f"{n}.png"
+            shutil.copy2(self.src, p)
+            imgs += ["--image", str(p)]
+        seen = []
+
+        def judge(img, brief, threshold=4, model=None, effort="high", timeout=0, checklist=None, job=None, **k):
+            seen.append((effort, timeout))
+            time.sleep(0.4)
+            if Path(img).stem == "b":
+                raise RuntimeError("judge crashed")
+            return judge_result("PASS")
+        ci.run_judge = judge
+        t0 = time.time()
+        out = json.loads(self.cli("judge", *imgs, "--prompt", "a cup on a table", "--timeout", "90"))
+        self.assertLess(time.time() - t0, 1.0)  # three judges at once, not one after another
+        self.assertEqual([r["computed_verdict"] for r in out], ["PASS", "ERROR", "PASS"])  # every result printed
+        self.assertEqual(set(seen), {("medium", 90)})
+        seen.clear()
+        with self.assertRaises(SystemExit):
+            self.cli("judge", *imgs, "--image", str(self.tmp / "typo.png"), "--prompt", "a cup")
+        self.assertEqual(seen, [])  # a bad path stops the command before any judge runs
+
+    def test_report_tells_a_judge_error_from_a_rejected_image(self):
+        rep = {"created": "t", "timing": {"total_s": 9}, "passed": 0, "first_pass": 0, "jobs_file": "/p/jobs.json",
+               "out_dir": "/p/out",
+               "images": [{"name": "bad", "path": "/p/out/bad.png", "verdict": "FAIL", "defects": ["a stray logo"]},
+                          {"name": "cup", "path": "/p/out/cup.png", "verdict": "ERROR",
+                           "judge_error": "judge timed out after 150s"},
+                          {"name": "gone", "path": None, "error": "timed out after 480s (events: /p/out/logs/x)"},
+                          {"name": "ok", "path": "/p/out/ok.png", "verdict": "PASS", "export_error": "OSError: disk"}]}
+        md = ci.fast_report_md(rep)
+        fail, err = md.split("### FAIL")[1].split("###")[0], md.split("### ERROR")[1].split("###")[0]
+        self.assertIn("--only bad ", fail)
+        self.assertNotIn("--rejudge", fail)  # rejected: make a new image
+        self.assertIn('--only cup --out-dir "/p/out" --rejudge', err)  # unjudged: judge again, no new image
+        self.assertIn("not judged (judge timed out after 150s)", err)
+        self.assertIn("### No image", md)
+        self.assertIn("events: /p/out/logs/x", md)
+        self.assertIn("**ok**: OSError: disk", md)
+
+    def test_jobs_file_paths_resolve_next_to_the_jobs_file_and_a_job_style_wins(self):
+        self.fake()
+        seen = {}
+        gen = ci.codex_parallel_images
+        ci.codex_parallel_images = lambda tasks, *a, **k: seen.update({tasks[0]["id"]: tasks[0].get("refs")}) or \
+            gen(tasks, *a, **k)
+        site = self.tmp / "site"
+        (site / "brand").mkdir(parents=True)
+        shutil.copy2(self.src, site / "brand" / "logo.png")
+        (site / "brand" / "style.json").write_text(json.dumps({"mood": "calm clinic daylight"}), encoding="utf-8")
+        (site / "brand" / "alt.txt").write_text("Watercolour illustration, loose ink lines.", encoding="utf-8")
+        jf = site / "brand" / "jobs.json"
+        for style in ("style.json", "brand/style.json"):  # next to the jobs file, or from the project root
+            jf.write_text(json.dumps({"style": style, "jobs": [
+                {"name": "a", "aspect": "1:1", "refs": ["logo.png"], "brief": "Intent: product photo\nSubject: one mug"},
+                {"name": "b", "aspect": "1:1", "style": "alt.txt", "brief": "Intent: spot illustration of a mug"},
+                {"name": "c", "aspect": "1:1", "style": False, "brief": "Intent: product photo\nSubject: one jar"}]}),
+                encoding="utf-8")
+            out = self.tmp / f"o-{style.replace('/', '-')}"
+            self.cli("batch", "--jobs", str(jf), "--out-dir", str(out), "--workdir", str(site))
+            brief = {n: json.loads((out / f"{n}.meta.json").read_text(encoding="utf-8"))["brief"] for n in "abc"}
+            self.assertIn("calm clinic daylight", brief["a"])
+            self.assertIn("Watercolour", brief["b"])  # the job's own style replaces the shared one
+            self.assertNotIn("calm clinic daylight", brief["b"])
+            self.assertNotIn("Style lock", brief["c"])
+            self.assertEqual(seen["a-c1"], [str((site / "brand" / "logo.png").resolve())])
+
+    def test_empty_and_file_name_briefs_are_caught(self):
+        (self.tmp / "empty.txt").write_text("  \n", encoding="utf-8")
+        ns = lambda **kw: argparse.Namespace(**dict({"prompt": None, "prompt_file": None}, **kw))
+        for bad in (ns(prompt_file=str(self.tmp / "empty.txt")), ns(prompt_file=str(self.tmp / "missing.txt")),
+                    ns(prompt_file="Intent: a mug on a table. Subject: one mug."), ns(prompt="   ")):
+            with self.assertRaises(SystemExit, msg=str(bad)):
+                ci.read_brief(bad)
+        with mock.patch.object(sys, "stdin", io.StringIO("")), self.assertRaises(SystemExit):
+            ci.read_brief(ns(prompt_file="-"))  # a lost heredoc no longer starts a generation
+        logs = []
+        with mock.patch.object(ci, "log", logs.append):
+            self.assertEqual(ci.read_brief(ns(prompt="brief.txt")), "brief.txt")
+            self.assertEqual(ci.read_brief(ns(prompt="Intent: product photo\nSubject: one mug")),
+                             "Intent: product photo\nSubject: one mug")
+        self.assertEqual(len(logs), 1)
+        self.assertIn("--prompt-file", logs[0])  # the warning says how to read a file
+        self.fake()
+        jf = self.tmp / "j.json"
+        for brief in ("   ", ["Intent: a list", "is not text"]):
+            jf.write_text(json.dumps([{"name": "a", "brief": brief}]), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                self.cli("batch", "--jobs", str(jf), "--out-dir", str(self.tmp / "o"))
+
+    def test_missing_files_and_bad_values_give_one_line_errors(self):
+        logs = []
+        runs = (("audit", "--root", str(self.tmp / "no-such-site")),
+                ("og", "--bg", str(self.tmp / "missing.png"), "--title", "Hi", "--out", str(self.tmp / "og.png")),
+                ("favicon", "--src", str(self.tmp / "missing.png"), "--out", str(self.tmp / "pub")),
+                ("cutout", "--src", str(self.tmp / "missing.png")),
+                ("export", "--src", str(self.src), "--out", str(self.tmp / "w"), "--widths", "480px"),
+                ("export", "--src", str(self.src), "--out", str(self.tmp / "w"), "--alt-json", str(self.tmp / "no.json")))
+        with mock.patch.object(ci, "log", logs.append):
+            for argv in runs:
+                logs.clear()
+                with self.assertRaises(SystemExit, msg=argv[0]):  # not a traceback
+                    self.cli(*argv)
+                self.assertEqual(len(logs), 1, argv)
+                self.assertTrue(logs[0].startswith("ERROR: ") and "\n" not in logs[0], logs[0])
+
 
 class SpeedAndReliability(unittest.TestCase):
     """Early results from the rollout, overlapping judges, judge retry, stop signals, atomic writes, API retry."""
@@ -1267,6 +1533,154 @@ class SpeedAndReliability(unittest.TestCase):
         res = ci.engine_api(ns, "a cup", [self.tmp / "a.png"], [], None, self.tmp)
         self.assertEqual(seen, ["gpt-image-2.5-sunburst", "gpt-image-2.5-sunburst"])  # no silent downgrade
         self.assertEqual(res["model"], "gpt-image-2.5-sunburst")
+
+
+class Docs(unittest.TestCase):
+    """The docs Claude reads first: SKILL.md stays short and says how to run things; master.md's contents point at the
+    real lines (they go stale when master.md is edited); cli.md covers the flags added for failures and resumes."""
+    ROOT = SCRIPT.parent.parent
+
+    def test_docs_point_to_real_lines_and_stay_short(self):
+        skill = (self.ROOT / "SKILL.md").read_text(encoding="utf-8")
+        self.assertLess(len(skill), 13500)  # loaded on every use
+        for must in ("run_in_background", "--rejudge", "--resume", "batch-report.md", "about 90 s", "about 40 s"):
+            self.assertIn(must, skill)
+        lines = (self.ROOT / "references" / "master.md").read_text(encoding="utf-8").split("\n")
+        toc = [l for l in lines[:40] if re.match(r"\d+\. .*\(line \d+", l)]
+        self.assertEqual(len(toc), 20)
+        for entry in toc:
+            sec = entry.split(".")[0]
+            first = int(re.search(r"\(line (\d+)", entry).group(1))
+            self.assertTrue(lines[first - 1].startswith(f"## {sec}. "), entry)
+            for sub, n in re.findall(r"(\d+\.\d+\w*) [^,;)]*? line (\d+)", entry):
+                self.assertTrue(lines[int(n) - 1].startswith(f"### {sub} "), (entry, sub))
+        cli = (self.ROOT / "references" / "cli.md").read_text(encoding="utf-8")
+        for flag in ("--resume", "--rejudge", "--judge-timeout", "## `judge`", "WIDTHxHEIGHT", "3 = stopped"):
+            self.assertIn(flag, cli)
+        for text in (skill, cli):
+            self.assertNotIn("\u2014", text)  # no em dash
+            self.assertNotIn(" \u2013 ", text)  # no spaced en dash
+
+
+class FailingSessions(unittest.TestCase):
+    """Stuck or failing Codex sessions: time limits, no long retries, Codex's own error, a stop on a usage limit,
+    kept event logs. The Codex CLI is a small shell script here; the real one is never called."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.saved = (ci.codex_bin, ci.codex_parallel_images, ci.run_judge, ci.codex_version, ci.finish_image,
+                      ci.TELEMETRY["log_dir"], ci.TELEMETRY["fail_dir"], ci.CODEX_HOME)
+        ci.CODEX_HOME = self.tmp / "codex-home"  # rollout lookups never touch the real ~/.codex
+        ci.BUDGET.used = 0
+
+    def tearDown(self):
+        (ci.codex_bin, ci.codex_parallel_images, ci.run_judge, ci.codex_version, ci.finish_image,
+         ci.TELEMETRY["log_dir"], ci.TELEMETRY["fail_dir"], ci.CODEX_HOME) = self.saved
+        ci._LIVE["stop"], ci._LIVE["fatal"] = False, None
+        ci.BUDGET.limit, ci.BUDGET.used = None, 0
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def fake_codex(self, body: str) -> str:
+        p = self.tmp / "codex"
+        p.write_text("#!/bin/sh\ncat > /dev/null\n" + body, encoding="utf-8")
+        p.chmod(0o755)
+        return str(p)
+
+    def cli(self, *argv):
+        old = sys.argv
+        sys.argv = ["codex_image.py", *argv]
+        code = 0
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+                ci.main()
+        except SystemExit as e:
+            code = e.code
+        finally:
+            sys.argv = old
+        return code, out.getvalue()
+
+    def test_session_time_limits_default_to_the_measured_ones(self):
+        self.assertEqual((ci.GEN_TIMEOUT, ci.JUDGE_TIMEOUT), (480, 150))
+        self.assertEqual(ci.fast_args(argparse.Namespace(timeout=None)).timeout, ci.GEN_TIMEOUT)
+        self.assertEqual(ci.fast_args(argparse.Namespace(timeout=900)).timeout, 900)  # the flag still wins
+        seen = []
+        ci.run_judge = lambda img, brief, threshold=4, model=None, effort="high", timeout=0, checklist=None, \
+            job=None, **k: seen.append(timeout) or judge_result("PASS")
+        ci.judge_parallel([("a", "x.png", "b", None)], args_ns())
+        ci.judge_parallel([("a", "x.png", "b", None)], args_ns(judge_timeout=60))
+        self.assertEqual(seen, [ci.JUDGE_TIMEOUT, 60])
+        got = []
+        with mock.patch.object(ci, "cmd_generate_or_edit", lambda a: got.append((a.timeout, a.judge_timeout))):
+            self.cli("generate", "--prompt", "a cup")
+            self.cli("generate", "--prompt", "a cup", "--timeout", "900", "--judge-timeout", "200")
+        self.assertEqual(got, [(None, ci.JUDGE_TIMEOUT), (900, 200)])  # None becomes 480 (fast) or 900 (agent)
+
+    def test_no_second_full_length_try_after_a_timeout(self):
+        calls = []
+
+        def gen(err):
+            def g(tasks, workdir, effort, timeout, kind="generate", cancel=None):
+                calls.append(kind)
+                return {"results": {t["id"]: {"ok": False, "src": None, "ms": None, "err": err} for t in tasks},
+                        "wall_s": 0.1, "thread_id": None, "session_total_ms": None, "tokens": None}
+            return g
+        task = [{"id": "cup-c1", "prompt": "p"}]
+        for err, sessions in (("timed out after 480s (events: x)", 1), ("You've hit your usage limit.", 1),
+                              ("no result from the Codex session", 2)):  # only a quick failure is retried
+            calls.clear()
+            ci.codex_parallel_images = gen(err)
+            ci.generate_parallel(task, self.tmp, args_ns(), "generate")
+            self.assertEqual(len(calls), sessions, err)
+        for err, sessions in (("timed out after 480s", 2), ("no result from the Codex session", 3)):
+            calls.clear()  # two candidates with early exit: the plain retry runs only after quick failures
+            ci.codex_parallel_images = gen(err)
+            ci.run_judge = lambda *a, **k: judge_result("PASS")
+            rep = ci.fast_pipeline([{"name": "risky", "brief": "The barista tilts the cup while pouring",
+                                     "aspect": "3:2"}], args_ns(), self.tmp, self.tmp / f"out{sessions}")
+            self.assertEqual(len(calls), sessions, err)
+            self.assertIn(err, rep["images"][0]["error"])
+            self.assertEqual(rep["images"][0]["error"].count(err), 1)  # the same reason is not repeated per candidate
+
+    def test_codex_error_text_reaches_the_result_and_the_events_are_kept(self):
+        ci.codex_bin = lambda: self.fake_codex(
+            'echo \'{"type": "thread.started", "thread_id": "tid-9"}\'\n'
+            'echo \'{"type": "turn.failed", "error": {"message": "stream error: the model is overloaded"}}\'\n'
+            'echo "Error: turn failed" >&2\nexit 1\n')
+        ci.TELEMETRY["log_dir"], ci.TELEMETRY["fail_dir"] = None, str(self.tmp / "out" / "logs")
+        res = ci.codex_parallel_images([{"id": "mug-c1", "prompt": "p"}], self.tmp, "low", 30)
+        err = res["results"]["mug-c1"]["err"]
+        self.assertTrue(err.startswith("stream error: the model is overloaded"), err)
+        kept = Path(err.split("(events: ")[1].rstrip(")"))
+        self.assertTrue(kept.exists())
+        self.assertIn("overloaded", kept.read_text())
+        self.assertTrue(kept.with_name(kept.name.replace(".events.jsonl", ".stderr.txt")).exists())
+        self.assertTrue(ci.retry_worth(err))  # an overloaded model is worth one more quick try
+        ci.codex_bin = lambda: self.fake_codex("sleep 30\n")
+        t0 = time.time()
+        res = ci.codex_parallel_images([{"id": "mug-c1", "prompt": "p"}], self.tmp, "low", 1)
+        self.assertLess(time.time() - t0, 10)
+        self.assertTrue(res["results"]["mug-c1"]["err"].startswith("timed out after 1s (events: "))
+        self.assertFalse(ci.retry_worth(res["results"]["mug-c1"]["err"]))
+
+    def test_a_usage_limit_stops_the_whole_run_with_codexs_words(self):
+        calls = self.tmp / "calls"
+        ci.codex_bin = lambda: self.fake_codex(
+            f'echo x >> "{calls}"\n'
+            f'if mkdir "{self.tmp / "first"}" 2>/dev/null; then\n'
+            '  echo \'{"type": "error", "message": "You have hit your usage limit. Try again in 2 hours."}\'\n'
+            '  exit 1\nfi\nsleep 30\n')  # the first session hits the limit; the others would hang
+        ci.codex_version = lambda b: "codex-cli test"
+        jf = self.tmp / "jobs.json"
+        jf.write_text(json.dumps([{"name": n, "aspect": "1:1", "brief": f"Intent: product photo\nSubject: one {n}"}
+                                  for n in ("mug", "cup", "jar")]), encoding="utf-8")
+        t0 = time.time()
+        code, out = self.cli("batch", "--jobs", str(jf), "--out-dir", str(self.tmp / "out"))
+        self.assertLess(time.time() - t0, 15)  # the hanging sessions were stopped, not waited for
+        self.assertEqual(code, 3)
+        rep = json.loads(out)
+        self.assertIn("usage limit", rep["stopped"])
+        self.assertEqual(len(calls.read_text().split()), 3)  # no retries after the stop
+        self.assertIn("usage limit", (self.tmp / "out" / "batch-report.json").read_text())
 
 
 if __name__ == "__main__":

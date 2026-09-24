@@ -131,7 +131,10 @@ videos over 20 minutes are measured about 10 times a second, which still catches
 - About 10% of long runs end with `SUCCESS` and an empty reply (reported): the skill retries once, then falls back.
 - Prompts are cut at about 192 KB (reported): the review pass trims its facts to 150 KB, counted in bytes (Bengali
   letters take three).
-- There has been no default print timeout since 1.2.6: the skill always passes `--print-timeout`.
+- There has been no default print timeout since 1.2.6: the skill always passes `--print-timeout`, set by the kind of
+  call at about three times the slowest measured: 900 s for a proxy video (overview, locate), 600 s for five minutes
+  of audio, 420 s for frames, 360 s for the review and 240 s for other text-only calls. A call that hits it goes
+  to the sibling model once. `AWV_CALL_TIMEOUT` sets one limit for every call.
 - The agent can reach for tools on its own: in a live run, Flash tried to run a command while rewriting a claim (a
   text-only task). A denied run is never kept; it is retried with a stricter prompt, then the sibling model.
 - Gemini's audio times drift on long files (a report of -157 s over 11:49): audio goes in 5-minute parts, and each part

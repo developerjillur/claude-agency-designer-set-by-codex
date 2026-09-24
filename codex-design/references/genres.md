@@ -416,3 +416,15 @@ Presets (`presets --group signage`): `yard-sign-24x18`, `a-frame-insert-24x36`, 
 Find the format (`presets --find`), then follow `formats.md`: the spec ladder for an unknown size or platform (§3)
 and the archetype table for an unknown kind of design (§4). Record what you learn as a project preset so the next job
 starts from it.
+
+## 28. Video and motion
+
+Anything delivered as a video (animated posts, reels, stories, intros, HyperFrames or Remotion renders) goes through
+the `agy-watch-video` skill before delivery:
+
+1. `qa VIDEO --platform reels --strict`: black and frozen frames, flicker, loudness, specs and safe zones. It exits 2
+   on a failure.
+2. `watch VIDEO --goal motion --expect copy.txt`: each approved on-screen line, found or not.
+3. `verify` any finding before you act on it.
+
+To study a reference or a competitor's video, use `watch VIDEO --goal promo`.

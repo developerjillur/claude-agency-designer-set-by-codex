@@ -301,6 +301,20 @@ ALT_ROLES = re.compile(r"\balt\b|alt[_-]?text|image[_-]?caption|figcaption", re.
 REPLY_ROLES = re.compile(r"reply|comment|\bdm\b|message", re.I)
 CASUAL_ROLES = re.compile(r"caption|post|body|reply|comment|\bdm\b|message|chat", re.I)
 FORMAL_ROLES = re.compile(r"terms|legal|safety|notice|disclaimer|instruction", re.I)
+# Songs and poems: an even meter, a refrain, repeated openings, literary words and "আহা" are the craft there, not tells.
+LYRIC_ROLES = re.compile(r"(?<![a-z])(?:lyrics?|songs?|verses?|chorus|refrain|mukhra|antara|sanchari|abhog|bridge|poem|"
+                         r"poetry|jingle|ghazal|rap)(?![a-z])", re.I)
+# Checks written for posts and ads that are wrong for lyrics, and checks that become advice only (a note).
+LYRIC_SKIP = {"flat-rhythm", "staccato", "same-openers", "long-sentence", "bn-poetic", "bn-reactions", "quote",
+              "all-positive", "no-speaker", "triads", "emoji-on-image", "exclamation", "question-headline",
+              "long-headline", "long-cta", "cta-verb", "generic-cta", "colon-reveal", "colon-reveals", "bn-essay",
+              "engagement-bait", "all-caps"}
+LYRIC_SOFT = {"bn-formal", "bn-formal-soft", "bn-pattern", "ai-word", "ai-cluster", "bn-latin", "banglish",
+              "bn-slang-pile", "not-tails", "bn-particles", "bn-ebong", "bn-eti"}
+
+
+def is_lyric(role: str) -> bool:
+    return bool(LYRIC_ROLES.search(role or ""))
 
 
 def script_of(text: str) -> str:
@@ -876,6 +890,13 @@ def lint_string(text: str, role: str = "", locale: str = "", platform: str = "",
                 break
     codes = [code] + (["bn"] if code != "bn" and has_bengali(text) else [])
     out += lint_voice(text, [c for c in codes if c], "", role, locale, lang)
+    if is_lyric(role):
+        # The voice rules and the lists were calibrated on posts and ads: in a song they are advice, not a verdict.
+        # Hard errors stay: dashes, chatbot leftovers, calques, West Bengal words in a Bangladeshi song.
+        out = [f for f in out if f["code"] not in LYRIC_SKIP]
+        for f in out:
+            if f["severity"] != "note" and (f["code"] in LYRIC_SOFT or f["code"].endswith("-voice")):
+                f["severity"] = "note"
     return out
 
 
@@ -1044,8 +1065,9 @@ def lint_deck(strings: list, locale: str = "", platform: str = "", voice: dict |
             lint_string(text, role, locale, platform, lang, voice)
         items.append({"role": role, "text": text, "findings": found})
     deck = []
-    words = [w.lower() for s in strings for w in _words(s.get("text", "")) if len(w) > 3]
-    for w in sorted(set(words)):
+    song = bool(strings) and all(is_lyric(s.get("role", "")) for s in strings)
+    words = [] if song else [w.lower() for s in strings for w in _words(s.get("text", "")) if len(w) > 3]
+    for w in sorted(set(words)):          # a song repeats its refrain on purpose
         if words.count(w) >= 3:
             deck.append(_f("note", "repeat", f"'{w}' appears {words.count(w)} times",
                            "cut it, or keep the same word: rotating synonyms reads machine-made"))

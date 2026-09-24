@@ -7,18 +7,9 @@ allowed-tools: Bash(python3 ~/.claude/skills/codex-design/scripts/design.py:*), 
 # Codex Design
 
 Claude is the designer: the research, facts, idea, copy and art direction are Claude's. Two routes turn them into
-pixels. **Compose is the primary route.** In a blind comparison on 2026-09-24 (four deliverables, Codex and Claude
-judges, both orders), Compose won 3 of 4 deliverables and 17 of 24 votes, for the exact brand fonts, one alignment
-axis, restraint and an editable, photo-swappable source.
-
-- **Compose** (primary; `references/ai-visuals.md`, `templates/`): the design is HTML/CSS that `design.py` renders
-  and checks, over text-free AI plates, the client's photos and SVG. Exact by construction. The default for posts,
-  covers, banners, ads, carousels, print, brand work, series and templates, Bengali and other scripts, and anything
-  the client will later drop real photos into.
-- **Direct** (secondary; `references/direct.md`): the brief becomes a *dossier* and GPT Image makes the finished
-  design in one pass; every word is read back by OCR and repaired region by region, and the real logo is composited.
-  For type-as-image concepts (it won a story 4-0 with a giant "100% rye"), fast exploration, and as a challenger on
-  hero pieces: make both, ship the `pairwise` winner. A Direct run that still fails leaves Compose a text-free plate.
+pixels (§3). **Compose is the primary route.** In a blind comparison on 2026-09-24 (four deliverables, Codex and
+Claude judges, both orders), Compose won 3 of 4 deliverables and 17 of 24 votes, for the exact brand fonts, one
+alignment axis, restraint and an editable, photo-swappable source.
 
 Command prefix: `python3 ~/.claude/skills/codex-design/scripts/design.py` (every flag, check and exit code:
 `references/cli.md`). Visuals: `python3 ~/.claude/skills/codex-imagegen/scripts/codex_image.py`.
@@ -35,17 +26,42 @@ photos and illustrations; website UI belongs to the frontend skills.
 
 ## 1. Quick starts
 
+**Inputs, run times and waiting.** Read this before the first command.
+
+```json
+{"locale": "US", "platform": "instagram", "strings": [
+ {"role": "headline", "text": "The 36-hour loaf"},
+ {"role": "key_fact", "text": "Fresh at 7 am, every day"},
+ {"role": "cta", "text": "Order by 9 pm"},
+ {"role": "caption", "text": "Our sourdough rests for 36 hours before it bakes. Order by 9 pm for tomorrow."},
+ {"role": "alt", "text": "A sourdough loaf cooling on a wooden bench"}]}
+```
+
+- That is a whole copy.json. Every string must be on the design exactly once, except the roles that never go on it
+  (`caption`, `alt`, `alt_1` and on, `hashtags`, `video_title`) and a string marked `"on_image": false`. Give a
+  string in another language its `"lang"` (`"bn"`).
+- `--brief` takes a file by its absolute path (the working folder can change between commands) or the brief's text
+  in quotes. A path that does not exist stops the command; it is never judged as the brief.
+- Run times: `render` and `pack` 1 to 2 s; `judge` about 50 s a run (up to 2.5 min); `copyjudge` about 40 s (60 to 110 s for long Bengali copy or lyrics);
+  `--runs 3` about 100 s; `direct` 2 to 7 min. Start judge, copyjudge, pairwise and direct with Bash
+  `run_in_background` and keep working (plates, HTML) while they run: a foreground call can hit the Bash tool's
+  2 minute limit.
+- One run while iterating, three to confirm: judge a draft with one run, and the version you ship with `--runs 3`.
+  The same file, brief and settings reuse the saved verdict at no cost.
+- The judges and `render` print a short summary. The whole report is in the file named by `report` (or `qa_json`),
+  and `--json` prints it.
+
 **One feed post (any language).**
 1. `brief.md` + `copy.json` with `"locale"`, `"platform"`, the on-image strings, a caption and alt text (`copy.md`).
-2. `copylint --copy copy.json` (zero errors), then `copyjudge --copy copy.json --brief brief.md --goal order --runs 3`
-   (PASS_NATIVE for client work).
+2. `copylint --copy copy.json` (zero errors), then `copyjudge --copy copy.json --brief brief.md --goal order` while
+   drafting and `--runs 3` on the final copy (PASS_NATIVE for client work).
 3. `ledger --ledger clients/<client>/ledger.jsonl --client <client> --recipe recipe.json` (no `similar`).
 4. Plate: codex-imagegen `batch` with `--strict` and the text zone reserved; then
    `analyze --src plates/x.png --zone 0,0,100,40` (calm, or plan a scrim or panel).
 5. HTML from `templates/patterns/post-photo.html`; `render --html design/post.html --preset ig-portrait --copy
    copy.json --out out/post.png --overlay` until the checks are clean.
-6. `judge --image out/post.png --brief brief.md --copy copy.json --brand brand/brand.json --kind "Instagram post"
-   --runs 3`, fix, re-render, re-judge.
+6. `judge --image out/post.png --brief brief.md --copy copy.json --brand brand/brand.json --kind "Instagram post"`,
+   fix, re-render, re-judge; `--runs 3` on the final file.
 7. `deliver --design out/post.png --copy copy.json --out final/ --ledger … --recipe recipe.json --client <client>`.
 
 **A Bengali carousel.** The same, with `--slides 5` on `render`, the judge on `out/<name>-strip.jpg` (it judges
@@ -60,7 +76,7 @@ copy.json. `deliver --design out/<name>-strip.jpg` ships the five slides.
 
 1. **Brief.** Before designing, settle:
    - the deliverables and their presets (`presets --find WORDS`; §4); an unknown size, platform or kind of design
-     follows `formats.md` (below §4);
+     follows `formats.md`;
    - the one message, the audience and the action;
    - the market: place, language, script and calendar come from the client, never from the requester's language,
      location or clock; for day posts, the occasion's tone class and a verified date (`occasions.md`);
@@ -75,8 +91,7 @@ copy.json. `deliver --design out/<name>-strip.jpg` ships the five slides.
    competitors) and one fact-checker.
 2. **Copy (`copy.md`)**, before the design, in the reader's everyday language, written with the `natural-copy`
    skill (the audience's own words, the register, casual without fake casual):
-   - no em dash, no spaced en dash, no AI vocabulary or structures, no translated, calqued, poetic or bookish
-     wording, and no slang, emoji or feelings added to sound human;
+   - the copy rules under Non-negotiables (§5 below);
    - the market's register, address form, loanwords, spelling and digits;
    - three hooks from three patterns (`copy.md` §5), keep the one a stranger gets in two seconds;
    - one call to action that fits the goal, or none; the action fact (time, deadline, price) as `key_fact` on its
@@ -84,8 +99,8 @@ copy.json. `deliver --design out/<name>-strip.jpg` ships the five slides.
    - a caption and alt text for every social piece (roles `caption`, `alt`; they never go on the image).
 
    `copylint` must end with zero errors (`--lang` for a language the copy.json does not tag). `copyjudge`: PASS is
-   the floor, PASS_NATIVE the target for client and hero
-   work, with `--runs 3` (identical copy spanned 0.18 in six runs). When the runs disagree the report says to run 5.
+   the floor, PASS_NATIVE the target for client and hero work, confirmed with `--runs 3` (identical copy spanned 0.18
+   in six runs). When the runs disagree the report says to run 5.
    Take the judge's better rewrites; check a disputed local term against a local source. A native reader signs off
    non-Latin copy.
 3. **Direction contract (at most 150 words)**, given to the judge:
@@ -140,8 +155,8 @@ copy.json. `deliver --design out/<name>-strip.jpg` ships the five slides.
 
 | Route | When | How |
 |---|---|---|
-| **Compose** (primary) | the default for finals: posts, covers, banners, ads, carousels, print, brand work; dense text, data, charts, QR, legal lines; print with small text; the exact brand font; series, templates and multi-size sets that must match; editable source; Bengali, Hindi and other scripts OCR cannot read; beyond 3:1; Direct exit 4 (use its plate) | text-free AI plates, cut-outs and SVG + HTML type |
-| **Direct** (secondary: type-as-image concepts, exploration, challenger) | one canvas between 1:3 and 3:1; at most 8 strings and about 150 characters, each at most 12 words; a few numbers at most; scripts OCR reads (Latin, Cyrillic, Greek, Arabic, CJK); type and picture working together (thumbnails, stories, campaign heroes). On brand-strict finals blind pairwise preferred Compose, so for hero and client finals make both and ship the pairwise winner | dossier, then `direct` (compiled prompt + brand sheet + wireframe + client references, candidates, OCR + a second reader, region repairs, the real logo, judge, one revision) |
+| **Compose** (primary; `ai-visuals.md`, `templates/`) | the default for finals: posts, covers, banners, ads, carousels, print, brand work; dense text, data, charts, QR, legal lines; print with small text; the exact brand font; series, templates and multi-size sets that must match; editable source, and designs the client will later drop real photos into; Bengali, Hindi and other scripts OCR cannot read; beyond 3:1; Direct exit 4 (use its plate) | text-free AI plates, the client's photos, cut-outs and SVG + HTML type that `design.py` renders and checks: exact by construction |
+| **Direct** (secondary: type-as-image concepts, fast exploration, challenger; `direct.md`) | one canvas between 1:3 and 3:1; at most 8 strings and about 150 characters, each at most 12 words; a few numbers at most; scripts OCR reads (Latin, Cyrillic, Greek, Arabic, CJK); type and picture working together (thumbnails, stories, campaign heroes; it won a story 4-0 with a giant "100% rye"). On brand-strict finals blind pairwise preferred Compose, so for hero and client finals make both and ship the pairwise winner | the brief becomes a dossier, then `direct` (compiled prompt + brand sheet + wireframe + client references, candidates, every word read back by OCR + a second reader, region repairs, the real logo composited, judge, one revision); a run that still fails leaves Compose a text-free plate |
 | **Hybrid** | a Direct design that also carries exact small print (addresses, hours, prices, legal lines) or a script OCR cannot read | in the dossier, `"route": "typeset"` with a `"zone"`: the model keeps the area calm and `direct` sets the string in HTML with the brand's fonts |
 | **Edit** | a client photo stays the hero (image to banner or social) | `analyze`, `reframe`/`cutout`, HTML type, `pack`; the subject is never regenerated |
 
@@ -179,24 +194,12 @@ Bengali, Devanagari and Arabic at 12 px or more at viewing size (about 42 px on 
 subtitle). Every row has a starting pattern in `templates/README.md`, and the brand book is
 `templates/brand/guidelines.html`.
 
-**Unknown size, platform or kind of design** (`references/formats.md`):
-1. `presets --find` the client's own words (Banglish and Bangla work: "biye card", "visiting card", "boi er
-   prochchhod") and read the preset's notes; a retired format names its replacement (a "YouTube story" becomes
-   `yt-shorts-frame` or `yt-post`: say so).
-2. No preset: climb the spec ladder (the platform's page, the printer's template, the client's past files, a
-   measurement of the live surface) and record the spec as a project preset (`--preset-file`), with source and date.
-3. No spec in time: `render --size WxH` with what is known (`--safe`, `--keepout`, `--view-width`, or
-   `--view-distance` for signs and screens across a room, with `--legibility-index 30` for a road and `--file-scale`
-   for a billboard file built at a scale); whatever is missing is assumed, stated in the report and in the delivery
-   note, and told to the client. `presets --nearest WxH` lends the closest preset's zones.
-4. An unfamiliar kind of design maps by its job (announce, sell, teach, invite, celebrate, brand, recruit, fundraise,
-   compare, warn, direct, entertain) to an anatomy and the closest pattern (`formats.md` §4).
+**Unknown size, platform or kind of design:** `presets --find` the client's own words first (a retired format names
+its replacement: say so), then follow `formats.md`: the spec ladder, a project preset with its source, `render --size`
+with every assumption stated to the client, `presets --nearest`, and the twelve archetypes by job.
 
-Video and motion: anything delivered as a video (animated posts, reels, stories, intros, HyperFrames or Remotion
-renders) goes through the `agy-watch-video` skill before delivery: `qa VIDEO --platform reels --strict` (black and
-frozen frames, flicker, loudness, specs, safe zones; exit 2 on a failure), then `watch VIDEO --goal motion --expect
-copy.txt` (the approved on-screen lines, each found or not) and `verify` for any finding before you act on it. To
-study a reference or competitor video, use `watch VIDEO --goal promo`.
+**Video and motion:** anything delivered as a video goes through the `agy-watch-video` skill's QA before delivery
+(`genres.md` §28).
 
 ## 5. Non-negotiables
 
@@ -205,8 +208,9 @@ study a reference or competitor video, use `watch VIDEO --goal promo`.
   Direct route, none in plates. Bengali, Devanagari and Arabic are typeset with proper fonts and `lang`, never
   letter-spaced, and read by a native reader.
 - **Copy reads human** (`copy.md`): no em dash or spaced en dash anywhere, in any language, even when the client's
-  draft has one (propose the dash-free line); no AI or template vocabulary; no translated, calqued, bookish or sadhu
-  wording; one call to action; the price printed, not hidden behind "inbox".
+  draft has one (propose the dash-free line); no AI or template vocabulary or structures; no translated, calqued,
+  poetic, bookish or sadhu wording; no slang, emoji or feelings added to sound human; one call to action; the price
+  printed, not hidden behind "inbox".
 - **Craft floor:** clean checks; contrast measured on real pixels; text and logos inside safe zones and off keep-outs,
   seams and folds; logos with their clear space (the mark-to-wordmark gap too), on a calm ground or a plate, reversed
   on dark grounds, never recoloured with a filter; 1-2 families, 3-4 sizes; no AI or template tells (`craft.md` §7).
@@ -222,23 +226,13 @@ study a reference or competitor video, use `watch VIDEO --goal promo`.
   replace; generated people are never presented as real staff or customers; report a judge's verdict as it came,
   including a FAIL.
 
-## 6. Core commands
+## 6. More commands
+
+The quick starts and the workflow show the everyday commands; these cover the rest.
 
 ```bash
-python3 ~/.claude/skills/codex-design/scripts/design.py doctor
-python3 ~/.claude/skills/codex-design/scripts/design.py copylint --copy design/copy.json --brand brand/brand.json
-python3 ~/.claude/skills/codex-design/scripts/design.py copyjudge --copy design/copy.json --brief design/brief.md --goal order --runs 3
-python3 ~/.claude/skills/codex-design/scripts/design.py ledger --ledger clients/acme/ledger.jsonl --client acme --recipe design/recipe.json
-python3 ~/.claude/skills/codex-design/scripts/design.py brand --json brand/brand.json
-python3 ~/.claude/skills/codex-design/scripts/design.py analyze --src plates/post.png --zone 0,0,100,40
-python3 ~/.claude/skills/codex-design/scripts/design.py render --html design/post.html --preset ig-portrait --out out/post.png --overlay --copy design/copy.json
-python3 ~/.claude/skills/codex-design/scripts/design.py pack --html design/post.html --presets ig-portrait,ig-square,ig-story,fb-feed --out-dir out --copy design/copy.json --strict
-python3 ~/.claude/skills/codex-design/scripts/design.py render --html design/carousel.html --preset ig-carousel --slides 6 --out out/carousel.png --copy design/copy.json
 python3 ~/.claude/skills/codex-design/scripts/design.py render --html design/flyer.html --preset a5-flyer --out out/flyer.pdf --preview
-python3 ~/.claude/skills/codex-design/scripts/design.py judge --image out/post.png --brief design/brief.md --copy design/copy.json --brand brand/brand.json --kind "Instagram feed post" --runs 3
-python3 ~/.claude/skills/codex-design/scripts/design.py deliver --design out/post.png --copy design/copy.json --out final --ledger clients/acme/ledger.jsonl --recipe design/recipe.json --client acme
 python3 ~/.claude/skills/codex-design/scripts/design.py direct --dossier dossiers/post.json --plan
-python3 ~/.claude/skills/codex-design/scripts/design.py direct --dossier dossiers/post.json --judge
 python3 ~/.claude/skills/codex-design/scripts/design.py verify --image out/post.png --copy design/copy.json --preset ig-portrait
 python3 ~/.claude/skills/codex-design/scripts/design.py patch --image out/post.png --extra --copy design/copy.json --instruction "remove the text; continue the background"
 python3 ~/.claude/skills/codex-design/scripts/design.py reframe --src client/photo.jpg --presets ig-portrait,ig-story,fb-cover --out-dir out/reframed
@@ -252,27 +246,15 @@ python3 ~/.claude/skills/codex-design/scripts/design.py render --html design/cov
 
 ## 7. References
 
-- `references/cli.md`: every command, flag, exit code, page variable, kit class, check, judge field, the ledger and
-  delivery files, troubleshooting.
-- `references/copy.md`: copy that reads human: house rules, AI tells, natural Bangladeshi Bengali (register,
-  code-mixing, formal to everyday, calques, Bangladesh vs West Bengal, spelling, digits), transcreation for 12
-  languages, hooks, CTAs, captions and platform limits, the copy loop and judge variance, brand voice, accessibility.
-  The voice craft is the `natural-copy` skill; its lint rules (932, 24 languages) are `scripts/voice_rules.json`,
-  built from `references/research/voice-data/`.
-- `references/craft.md`: type floors at display size, the type system, scripts, layout, colour, images in designs,
-  template tells to avoid, the ten composition devices, lessons the judges enforced, critique tests, the pre-export
-  checklist.
-- `references/fonts.md`: pairings by mood; Latin + Bengali, Arabic, Devanagari and CJK tables with size-adjust and
-  line-height.
-- `references/direct.md`: the Direct route: when, engines, the multi-agent workflow, the dossier, recipes and the
-  ledger, type-and-image devices, verification and repairs.
-- `references/ai-visuals.md`: plates for Compose (reserved zones, `--strict`, `analyze --zone`), text budget tiers,
-  edits, failures.
-- `references/formats.md`: the catalogue by family and the common requests; what to do for an unknown size or
-  platform (the spec ladder, stated assumptions, screens and print from first principles, the four questions) or an
-  unknown kind of design (twelve archetypes); one master into many sizes.
-- `references/genres.md`, `styles.md`, `brand.md`, `occasions.md`: playbooks per deliverable, ten style directions,
-  brand kits and the book, day posts and legal.
+- `references/cli.md`: every command, flag, exit code, check and report field, the run times, a copy.json example.
+- `references/copy.md`: copy that reads human, natural Bangladeshi Bengali, 12 languages, hooks, CTAs and captions;
+  the lint's 932 voice rules are `scripts/voice_rules.json`, built from `references/research/voice-data/`.
+- `references/craft.md`: type, layout and colour floors, template tells, the ten devices, critique tests, checklist.
+- `references/fonts.md`: pairings by mood; Latin with Bengali, Arabic, Devanagari and CJK, with size-adjust.
+- `references/direct.md`: the Direct route: the dossier, engines, repairs and the ledger.
+- `references/ai-visuals.md`: plates for Compose: reserved zones, `--strict`, `analyze --zone`, edits.
+- `references/formats.md`: the 526 presets by family, and any unknown size, platform or kind of design.
+- `references/genres.md`, `styles.md`, `brand.md`, `occasions.md`: playbooks and video QA, styles, brand kits, day posts.
 - `references/research/`: the research notes behind these rules (R1 to R11 and the copy research), as evidence.
 - `templates/README.md`: the pattern library and the brand-book template.
 - `tests/`: `python3 -m unittest discover -s ~/.claude/skills/codex-design/tests` after every change; add

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026.09.24.5
+
+- **Time limits by kind of call.** Every agy call used to wait up to 17 minutes before failing over. Each kind now has
+  its own limit, about three times the slowest measured: 900 s for a proxy video, 600 s for audio, 420 s for frames,
+  360 s for the review and 240 s for other text-only calls (`AWV_CALL_TIMEOUT` overrides). A stuck call reaches the
+  sibling model in minutes.
+- **The cache keeps across releases.** Cached probes, measurements and passes are keyed by their own version, which
+  changes only when what they return changes, so this release reuses every analysis already made.
+- **Tests.** 98 offline tests.
+
 ## 2026.09.24.4
 
 What models miss between frames and on thin things, now measured instead of hoped for.

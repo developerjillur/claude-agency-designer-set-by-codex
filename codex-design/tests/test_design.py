@@ -171,6 +171,76 @@ class Units(unittest.TestCase):
         self.assertEqual(d._copy_verdict({"scores": dict(good, hook=2), "strings": ok}, 0)[0], "REVISE")
         self.assertEqual(d._copy_verdict({"scores": good, "strings": [{"natural": 1}]}, 0)[0], "FAIL")
 
+    def test_lyric_verdict_bands(self):
+        good = {k: 4 for k in d.LYRIC_CRITERIA}
+        ok = [{"natural": 4}]
+        self.assertEqual(d._lyric_verdict({"scores": dict(good, song_language=5, genre_fit=5, singability=5,
+                                                          imagery=5), "strings": ok}, 0)[0], "PASS_NATIVE")
+        self.assertEqual(d._lyric_verdict({"scores": good, "strings": ok}, 0)[0], "PASS")
+        self.assertEqual(d._lyric_verdict({"scores": good, "strings": ok}, 1)[0], "FAIL")     # a dash
+        self.assertEqual(d._lyric_verdict({"scores": dict(good, song_language=2), "strings": ok}, 0)[0], "FAIL")
+        self.assertEqual(d._lyric_verdict({"scores": dict(good, singability=2), "strings": ok}, 0)[0], "REVISE")
+
+    def test_lyrics_keep_the_hard_checks_and_drop_the_post_rules(self):
+        """Found in use: the post rules pushed a song towards chat (even lines and a refrain read as faults)."""
+        song = "আহা, কী আলো আজ।\nউফ, কী রাত আজ।\nতুমি এলে আজ।\nতুমি এলে ঘরে।\nতুমি এলে পথে।\nতুমি এলে মনে।"
+        post = {f["code"] for f in d.copyrules.lint_string(song, "body", "BD")}
+        lyric = {f["code"] for f in d.copyrules.lint_string(song, "antara 1", "BD")}
+        self.assertTrue(post & {"flat-rhythm", "same-openers", "bn-reactions"})
+        self.assertFalse(lyric & {"flat-rhythm", "same-openers", "bn-reactions", "staccato"})
+        dash = d.copyrules.lint_string("তুমি \u2014 আমি", "lyric", "BD")
+        self.assertIn(("error", "em-dash"), [(f["severity"], f["code"]) for f in dash])
+        deck = d.copyrules.lint_deck([{"role": "mukhra", "text": song}, {"role": "antara", "text": song}], "BD")
+        self.assertEqual([f["code"] for f in deck["deck"]], [])                # the refrain repeats on purpose
+
+    def test_inline_brief_is_text_not_a_path(self):
+        """Found in use: a long --brief given inline crashed with 'File name too long', and a mistyped path was judged
+        as if it were the brief."""
+        long_brief = "Reply from the developer to a client who asked why no emails went out. " * 12
+        self.assertEqual(d.text_or_file(long_brief), long_brief)
+        bn = "ধানমন্ডির নতুন বেকারি থেকে প্রতিদিন সকালে টাটকা সাওয়ারডো রুটি, অর্ডার করুন রাত নয়টার মধ্যে, পিকআপ পরদিন সকালে"
+        self.assertGreater(len(bn.encode("utf-8")), 255)                 # longer than a file name may be
+        self.assertEqual(d.text_or_file(bn), bn)
+        self.assertEqual(d.text_or_file("Bakery open 24/7 in Dhanmondi"), "Bakery open 24/7 in Dhanmondi")
+        with tempfile.TemporaryDirectory() as t:
+            f = Path(t) / "brief.md"
+            f.write_text("from a file", encoding="utf-8")
+            self.assertEqual(d.text_or_file(str(f)), "from a file")
+        for missing in ("no such file.md", "design/brief", "./brief"):
+            err = io.StringIO()
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(err):
+                d.text_or_file(missing)
+            self.assertIn(f"brief file not found: {missing} (working folder: ", err.getvalue())
+
+    def test_copyjudge_judges_songs_as_songs(self):
+        tmp = Path(tempfile.mkdtemp(prefix="cd-song-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        song = tmp / "song.txt"
+        song.write_text("আহা, কী জ্যোতি,\nকত তৃপ্তি,\nতোমাকে দেখি।", encoding="utf-8")
+        seen = {}
+
+        def fake(ci, prompt, images, schema, effort, timeout, who, required):
+            seen.update(prompt=prompt, schema=schema, who=who)
+            return {"reader": "r", "first_read": "f", "scores": {k: 4 for k in d.LYRIC_CRITERIA}, "ai_tells": [],
+                    "strings": [{"role": "lyric", "text": "x", "natural": 4, "problem": "", "rewrite": ""}],
+                    "hooks": ["আহা, কী জ্যোতি"], "notes": []}
+        old = d._imagegen, d._codex_json
+        d._imagegen, d._codex_json = (lambda: object()), fake
+        try:
+            ns = argparse.Namespace(copy=None, caption=str(song), text=None, role="lyric", lang=None,
+                                    brief="A love song for a Bangladeshi band, verse and chorus. " * 30, locale="BD",
+                                    platform=None, goal=None, reader=None, brand=None, effort="high", runs=1,
+                                    timeout=60, fresh=True)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                d.cmd_copyjudge(ns)
+        finally:
+            d._imagegen, d._codex_json = old
+        res = json.loads(out.getvalue())
+        self.assertIn("senior lyricist", seen["prompt"])
+        self.assertIs(seen["schema"], d.LYRIC_SCHEMA)
+        self.assertEqual((res["verdict"], res["settings"]["mode"]), ("PASS", "lyric"))
+        self.assertNotIn("cta", res)
+
     def test_lengths_and_canvases(self):
         self.assertAlmostEqual(d.parse_len("25.4mm"), 96, places=3)
         self.assertEqual(d.parse_len("2in"), 192)
@@ -1442,6 +1512,341 @@ class Production(unittest.TestCase):
         self.assertEqual(d.ledger_check(d.recipe_dossier(recipe, "tok", "new"), entries), [])
 
 
+def judge_answer(score: int = 4) -> dict:
+    """A design-judge answer that honours DESIGN_SCHEMA (what a Codex session writes)."""
+    return {"two_second_read": "t", "reading_flow": "r", "text_read": ["The 36-hour loaf"],
+            "gates": dict.fromkeys(d.DESIGN_GATES, "PASS"), "gate_evidence": [],
+            "scores": dict.fromkeys(d.DESIGN_CRITERIA, score), "ai_tells": [],
+            "findings": [{"severity": "P1", "element": "headline", "before": "64 px", "after": "72 px", "why": "w"}],
+            "fixes": ["raise the headline to 72 px"], "keep": ["the photo"], "disposition": "fix", "summary": "s"}
+
+
+def copy_answer() -> dict:
+    return {"reader": "r", "first_read": "f", "scores": dict.fromkeys(d.COPY_CRITERIA, 4), "ai_tells": [],
+            "strings": [{"role": "headline", "text": "Fresh at 7", "natural": 4, "problem": "", "rewrite": ""}],
+            "hooks": ["Fresh at 7"], "cta": "Order now", "notes": []}
+
+
+class SpeedAndReliability(unittest.TestCase):
+    """What the speed and reliability audit (2026-09-24) found: arguments that crashed or misled, one failed judge run
+    that threw the others away, timeouts far above the measured times, sessions that outlived a stop, outputs that
+    flooded the context, and second readers that ran one after another. No test starts a real Codex session."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    @contextlib.contextmanager
+    def fake_codex(self, answer):
+        """Stand in for the Codex judges: `answer` gets _codex_json's arguments and returns the model's JSON."""
+        old = d._imagegen, d._codex_json
+        d._imagegen, d._codex_json = (lambda: object()), answer
+        try:
+            yield
+        finally:
+            d._imagegen, d._codex_json = old
+
+    def judge_args(self, img, **kw) -> argparse.Namespace:
+        ns = dict(image=str(img), brief=None, copy=None, allow=None, brand=None, plate_meta=None, force=False, qa=None,
+                  kind="social post", canvas=None, print=False, route="hybrid", effort="low", runs=1, timeout=30,
+                  fresh=True, json=False)
+        return argparse.Namespace(**dict(ns, **kw))
+
+    @unittest.skipUnless(HAVE_PIL, "needs Pillow")
+    def test_a_long_brief_keeps_the_approved_copy_in_the_judge_prompt(self):
+        img = self.tmp / "post.png"
+        Image.new("RGB", (1080, 1350), (240, 236, 228)).save(img)
+        copy = self.tmp / "copy.json"
+        copy.write_text(json.dumps({"strings": [{"role": "headline", "text": "The 36-hour loaf"}]}))
+        seen = {}
+
+        def answer(ci, prompt, images, schema, effort, timeout, who, required):
+            seen["prompt"] = prompt
+            return judge_answer()
+        with self.fake_codex(answer), contextlib.redirect_stdout(io.StringIO()) as out:
+            d.cmd_judge(self.judge_args(img, brief="Tidewater launch post for the new loaf. " * 300, copy=str(copy)))
+        self.assertIn("[the brief is cut here]", seen["prompt"])
+        self.assertIn('"The 36-hour loaf"', seen["prompt"])            # was cut off with the brief at 9,000 characters
+        self.assertEqual(json.loads(out.getvalue())["report"], str(self.tmp / "post.judge.json"))
+
+    def test_caption_may_be_text_or_a_file(self):
+        ns = argparse.Namespace(copy=None, caption="Fresh sourdough every morning at our Dhanmondi shop", text=None,
+                                role=None, lang=None, locale="", platform="", brand=None, strict=False, json=False)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            d.cmd_copylint(ns)                                          # was: FileNotFoundError
+        self.assertIn('"strings": 1', out.getvalue())
+        self.assertEqual(d.copy_report_base(ns), Path("copy"))         # an inline caption's verdict: copy.copyjudge.json
+        f = self.tmp / "post.txt"
+        f.write_text("Fresh bread at 7", encoding="utf-8")
+        ns.caption = str(f)
+        self.assertEqual(d.copy_report_base(ns), f)
+        self.assertEqual(d._copy_strings(ns)[0]["text"], "Fresh bread at 7")
+
+    def test_one_failed_judge_run_keeps_the_others(self):
+        def fn(i):
+            if i == 1:
+                raise d.RunFailed("design judge returned nothing: stream disconnected before completion")
+            return {"run": i}
+        runs, failed = d._runs(3, fn, "design judge")
+        self.assertEqual(runs, [{"run": 0}, {"run": 2}])
+        self.assertEqual(failed, [{"run": 2, "error": "design judge returned nothing: stream disconnected before "
+                                                      "completion"}])
+
+        def limit(i):
+            if i:
+                raise d.RunFailed("design judge returned nothing: ERROR: You've hit your usage limit")
+            return {"run": i}
+        err = io.StringIO()
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stderr(err):
+            d._runs(3, limit, "design judge")
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("only 1 of 3 design judge runs answered (2 needed)", err.getvalue())
+        self.assertIn("usage limit", err.getvalue())                    # Codex's own reason
+        # the copy judge keeps the answers it got and says which run failed
+        import threading
+        calls, lock = [], threading.Lock()
+
+        def flaky(*args):
+            with lock:
+                calls.append(1)
+                first = len(calls) == 1
+            if first:
+                raise d.RunFailed("copy judge returned nothing: timed out after 120 s")
+            return copy_answer()
+        c = self.tmp / "post.copy.json"
+        c.write_text(json.dumps({"strings": [{"role": "headline", "text": "Fresh at 7"}]}))
+        ns = argparse.Namespace(copy=str(c), caption=None, text=None, role=None, lang=None, brief="A bakery post",
+                                locale="US", platform=None, goal=None, reader=None, brand=None, effort="low", runs=3,
+                                timeout=30, fresh=True, json=False)
+        with self.fake_codex(flaky), contextlib.redirect_stdout(io.StringIO()) as out:
+            d.cmd_copyjudge(ns)
+        shown = json.loads(out.getvalue())
+        self.assertEqual(len(shown["runs"]), 2)
+        self.assertEqual(shown["runs_failed"][0]["error"], "copy judge returned nothing: timed out after 120 s")
+        saved = json.loads((self.tmp / "post.copyjudge.json").read_text())
+        self.assertEqual(saved["runs_failed"], shown["runs_failed"])
+
+    def test_judge_timeouts_are_short_and_the_direct_route_waits_for_its_children(self):
+        ap = d.build_parser()
+
+        def timeout(*argv):
+            return ap.parse_args(list(argv)).timeout
+        self.assertEqual(timeout("judge", "--image", "x.png"), 240)
+        self.assertEqual(timeout("copyjudge", "--text", "x"), 150)   # long Bengali copy and lyrics take up to 110 s
+        self.assertEqual(timeout("pairwise", "--a", "a.png", "--b", "b.png"), 300)
+        self.assertEqual(timeout("direct", "--dossier", "d.json"), 240)
+        self.assertEqual(timeout("patch", "--image", "x.png", "--instruction", "x"), 240)
+        self.assertEqual(d.child_budget(240), 600)          # two sessions and start-up, above the child's own limit
+        seen = {}
+
+        def run(cmd, prompt, timeout, env=None):
+            seen.update(cmd=cmd, timeout=timeout)
+            return {"stdout": "", "stderr": "codex-design: the judge had no answer", "returncode": 1, "error": None}
+        old, d.run_session = d.run_session, run
+        try:
+            ctx = {"c": {"label": "Instagram", "id": "ig-portrait", "print": False}, "dos": {}, "run": self.tmp,
+                   "fr": {"final_px": (1080, 1350)}, "allow_final": []}
+            res = d.direct_judge(self.tmp / "final.png", ctx, argparse.Namespace(timeout=240))
+        finally:
+            d.run_session = old
+        self.assertEqual(seen["cmd"][seen["cmd"].index("--timeout") + 1], "240")   # the inner judge's own timeout
+        self.assertEqual(seen["timeout"], 600)                                    # was 900 around a 2 x 480 s judge
+        self.assertEqual(res, {"error": "codex-design: the judge had no answer"})
+
+    @unittest.skipUnless(HAVE_PIL and hasattr(os, "killpg"), "needs Pillow and POSIX process groups")
+    def test_a_stop_signal_ends_every_running_judge_session(self):
+        import signal
+        import subprocess
+        import time
+        fake = self.tmp / "codex"
+        fake.write_text("#!/usr/bin/env python3\nimport os, sys, time\nsys.stdin.read()\n"
+                        "open(os.environ['PIDS'], 'a').write(str(os.getpid()) + '\\n')\ntime.sleep(30)\n")
+        fake.chmod(0o755)
+        ci = self.tmp / "codex_image.py"
+        ci.write_text("import os\nLEAN_FLAGS = []\n\n\ndef codex_bin():\n    return os.environ['FAKE_CODEX']\n\n\n"
+                      "def codex_env():\n    return dict(os.environ)\n")
+        img = self.tmp / "post.png"
+        Image.new("RGB", (400, 500), (240, 236, 228)).save(img)
+        pids = self.tmp / "pids.txt"
+        env = dict(os.environ, CODEX_IMAGEGEN_SCRIPT=str(ci), FAKE_CODEX=str(fake), PIDS=str(pids))
+        p = subprocess.Popen([sys.executable, str(SCRIPT), "judge", "--image", str(img), "--brief", "a post",
+                              "--runs", "3", "--fresh"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                             text=True)
+        deadline = time.time() + 30
+        while time.time() < deadline and (not pids.exists() or len(pids.read_text().split()) < 3):
+            time.sleep(0.1)
+        self.assertEqual(len(pids.read_text().split()), 3)
+        t0 = time.time()
+        p.send_signal(signal.SIGTERM)
+        p.wait(timeout=20)
+        self.assertEqual(p.returncode, 143)
+        self.assertLess(time.time() - t0, 8)             # was: until every session ended by itself (17 s in the audit)
+        self.assertIn("ended 3 running session(s)", p.stderr.read())
+        p.stderr.close()
+        for pid in map(int, pids.read_text().split()):
+            with self.assertRaises(ProcessLookupError):
+                os.kill(pid, 0)
+
+    def test_pairwise_says_why_when_the_votes_fail(self):
+        a, b = self.tmp / "a.png", self.tmp / "b.png"
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+        ns = argparse.Namespace(a=str(a), b=str(b), a_name=None, b_name=None, brief=None, copy=None,
+                                kind="social post", effort="low", out=None, timeout=30)
+
+        def limit(*args):
+            raise d.RunFailed("pairwise vote returned nothing: ERROR: You've hit your usage limit")
+        err = io.StringIO()
+        with self.fake_codex(limit), self.assertRaises(SystemExit) as cm, contextlib.redirect_stderr(err):
+            d.cmd_pairwise(ns)                                          # was: "winner": "tie", exit 0
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("only 0 of 2 votes answered", err.getvalue())
+        self.assertIn("usage limit", err.getvalue())
+        vote = {"send_to_client": "1", "looks_human_designed": "1", "text_problems_1": [], "text_problems_2": [],
+                "ai_tells_1": [], "ai_tells_2": [], "reasons": []}
+        with self.fake_codex(lambda *args: dict(vote)), contextlib.redirect_stdout(io.StringIO()) as out:
+            d.cmd_pairwise(ns)                                          # no reasons: was an IndexError
+        self.assertEqual(json.loads(out.getvalue())["reasons"], ["", ""])
+
+    @unittest.skipUnless(HAVE_PIL, "needs Pillow")
+    def test_an_edit_that_times_out_fails_in_one_line_and_only_its_repair(self):
+        img = self.tmp / "design.png"
+        Image.new("RGB", (800, 600), (200, 200, 200)).save(img)
+
+        def run(cmd, prompt, timeout, env=None):
+            return {"stdout": "", "stderr": "", "returncode": -15, "error": f"timed out after {timeout:g} s"}
+        old, d.run_session = d.run_session, run
+        try:
+            with self.assertRaises(d.RunFailed) as cm:
+                d.patch_image(img, [[10, 10, 200, 80]], "remove the text; continue the background", timeout=30)
+            rep = {"ok": False, "errors": ["text nobody approved: 'SALE'"], "warnings": [], "copy": [],
+                   "extra": [{"text": "SALE", "box": [10, 10, 190, 70]}]}
+            args = argparse.Namespace(repair_rounds=1, engine_used="codex", model="m", quality="high", timeout=30)
+            path, best, history = d.direct_repair(img, rep, [], [], None, args, self.tmp)
+        finally:
+            d.run_session = old
+        msg = str(cm.exception)
+        self.assertEqual(msg, "the image edit timed out after 180 s: try again, or raise --timeout")  # no prompt dump
+        self.assertEqual(path, img)                                     # the run goes on without this repair
+        self.assertIn("timed out after 180 s", history[0]["error"])
+
+    def test_long_outputs_are_short_by_default(self):
+        ns = argparse.Namespace(id=None, find=None, nearest=None, group=None, json=False)
+        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+            d.cmd_presets(ns)
+        lines = out.getvalue().splitlines()
+        self.assertEqual(len(lines), len(d.presets()))
+        self.assertIn(lines[0].split()[0], d.presets())
+        self.assertLess(len(out.getvalue()), 40000)                     # was 361 KB of JSON
+        ns.json = True
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            d.cmd_presets(ns)
+        self.assertEqual(len(json.loads(out.getvalue())), len(d.presets()))
+        full = dict(judge_answer(), verdict="REVISE", weighted=3.2, text_read=["x"] * 40,
+                    gates=dict.fromkeys(d.DESIGN_GATES, "PASS") | {"legibility": "FAIL"},
+                    gate_evidence=["the CTA is 9 px at phone size"])
+        s = d.judge_summary(full, Path("post.judge.json"))
+        self.assertEqual((s["verdict"], s["gates_failed"], s["fixes"]), ("REVISE", ["legibility"], full["fixes"]))
+        self.assertEqual(s["findings"], ["P1 headline: 72 px"])
+        self.assertNotIn("text_read", s)
+        self.assertEqual(s["report"], "post.judge.json")
+        cj = dict(copy_answer(), verdict="PASS", weighted=3.9, first_read="long " * 200,
+                  settings={"mode": "copy", "reader": "r " * 50, "runs": 1}, deck_sha256="x", cache_key="y",
+                  lint={"errors": 0, "warnings": 1, "found": ["w"] * 30},
+                  strings=[{"role": "headline", "text": "Fresh at 7", "natural": 3, "problem": "stiff",
+                            "rewrite": "Fresh at seven"},
+                           {"role": "cta", "text": "Order", "natural": 5, "problem": "", "rewrite": ""}])
+        s = d.copy_summary(cj, Path("post.copyjudge.json"))
+        self.assertEqual(s["strings"][0]["rewrite"], "Fresh at seven")
+        self.assertEqual(s["strings"][1], {"role": "cta", "natural": 5})
+        self.assertNotIn("first_read", s)
+        self.assertEqual(s["settings"], {"mode": "copy", "runs": 1})
+        html = self.tmp / "p.html"
+        html.write_text("<html></html>", encoding="utf-8")
+        err = io.StringIO()
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(err):
+            d.cmd_pack(argparse.Namespace(html=str(html), presets="ig-portrait,instagram-post",
+                                          out_dir=str(self.tmp / "o")))
+        self.assertIn("unknown preset 'instagram-post'; did you mean ig-portrait", err.getvalue())
+
+    @unittest.skipUnless(HAVE_PIL, "needs Pillow")
+    def test_reframe_names_a_misspelled_preset_and_prints_at_print_resolution(self):
+        p = self.tmp / "photo.jpg"
+        Image.new("RGB", (1122, 1402), (120, 140, 160)).save(p)
+
+        def ns(presets):
+            return argparse.Namespace(src=str(p), presets=presets, out_dir=str(self.tmp / "o"), name=None,
+                                      focus="0.5,0.5", format="jpg")
+        err = io.StringIO()
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(err):
+            d.cmd_reframe(ns("ig-portrait,instagram-post"))             # was: "bad --size 'instagram-post'"
+        self.assertIn("unknown preset 'instagram-post'; did you mean", err.getvalue())
+        self.assertFalse((self.tmp / "o").exists())                     # nothing written before the names are checked
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            d.cmd_reframe(ns("a5-flyer"))
+        o = json.loads(out.getvalue())["outputs"][0]
+        self.assertEqual((o["ppi"], o["upscale"]), (165, 1.0))          # was 582 px wide (96 ppi) with no word
+        self.assertEqual(size_of(o["out"]), tuple(o["size"]))
+        self.assertTrue(any("prints at 165 ppi" in w for w in o["warnings"]))
+        with Image.open(o["out"]) as im:
+            self.assertEqual(round(im.info["dpi"][0]), 165)
+        big = self.tmp / "big.jpg"
+        Image.new("RGB", (2400, 3000), (120, 140, 160)).save(big)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            d.cmd_reframe(argparse.Namespace(src=str(big), presets="a5-flyer", out_dir=str(self.tmp / "o"), name=None,
+                                             focus="0.5,0.5", format="jpg"))
+        o = json.loads(out.getvalue())["outputs"][0]
+        self.assertEqual((o["ppi"], o["warnings"]), (300, []))          # the preset's 300 ppi, from a larger photo
+
+    @unittest.skipUnless(HAVE_PIL, "needs Pillow")
+    def test_second_readers_run_side_by_side(self):
+        import threading
+        import time
+        img = self.tmp / "cand.png"
+        Image.new("RGB", (900, 600), (250, 250, 250)).save(img)
+        texts = ["Fresh at 7", "Order by 9 pm", "Dhanmondi"]
+        rep = {"ok": False, "errors": [], "warnings": [f"OCR is unsure: '{t}'" for t in texts],
+               "copy": [{"text": t, "status": "ambiguous", "read": t, "boxes": [[40, 40 + 150 * i, 400, 60]]}
+                        for i, t in enumerate(texts)]}
+        live, peak, lock = [0], [0], threading.Lock()
+
+        def read(path, timeout=300):
+            with lock:
+                live[0] += 1
+                peak[0] = max(peak[0], live[0])
+            time.sleep(0.3)
+            with lock:
+                live[0] -= 1
+            return list(texts)
+        old, d.blind_read = d.blind_read, read
+        try:
+            t0 = time.time()
+            out = d.resolve_ambiguous(img, rep)
+            took = time.time() - t0
+        finally:
+            d.blind_read = old
+        self.assertEqual(peak[0], 3)                                    # was one after another
+        self.assertLess(took, 0.8)
+        self.assertEqual([r["status"] for r in out["copy"]], ["confirmed"] * 3)
+        self.assertTrue(out["ok"])
+
+    def test_the_docs_give_a_copy_json_that_loads_and_the_run_times(self):
+        import re
+        root = SCRIPT.parent.parent
+        for name in ("SKILL.md", "references/cli.md"):
+            text = (root / name).read_text(encoding="utf-8")
+            block = re.search(r"```json\n\s*(\{\"locale\".*?)\n\s*```", text, re.S)
+            self.assertTrue(block, name)
+            f = self.tmp / "copy.json"
+            f.write_text(block.group(1), encoding="utf-8")
+            self.assertTrue(d.load_copy(f), name)
+            self.assertIn("about 50 s", text, name)
+            self.assertNotIn("\u2014", text, name)                      # the house rule: no em dash
+        self.assertIn("run_in_background", (root / "SKILL.md").read_text(encoding="utf-8"))
+
+
 @unittest.skipUnless(HAVE_CHROME and HAVE_PIL, "needs Google Chrome and Pillow")
 class RenderProduction(unittest.TestCase):
     @classmethod
@@ -1627,6 +2032,23 @@ class RenderProduction(unittest.TestCase):
         with self.assertRaises(SystemExit), contextlib.redirect_stdout(io.StringIO()), \
                 contextlib.redirect_stderr(io.StringIO()):
             d.cmd_deliver(ns)
+
+    def test_render_prints_a_summary_and_keeps_the_detail_in_the_report(self):
+        p = self.tmp / "d.html"
+        p.write_text(page("<h1 style='margin:40px;font:48px serif'>Fresh at 7</h1><p style='margin:40px;font:24px "
+                          "serif'>Order by 9 pm</p>"), encoding="utf-8")
+        ns = d.build_parser().parse_args(["render", "--html", str(p), "--size", "600x400", "--out",
+                                          str(self.tmp / "o.png")])
+        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+            d.cmd_render(ns)
+        rep = json.loads(out.getvalue())
+        self.assertNotIn("text", rep)                           # every text item: in the .qa.json, or with --json
+        self.assertIn("checks", rep)
+        self.assertEqual(len(json.loads(Path(rep["qa_json"]).read_text())["items"]), 2)
+        ns.json = True
+        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+            d.cmd_render(ns)
+        self.assertEqual(len(json.loads(out.getvalue())["text"]), 2)
 
 
 if __name__ == "__main__":

@@ -14,26 +14,26 @@
 
 ## Suchipotro
 
-0. Golden Rules (20)
-1. Mastery model: 8 pillar
-2. Research finding: official skill, `imagegen` audit, community ranking, conflict resolve
-3. Model + parameter cheat sheet
-4. Master Prompt Framework
-5. Photorealism mastery: "AI-generated kintu AI-er moto na"
-6. Photography reference
-7. Text, typography + layout
-8. Genre playbook (15 category)
-9. Editing mastery
-10. Consistency system
-11. QA + evaluation
-12. The Director's Loop
-13. Production pipeline
-14. Cost + latency
-15. Agent SOP + drop-in `SKILL.md`
-16. Safety, ethics, IP, provenance
-17. Ranking: top 25 technique + official resource
-18. Mastery path + drill
-19. Reference
+0. Golden Rules (20) (line 40)
+1. Mastery model: 8 pillar (line 65)
+2. Research finding: official skill, `imagegen` audit, community ranking, conflict resolve (line 82)
+3. Model + parameter cheat sheet (line 263)
+4. Master Prompt Framework (line 319)
+5. Photorealism mastery: "AI-generated kintu AI-er moto na" (line 416; 5.3c physics line 510, 5.3d hand-object line 541, 5.3e place line 672, 5.9 natural look line 805)
+6. Photography reference (line 871)
+7. Text, typography + layout (line 977)
+8. Genre playbook (15 category) (line 1005)
+9. Editing mastery (line 1190; 9.16 edit failures line 1402)
+10. Consistency system (line 1422)
+11. QA + evaluation (line 1475)
+12. The Director's Loop (line 1647)
+13. Production pipeline (line 1701)
+14. Cost + latency (line 1780; 14.3 speed line 1806)
+15. Agent SOP + drop-in `SKILL.md` (line 1850)
+16. Safety, ethics, IP, provenance (line 1944)
+17. Ranking: top 25 technique + official resource (line 1968)
+18. Mastery path + drill (line 2019)
+19. Reference (line 2049)
 
 ---
 

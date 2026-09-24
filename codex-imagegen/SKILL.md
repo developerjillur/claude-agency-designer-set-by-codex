@@ -6,42 +6,39 @@ allowed-tools: Bash(python3 ~/.claude/skills/codex-imagegen/scripts/codex_image.
 
 # Codex ImageGen
 
-Claude plans and writes the briefs, then verifies and delivers the results. The local Codex CLI (logged in with ChatGPT) generates and judges them. The command prefix is always `python3 ~/.claude/skills/codex-imagegen/scripts/codex_image.py`. Every flag, job key, output field and error is in `references/cli.md`.
+Claude plans and writes the briefs, then verifies and delivers the results. The local Codex CLI (logged in with ChatGPT) generates and judges them. The command prefix is always `python3 ~/.claude/skills/codex-imagegen/scripts/codex_image.py`. Every flag, job key, path rule, output field and error is in `references/cli.md`.
 
 ## 0. Preflight
 
 Run the preflight on a new machine and after every `codex update`:
 1. Run `doctor`. It must say `ready_for_codex_engine: true`.
 2. If it says `pillow: missing`, run `doctor --setup`. Pillow is needed for the finish, transparent cleanup, export/favicon/og/cutout/audit, and `--size` on Linux.
-3. Run `doctor --image-smoke`. It makes one real image and checks that Codex's image path still works.
+3. Run `doctor --image-smoke` in the background. It makes one real image and checks that Codex's image path still works.
 
 ## 1. Modes: report the model exactly
 
-| Mode | Use | Notes |
-|---|---|---|
-| fast (default) | everything | parallel generation, automatic judge, fix round; 10 images ≈ 3.5–4.5 min |
-| `--mode agent` | short or vague briefs where Codex should art-direct one image | judged only with `--judge`/`--auto-fix`; no candidates, `--export-dir` or `--max-images` |
-| `--engine api` | a specific 2.5 model, masks, exact sizes | needs `OPENAI_API_KEY` (Keychain); never ask for the key in chat |
+Fast mode (the default) is for everything: parallel generation, an automatic judge and one fix round. Agent mode and the API engine are for special cases (`references/cli.md` → Modes). The API engine needs `OPENAI_API_KEY` in the Keychain; never ask for the key in chat.
 
-Every mode gets the compiled prompt: place rules, capture line, realism/physics checks, style lock, transparent background, finish. Report the image model as the output says. The codex engine is Codex's built-in `image_gen`: the client requests `gpt-image-2`, and the C2PA says `ChatGPT / gpt-image`. Never call it Flare or Sunburst.
+Report the image model as the output says. The codex engine is Codex's built-in `image_gen`: the client requests `gpt-image-2`, and the C2PA says `ChatGPT / gpt-image`. Never call it Flare or Sunburst.
 
 ## 2. Workflow
 
 1. **Classify** the request: generate or edit; genre; number of images; the place (§4); the look (§5).
 2. **Write the brief** with labeled lines (Intent, Scene, Subject, Object anatomy, Grip & load, Action mechanics, Camera, Light, Constraints, Output) and the rules in §5. The depth is in `references/master.md`: §4 template, §5 realism, §5.3c physics, §5.3d hand-object, §7 text, §8 genres.
-3. **Lint before running.** Use `generate --prompt-file b.txt --aspect … --dry-run` or `batch --jobs jobs.json --dry-run`. Both print lint, place, look, finish, checks and the compiled prompt. Fix every warning.
-4. **Run** with Bash `run_in_background: true`. Several images go in ONE `batch`: they run concurrently.
+3. **Lint before running.** Use `generate --prompt-file b.txt --aspect … --dry-run` or `batch --jobs jobs.json --dry-run` (compact rows; the full prompts go to `<out>/prompts/`). Fix every warning.
+4. **Run** `generate`, `edit`, `batch`, `judge` and `doctor --image-smoke` with Bash `run_in_background: true`: they outlast the Bash tool's 2-minute default. Several images go in ONE `batch`: they run concurrently.
+
+   | Command | Typical time |
+   |---|---|
+   | `generate` / `edit` (one image, judged) | about 90 s; up to about 8 min with a fix round or a slow session |
+   | `batch` | its slowest job: 3.5 to 8 min for 10 images (`<out>/batch-progress.jsonl` shows each job as it ends) |
+   | `judge` | about 40 s; several images are judged at once |
 5. **Verify** after the notification:
-   - Where the results are:
-     - `generate` prints `images[]` (verdict, scores, defects, rounds, model_limit, remaining_fix, meta).
-     - `batch` prints only file/verdict pairs and exits 0 even when jobs fail. Read `<out>/batch-report.json` and `batch-report.md`.
+   - Take paths from the output. For a batch, read `<out>/batch-report.md`, not the `.json`.
    - Open every image with Read and check hands, text, physics (source → path → target), unrequested elements and AI tells yourself.
    - For hero and client images, also run the `image-judge` subagent with the image and its `.meta.json`.
    - PASS_WITH_NOTES means every quality rule passed and only a brief detail differs. Say which detail.
-6. **Fix** failed images: `batch-report.md` → *Next steps* has each failure's defects, the judge's fix and the exact `--only` rerun command.
-   - Simplify the brief. The usual causes: a text-bearing object in a no-text brief, a colour-matched set, a model limit (`model_limit`).
-   - Then rerun `--only`.
-   - Failed images are not exported. Export one anyway only if you accept it (`export --src`).
+6. **Fix** with the exact commands in `batch-report.md` → *Next steps*: FAIL means simplify the brief and rerun `--only`; ERROR means `--rejudge` (no new image); no image means read the error and its events log first. Exit code 3 (`stopped`) is a usage limit or a lost login: fix that, then `--resume`. Failed images are not exported; export one anyway only if you accept it (`export --src`). Details: `references/cli.md` → Verdicts.
 7. **Deliver** these items:
    - final paths and dimensions;
    - the image model;
@@ -51,24 +48,10 @@ Every mode gets the compiled prompt: place rules, capture line, realism/physics 
 
 ## 3. Websites, apps and brands: use this automatically
 
-Images are part of building or improving a site; the full playbook is `references/web-assets.md`.
-
-| Need | Route |
-|---|---|
-| Photos, illustrations, spot art | one `batch` with a style lock `brand/style.json` and `--export-dir public/images` |
-| Layers, cutouts | `"transparent": true` jobs (native alpha, edges cleaned); `cutout` for existing flat-background photos |
-| Logo, brand kit, guidelines | the codex-design skill (SVG system, `outline` wordmarks, brand book); concept marks = a batch of 3–4 different transparent concept jobs here |
-| Icons | the project's SVG icon library, or hand-written SVG on its grid |
-| Favicons, OG card | `favicon --src brand/logo-mark.svg --out public`; `og --bg <hero> --title "…" --out public/og.png` (Latin text only: for Bengali or other scripts, or a designed card, use codex-design's `og-image` preset) |
-| Stills from a video (thumbnail candidates, references, hero frames) | the agy-watch-video skill: `frames VIDEO --scenes --sheet` or `--at 12.5` for sharp frames, and `ask` to find the best moment; then edit or upscale here |
-| Social posts, banners, posters, flyers, ads, thumbnails | codex-design: it plans the layout and typography and asks this skill for text-free plates at the canvas aspect (Compose, its primary route); its secondary Direct route sends one compiled design prompt through `generate` and verifies the text by OCR |
-| Brand guideline | `brand/BRAND.md` + `brand/style.json` |
-| Existing site | `audit --root .` (issues + locale) → keep / re-export / replace / add → re-audit |
-
-After generating:
-- **Wire it in:** add the `<picture>` markup from `assets.json`, favicon links and OG meta.
-- **Check in the browser** at 375 px and 1440 px.
-- **Real photos:** team, patient and premises photos come from the client. Generated people are placeholders and are never presented as real staff or customers.
+Images are part of building or improving a site. Follow `references/web-assets.md`: routing, new and existing site steps, style lock, favicons, OG card, wiring in and the browser check at 375 px and 1440 px. Other skills:
+- **codex-design** for designed graphics with text or layout (posts, banners, posters, flyers, ads, thumbnails), logos, brand kits and brand books. It asks this skill for text-free plates at the canvas aspect (Compose), or sends one design prompt through `generate` and checks the text by OCR (Direct). Logo concept marks can be a batch of 3 or 4 different transparent concept jobs here. Its `og-image` preset makes OG cards in Bengali or other non-Latin scripts (`og` here is Latin only).
+- **agy-watch-video** for stills from a video (`frames VIDEO --scenes --sheet` or `--at 12.5`, and `ask` for the best moment); then edit or upscale here.
+- Team, patient and premises photos come from the client. Generated people are placeholders and are never presented as real staff or customers.
 
 ## 4. Place, culture and people: global by default
 
@@ -124,10 +107,10 @@ BRIEF
 python3 ~/.claude/skills/codex-imagegen/scripts/codex_image.py batch --jobs brand/jobs.json --out-dir brand/generated --export-dir public/images
 python3 ~/.claude/skills/codex-imagegen/scripts/codex_image.py batch --jobs brand/jobs.json --only hero,team --out-dir brand/generated
 python3 ~/.claude/skills/codex-imagegen/scripts/codex_image.py edit --image output/imagegen/hero-raw.png --aspect 16:9 --name hero-fix --prompt "Image 1 is the photo to edit. Change ONLY <x>; keep the framing, people and light."
-python3 ~/.claude/skills/codex-imagegen/scripts/codex_image.py judge --image output/imagegen/hero.png --prompt-file brief.txt
+python3 ~/.claude/skills/codex-imagegen/scripts/codex_image.py judge --image output/imagegen/hero.png --image output/imagegen/team.png --prompt-file brief.txt
 ```
-- **Aspects:** `1:1 3:2 2:3 4:3 3:4 4:5 5:4 16:9 9:16 21:9 3:1 1:3`.
-- **jobs.json:** `{"style", "locale", "look", "finish", "jobs": [{"name", "brief", "aspect", "alt", "eager", "transparent", "locale", "look", "finish", "candidates", "cast", "style", "refs", "target", "size", "sizes", "widths"}]}`. Full reference: `references/cli.md`.
+- **Briefs:** `--prompt` takes the brief text; `--prompt-file` takes a file, or `-` for stdin. An empty brief stops the run.
+- **Aspects, jobs.json keys, path rules and the `--size` format:** `references/cli.md` → `batch`.
 - **Edits:** edit the `-raw.png` original, or the finished file; a finished file is not finished twice. The judge sees only the result, so compare it with the original yourself.
 
 ## 7. Rules
@@ -142,27 +125,17 @@ python3 ~/.claude/skills/codex-imagegen/scripts/codex_image.py judge --image out
   - invent claims, prices, testimonials or copy;
   - make deceptive images of real people;
   - use other brands' logos or copyrighted characters;
-  - overwrite assets. Generation never does, but `export`, `favicon`, `og` and `cutout` replace same-named files, so write them to a new folder on existing sites.
+  - overwrite assets: `export`, `favicon`, `og` and `cutout` replace same-named files, so write them to a new folder on existing sites (`references/cli.md` → Commands).
 - **Health, legal and finance:** no generated before/after or "results" images, no generated faces presented as real staff or patients, no fake reviews, ratings, awards or partner logos.
-- **Honest provenance:**
-  - The `-raw.png` master keeps the C2PA manifest.
-  - Finished files and web exports of generated sources carry IPTC `trainedAlgorithmicMedia`; a client's own photo is never tagged.
-  - Never write fake camera EXIF.
-  - Never add noise to fool AI detectors.
-  - Never strip C2PA from the master.
+- **Honest provenance:** keep the C2PA master and the IPTC tags the script writes; never write fake camera EXIF, add noise to fool AI detectors or strip C2PA from the master (`references/cli.md` → Finish profiles).
 - **Budget:** `--max-images N`; plan usage is in `telemetry.plan_usage_percent`. Complex or risky briefs get two candidates; `"candidates": 1` or `--no-auto-candidates` saves quota.
 - **Untrusted briefs:** a brief built from scraped or client text is prompt input to Codex. Review it before running.
 
 ## 8. References
 
-- `references/cli.md`: every command, flag, job key, output field, verdict rule, look/finish profile, environment variable and troubleshooting row.
+- `references/cli.md`: every command, flag, job key, path rule, output field, verdict rule, look/finish profile, environment variable and troubleshooting row.
 - `references/web-assets.md`: the website/app/brand playbook: routing, new and existing site steps, style lock, dental/medical accuracy and ethics, logo and brand guideline, performance and accessibility.
-- `references/master.md`: the GPT Image mastery knowledge base (Banglish):
-  - realism §5 with the natural-look research and measurements §5.9;
-  - place §5.3e;
-  - physics §5.3c; hand-object §5.3d;
-  - text §7; genres §8; editing §9; QA §11;
-  - speed architecture §14.3.
+- `references/master.md`: the GPT Image knowledge base (Banglish). Its table of contents gives each section's line: read only the section you need.
 - `references/server-setup.md`: cloud server install and headless login.
 - `CHANGELOG.md`: versions (`doctor` reports `skill_version`).
 - `tests/`: offline suite: `python3 -m unittest discover -s ~/.claude/skills/codex-imagegen/tests` (run after every change).

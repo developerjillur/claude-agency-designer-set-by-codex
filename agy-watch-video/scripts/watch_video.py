@@ -30,7 +30,8 @@ import time
 import unicodedata
 from pathlib import Path
 
-SKILL_VERSION = "2026.09.24.4"
+SKILL_VERSION = "2026.09.24.5"
+CACHE_VERSION = "2026.09.24.4"   # keys the cache: bump it only when what a pass or a measurement returns changes
 SKILL_DIR = Path(__file__).resolve().parent.parent
 CACHE = Path(os.environ.get("AGY_WATCH_CACHE") or (Path.home() / ".cache" / "agy-watch-video"))
 VENV_DIR = SKILL_DIR / ".venv"
@@ -282,7 +283,7 @@ def _ratio(s: str | None) -> float | None:
 def probe(v: Video, fresh: bool = False) -> dict:
     out = v.dir / "probe.json"
     cached = None if fresh else read_json(out)
-    if cached and cached.get("version") == SKILL_VERSION:
+    if cached and cached.get("version") == CACHE_VERSION:
         return cached
     r = run([need("ffprobe"), "-v", "error", "-print_format", "json", "-show_format", "-show_streams", v.path], timeout=120)
     data = json.loads(r.stdout or "{}")
@@ -290,7 +291,7 @@ def probe(v: Video, fresh: bool = False) -> dict:
     vs = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"
                and not (s.get("disposition") or {}).get("attached_pic")), None)
     aus = [s for s in data.get("streams", []) if s.get("codec_type") == "audio"]
-    pr = {"version": SKILL_VERSION, "file": str(v.path), "name": v.name, "size_bytes": int(fmt.get("size") or 0),
+    pr = {"version": CACHE_VERSION, "file": str(v.path), "name": v.name, "size_bytes": int(fmt.get("size") or 0),
           "container": fmt.get("format_name"), "duration": float(fmt.get("duration") or 0) or None,
           "bit_rate": int(fmt.get("bit_rate") or 0) or None, "video": None, "audio": None}
     if vs:
@@ -403,9 +404,9 @@ def measure(v: Video, fresh: bool = False) -> dict:
     pr = v.probe()
     out = v.dir / "measure.json"
     cached = None if fresh else read_json(out)
-    if cached and cached.get("version") == SKILL_VERSION:
+    if cached and cached.get("version") == CACHE_VERSION:
         return cached
-    res: dict = {"version": SKILL_VERSION}
+    res: dict = {"version": CACHE_VERSION}
     jobs = {}
     with cf.ThreadPoolExecutor(max_workers=3) as ex:
         if pr.get("video"):
@@ -806,7 +807,7 @@ def region_words(r) -> str:
 def cached_measure(v: Video) -> dict | None:
     """The measurements if this video was already measured with this version; never measures (that can take minutes)."""
     m = read_json(v.dir / "measure.json")
-    return m if m and m.get("version") == SKILL_VERSION else None
+    return m if m and m.get("version") == CACHE_VERSION else None
 
 
 def flash_windows(yavg: list, delta: float = 20.0) -> list:
@@ -1374,8 +1375,23 @@ def json_from_text(text: str):
     return None
 
 
+def call_timeout(name: str, media: list) -> float:
+    """A hard limit per kind of call, about three times the slowest measured: Flash takes 15 to 60 s and Pro 35 to
+    130 s on frames, so a stuck call fails over to the sibling model in minutes, not in a quarter of an hour."""
+    if os.environ.get("AWV_CALL_TIMEOUT"):
+        return float(os.environ["AWV_CALL_TIMEOUT"])
+    base = re.sub(r"[-_]?\d+r?$", "", name)
+    if base.startswith(("overview", "locate")):
+        return 900            # a whole proxy video, up to a 20-minute part
+    if base.startswith("audio"):
+        return 600            # five minutes of speech
+    if base == "review":
+        return 360
+    return 420 if media else 240
+
+
 def agy_call(v: Video | None, name: str, prompt: str, schema: dict | None, model: str, media: list,
-             timeout: float = 900, fresh: bool = False, extra_dirs: list | None = None) -> dict:
+             timeout: float | None = None, fresh: bool = False, extra_dirs: list | None = None) -> dict:
     """One headless Antigravity run. The media are hardlinked into a fresh staging folder, which is the only folder
     agy may read (--add-dir): the rest of the cache (the source path, older frames and passes) stays out of reach even
     if text in the video tells the agent to look around. The prompt's paths are rewritten to the staged copies.
@@ -1383,8 +1399,9 @@ def agy_call(v: Video | None, name: str, prompt: str, schema: dict | None, model
     Returns {"ok", "data", "model", "seconds", "usage", "cache", "error"}.
     """
     agy = need("agy")
+    timeout = timeout or call_timeout(name, media)
     fps = [(Path(m).name, Path(m).stat().st_size) for m in media]
-    key = key_of(SKILL_VERSION, name, model, prompt, schema, fps)
+    key = key_of(CACHE_VERSION, name, model, prompt, schema, fps)
     base = (v.dir if v else CACHE / "misc")
     cache_file = base / "passes" / f"{name}-{key}.json"
     if not fresh:

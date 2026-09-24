@@ -3,6 +3,28 @@
 The version is `SKILL_VERSION` in `scripts/codex_image.py`; `doctor` reports it. Run the offline tests after every change:
 `python3 -m unittest discover -s ~/.claude/skills/codex-imagegen/tests`. Run `doctor --image-smoke` after every Codex CLI update.
 
+## 2026.09.24.1 · no more half-hour waits, and batches that keep their work
+
+Found by reading the skill's own session logs (single images: median 87 s, slowest 488 s; judges: median 38 s).
+
+- **Stuck sessions:** image sessions stop at 480 s and judges at 150 s (were 900 and 420); a timeout is never retried
+  at full length, so a hang costs one wait, not two or three. Codex's own error text reaches the result, the event log
+  of a failed session is always kept, and a usage limit or a lost login stops the whole run at once (exit 3).
+- **Batches keep their work:** sizes, refs, targets, candidates and style files are checked before any session; each
+  job writes its meta and a progress line as it ends; the report is written even when a run is cut short; one bad
+  export no longer stops the others; `--resume` keeps the jobs that passed.
+- **A judge error is not a failed image:** `batch --only X --rejudge` judges the existing image again from its meta and
+  exports it on a pass; the report tells ERROR (re-judge) from FAIL (make a new image). `judge` checks every path
+  first, judges in parallel at medium effort and prints every result it has.
+- **Wrong inputs say so in one line:** style, refs and targets resolve next to the jobs file; a missing style file,
+  an empty brief or an audit root that is not a folder stops at once; a job's own style wins; any file or value error
+  is one `ERROR:` line instead of a traceback.
+- **Short output:** `batch --dry-run` prints one row per job (3.7 KB instead of 59.7 KB for 10 jobs) and writes the
+  full prompts to files.
+- **Docs:** a run-time table and the rule to run generate, batch and judge in the background, a `judge` section,
+  path rules and the `--size` format; SKILL.md is shorter (about 3,190 tokens); master.md's contents give line numbers.
+- **Tests:** 99 offline tests.
+
 ## 2026.09.24 · faster and safer runs
 
 Measured offline with a fake Codex that replays the medians of 658 real sessions; no quality setting changed (judge

@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # no __pycache__ inside the skill folder
 import copyrules  # noqa: E402  (copy that reads human: references/copy.md)
 
-SKILL_VERSION = "2026.09.24.4"
+SKILL_VERSION = "2026.09.24.5"
 SKILL_DIR = Path(__file__).resolve().parent.parent
 PRESETS_FILE = SKILL_DIR / "scripts" / "presets.json"
 
@@ -133,6 +133,135 @@ def stale_runs() -> list:
         size = sum(f.stat().st_size for f in d.rglob("*") if f.is_file() and not f.is_symlink())
         out.append({"path": str(d), "bytes": size, "hours": round(age / 3600, 1)})
     return out
+
+
+# Every Codex session and codex-imagegen child runs in its own process group and is tracked here, so a stop signal
+# (Ctrl-C, or SIGTERM when a background task is killed) ends them all at once. Before, a multi-run judge kept its
+# sessions running, and spending plan quota, until they finished on their own.
+_LIVE = {"procs": set(), "lock": threading.RLock(), "stop": False}  # RLock: a signal may land while it is held
+POLL_S = 0.2  # how often a running child checks the stop flag and its timeout
+
+
+class RunFailed(Exception):
+    """A Codex session, a judge run or an image edit that gave no usable answer. The message says why, in one line."""
+
+
+def _stop_group(proc, grace: float = 2.0) -> None:
+    """SIGTERM the child's process group (a codex-imagegen child ends its own sessions on it), then SIGKILL whatever
+    is left after `grace` seconds."""
+    import signal
+    for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, None)):
+        if proc.poll() is not None:
+            return
+        try:
+            os.killpg(proc.pid, sig)
+        except OSError:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        try:
+            proc.wait(timeout=wait)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def kill_live_sessions() -> int:
+    """Stop every child session this run started and refuse new ones. Returns how many were still running."""
+    _LIVE["stop"] = True
+    with _LIVE["lock"]:
+        procs = [p for p in _LIVE["procs"] if p.poll() is None]
+    threads = [threading.Thread(target=_stop_group, args=(p, 3.0)) for p in procs]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    return len(procs)
+
+
+def run_session(cmd: list, prompt: str | None, timeout: float | None, env: dict | None = None) -> dict:
+    """Run a child (a Codex session, codex-imagegen or a judge) in its own process group, tracked in _LIVE, with its
+    output in files so no pipe fills up. A timeout or a stop ends the whole group.
+    -> {"stdout", "stderr", "returncode", "error": None, "stopped" or "timed out after N s"}"""
+    res = {"stdout": "", "stderr": "", "returncode": None, "error": None}
+    if _LIVE["stop"]:
+        return dict(res, error="stopped")
+    tmp = Path(tmp_dir("session-"))
+    so, se = tmp / "stdout.txt", tmp / "stderr.txt"
+    t0 = time.time()
+    with open(so, "w", encoding="utf-8") as fo, open(se, "w", encoding="utf-8") as fe:
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE if prompt is not None else subprocess.DEVNULL, stdout=fo,
+                                stderr=fe, text=True, start_new_session=True, env=env)
+        with _LIVE["lock"]:
+            _LIVE["procs"].add(proc)
+        try:
+            if prompt is not None:
+                try:
+                    proc.stdin.write(prompt)
+                    proc.stdin.close()
+                except BrokenPipeError:
+                    pass
+            while True:
+                try:
+                    proc.wait(timeout=POLL_S)
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+                stop = "stopped" if _LIVE["stop"] else \
+                    f"timed out after {timeout:g} s" if timeout and time.time() - t0 > timeout else None
+                if stop:
+                    _stop_group(proc, grace=3.0)
+                    res["error"] = stop
+                    break
+        finally:
+            with _LIVE["lock"]:
+                _LIVE["procs"].discard(proc)
+            if proc.poll() is None:  # an exception (a stop signal) got here first
+                _stop_group(proc, grace=3.0)
+    if res["error"] is None and _LIVE["stop"] and proc.returncode != 0:
+        res["error"] = "stopped"  # ended by kill_live_sessions() from another thread
+    res["returncode"] = proc.returncode
+    res["stdout"] = so.read_text(encoding="utf-8", errors="replace")
+    res["stderr"] = se.read_text(encoding="utf-8", errors="replace")
+    return res
+
+
+def child_budget(timeout: float) -> float:
+    """How long to wait for a child that runs Codex sessions of `timeout` seconds and retries a failed one once
+    (codex-imagegen, a judge): both sessions, plus two minutes to start and save. The child's own timeout ends a hung
+    session first, so the outer one only catches a child that is stuck itself."""
+    return 2 * timeout + 120
+
+
+def one_line(text: str, limit: int = 300) -> str:
+    return re.sub(r"\s+", " ", str(text)).strip()[:limit]
+
+
+def codex_error(res: dict) -> str:
+    """Why a child session gave no answer, in one line: the stop or timeout, else an error event in Codex's --json
+    stream, else the last line it wrote to stderr, else the end of its output."""
+    if res.get("error"):
+        return res["error"]
+    for line in reversed((res.get("stdout") or "").splitlines()):
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(ev, dict):
+            continue
+        err = ev.get("error")
+        if isinstance(err, str) and err.strip():
+            return one_line(err)
+        for part in (err, ev.get("msg"), ev):
+            if isinstance(part, dict) and part.get("message") and (
+                    part is err or re.search(r"error|fail", str(part.get("type") or ""), re.I)):
+                return one_line(part["message"])
+    lines = [x for x in (res.get("stderr") or "").splitlines() if x.strip()]
+    if lines:
+        return one_line(lines[-1])
+    tail = (res.get("stdout") or "").strip().splitlines()
+    return one_line(tail[-1]) if tail else f"no output (exit {res.get('returncode')})"
 
 
 def need_pillow():
@@ -286,6 +415,9 @@ def parse_len(v, unit_default: str = "px") -> float:
         die(f"bad length: {v!r}")
     n, unit = float(m.group(1)), m.group(2) or unit_default
     return n * {"px": 1, "mm": PX_PER_MM, "cm": PX_PER_MM * 10, "in": 96, "pt": 96 / 72}[unit]
+
+
+SIZE_RX = re.compile(r"\s*([0-9.]+(?:px|mm|in|cm)?)\s*[xX×]\s*([0-9.]+(?:px|mm|in|cm)?)\s*")  # 1080x1350, 210mmx297mm
 
 
 def resolve_canvas(preset: str | None, size: str | None, bleed: str | None = None) -> dict:
@@ -2333,9 +2465,15 @@ def cmd_render(args) -> None:
         rep = produce(ch, html, c, out, args.scale, args.transparent, args.slides or 1, not args.no_qa, args.overlay,
                       args.quality, args.max_bytes, args.preview, args.pages or 1, copy, sims, args.occasion,
                       args.cmyk, locale, args.timeout)
-    print(json.dumps(rep, indent=2, ensure_ascii=False))
+    print(json.dumps(rep if getattr(args, "json", False) else render_summary(rep), indent=2, ensure_ascii=False))
     if args.strict and ((rep.get("checks") and not rep["checks"]["ok"]) or rep.get("errors")):
         sys.exit(2)
+
+
+def render_summary(rep: dict) -> dict:
+    """A render report without its per-item detail (every text item and image: 27 KB for a 10-page brand book). The
+    detail stays in <out>.qa.json, and render --json prints it."""
+    return {k: v for k, v in rep.items() if k not in ("text", "images")}
 
 
 def cmd_pack(args) -> None:
@@ -2343,8 +2481,7 @@ def cmd_pack(args) -> None:
     html = design_html(args.html)
     ids = [p.strip() for p in args.presets.split(",") if p.strip()]
     for p in ids:
-        if p not in presets():
-            die(f"unknown preset {p!r}; run `design.py presets`")
+        resolve_canvas(p, None)  # an unknown or retired preset stops here, with the nearest names or its replacement
     out_dir = Path(args.out_dir).expanduser()
     copy = load_copy(args.copy) if args.copy else None
     locale = norm_locale(args.locale or (copy_meta(args.copy).get("locale") if args.copy else ""))
@@ -2610,20 +2747,27 @@ def judge_views(img: Path, kind: str, is_print: bool, tmp: Path, slides: int = 1
     return views, " ".join(lines)
 
 
-def _load_model_json(path: Path, required: tuple, who: str) -> dict:
-    """A model's structured answer, or a clear stop: a killed or drifting session can leave half a file or miss a
-    field the verdict needs."""
-    raw = path.read_text(encoding="utf-8", errors="replace")
+def _model_json(raw: str, required: tuple, who: str) -> dict:
+    """A model's structured answer, or RunFailed saying what is wrong with it: a killed or drifting session can leave
+    half a file or miss a field the verdict needs."""
     try:
         data = json.loads(raw)
     except ValueError as e:
-        die(f"{who} returned invalid JSON ({e}); the last output was: {raw[-300:]}")
+        raise RunFailed(f"{who} returned invalid JSON ({e}); the last output was: {one_line(raw[-300:])}")
     if not isinstance(data, dict):
-        die(f"{who} returned {type(data).__name__}, not an object")
+        raise RunFailed(f"{who} returned {type(data).__name__}, not an object")
     missing = [k for k in required if k not in data]
     if missing:
-        die(f"{who} answer lacks {', '.join(missing)}; rerun it (the schema was not honoured)")
+        raise RunFailed(f"{who} answer lacks {', '.join(missing)}; rerun it (the schema was not honoured)")
     return data
+
+
+def _load_model_json(path: Path, required: tuple, who: str) -> dict:
+    """A model's structured answer from a file, or a clear stop."""
+    try:
+        return _model_json(path.read_text(encoding="utf-8", errors="replace"), required, who)
+    except RunFailed as e:
+        die(str(e))
 
 
 def brand_brief(brand_json) -> str:
@@ -2652,36 +2796,31 @@ def brand_brief(brand_json) -> str:
 def _codex_json(ci, prompt: str, images: list, schema: dict, effort: str, timeout: int, who: str,
                 required: tuple, retries: int = 1) -> dict:
     """One fresh read-only Codex session that answers in a JSON schema. A timeout, an empty answer or one that breaks
-    the schema is retried once (1 run in 6 of the copy judge hung until its timeout, R5)."""
+    the schema is retried once (1 run in 6 of the copy judge hung until its timeout, R5). Raises RunFailed with the
+    reason when no attempt gave a usable answer; a stop signal ends it without a retry."""
     tmp = Path(tmp_dir("codex-"))
     sp = tmp / "schema.json"
     sp.write_text(json.dumps(schema), encoding="utf-8")
-    err = ""
+    err, problem = "", None
     for attempt in range(retries + 1):
         last = tmp / f"answer-{attempt}.json"
         cmd = [ci.codex_bin(), "exec"] + sum((["-i", str(x)] for x in images), []) + [
             "--ephemeral", "--skip-git-repo-check", "-s", "read-only", "--json",
             "-c", f'model_reasoning_effort="{effort}"', "--output-schema", str(sp), "-o", str(last)] + \
             ci.LEAN_FLAGS + ["-"]
-        try:
-            proc = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=timeout,
-                                  env=ci.codex_env())
-            err = (proc.stdout + proc.stderr)[-400:]
-        except subprocess.TimeoutExpired:
-            err = f"no answer in {timeout}s"
+        res = run_session(cmd, prompt, timeout, env=ci.codex_env())
+        if res["error"] == "stopped":
+            raise RunFailed(f"{who}: stopped")
+        problem = None
         if last.exists() and last.stat().st_size:
-            if attempt == retries:
-                return _load_model_json(last, required, who)
             try:
-                data = json.loads(last.read_text(encoding="utf-8"))
-                if isinstance(data, dict) and all(k in data for k in required):
-                    return data
-                err = "an answer that broke the schema"
-            except ValueError:
-                err = "invalid JSON"
+                return _model_json(last.read_text(encoding="utf-8", errors="replace"), required, who)
+            except RunFailed as e:
+                problem = str(e)
+        err = problem or codex_error(res)
         if attempt < retries:
-            log(f"{who}: {err.strip()[-160:]}; asking once more")
-    die(f"{who} returned nothing: {err}")
+            log(f"{who}: {err[-160:]}; asking once more")
+    raise RunFailed(err if problem else f"{who} returned nothing: {err}")
 
 
 def judge_key(prompt: str, *parts) -> str:
@@ -2690,9 +2829,10 @@ def judge_key(prompt: str, *parts) -> str:
     return hashlib.sha256(json.dumps([prompt, *parts], ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
-def cached_verdict(out: Path, key: str, fresh: bool) -> bool:
+def cached_verdict(out: Path, key: str, fresh: bool, show=None) -> bool:
     """Print the earlier verdict and return True when `out` holds one for exactly this input: the same file, brief
-    and settings cost a Codex session (1 to 3 minutes and plan quota) for nothing. --fresh asks again."""
+    and settings cost a Codex session (1 to 3 minutes and plan quota) for nothing. --fresh asks again. `show` turns
+    the report into what is printed (a short summary); without it the whole report is printed."""
     if fresh or not out.exists():
         return False
     try:
@@ -2702,17 +2842,39 @@ def cached_verdict(out: Path, key: str, fresh: bool) -> bool:
     if data.get("cache_key") != key:
         return False
     log(f"same input as the verdict of {data.get('judged_at', 'an earlier run')}: reusing it (--fresh asks again)")
-    print(json.dumps(dict(data, cached=True), indent=2, ensure_ascii=False))
+    data = dict(data, cached=True)
+    print(json.dumps(show(data) if show else data, indent=2, ensure_ascii=False))
     return True
 
 
-def _runs(n: int, fn) -> list:
-    """n independent judge sessions (up to 3 at a time)."""
+def _runs(n: int, fn, who: str = "judge") -> tuple:
+    """n independent judge sessions (up to 3 at a time) -> (answers in run order, failed runs). A failed run no longer
+    throws the others away: one run must answer, and several need a majority of at least 2 (2 of 3, 3 of 5). Fewer
+    stops with the reason each run gave."""
     import concurrent.futures as cf
-    if n <= 1:
-        return [fn(0)]
+    n = max(1, n)
+    if n == 1:
+        try:
+            return [fn(0)], []
+        except RunFailed as e:
+            die(str(e))
+    need = max(2, n // 2 + 1)
+    good, failed = {}, []
     with cf.ThreadPoolExecutor(max_workers=min(n, 3)) as ex:
-        return list(ex.map(fn, range(n)))
+        futs = {ex.submit(fn, i): i for i in range(n)}
+        for f in cf.as_completed(futs):
+            try:
+                good[futs[f]] = f.result()
+            except RunFailed as e:
+                failed.append({"run": futs[f] + 1, "error": str(e)})
+    failed.sort(key=lambda x: x["run"])
+    if len(good) < need:
+        die(f"only {len(good)} of {n} {who} runs answered ({need} needed): " +
+            "; ".join(dict.fromkeys(x["error"] for x in failed)))
+    if failed:
+        log(f"{who}: {len(failed)} of {n} runs failed ({failed[0]['error'][:120]}); the verdict uses the other "
+            f"{len(good)}")
+    return [good[i] for i in sorted(good)], failed
 
 
 def _median(vals: list):
@@ -2750,6 +2912,30 @@ def aggregate_design(runs: list) -> dict:
     return agg
 
 
+BRIEF_MAX = 9000  # characters of the brief the design judge reads; the approved copy and brand facts come in full
+
+
+def judge_summary(data: dict, out: Path) -> dict:
+    """What a caller needs to act on a design verdict. The whole report stays in the file (and --json prints it)."""
+    s = {k: data[k] for k in ("verdict", "weighted", "scores", "disposition", "cached") if k in data}
+    failed = [g for g, v in (data.get("gates") or {}).items() if v == "FAIL"]
+    if failed:
+        s["gates_failed"] = failed
+        s["gate_evidence"] = (data.get("gate_evidence") or [])[:6]
+    s["fixes"] = data.get("fixes") or []
+    top = [f for f in data.get("findings") or [] if f.get("severity") in ("P0", "P1")]
+    if top:
+        s["findings"] = [f"{f['severity']} {f.get('element', '')}: {f.get('after', '')}" for f in top[:6]]
+    diff = data.get("text_diff") or {}
+    if diff.get("missing") or diff.get("extra"):
+        s["text_diff"] = {"missing": diff.get("missing"), "extra": diff.get("extra")}
+    for k in ("notes", "runs", "runs_failed", "seconds"):
+        if data.get(k):
+            s[k] = data[k]
+    s["report"] = str(out)
+    return s
+
+
 def cmd_judge(args) -> None:
     """Independent review of a rendered design by fresh Codex sessions (vision); the verdict is computed here. The
     render's own errors come first: a design with errors in its .qa.json is not judged (the judge fails those)."""
@@ -2759,8 +2945,10 @@ def cmd_judge(args) -> None:
     img = Path(args.image).expanduser()
     if not img.exists():
         die(f"not found: {img}")
-    bp = Path(args.brief).expanduser() if args.brief else None
-    brief = bp.read_text(encoding="utf-8") if bp and bp.exists() else (args.brief or "(no brief: judge craft only)")
+    brief = (text_or_file(args.brief, "brief") or "(no brief: judge craft only)").strip()
+    if len(brief) > BRIEF_MAX:  # only the brief is cut: the approved copy and brand facts below always reach the judge
+        log(f"the brief has {len(brief)} characters: the judge reads the first {BRIEF_MAX}")
+        brief = brief[:BRIEF_MAX] + " [the brief is cut here]"
     copy = image_copy(load_copy(args.copy)) if args.copy else None
     if copy:
         brief += "\n\nApproved copy (verbatim):\n" + "\n".join(f'- "{s["text"]}"' for s in copy)
@@ -2820,15 +3008,17 @@ def cmd_judge(args) -> None:
     with need_pillow().open(img) as im:
         w, h = im.size
     prompt = DESIGN_JUDGE_PROMPT.format(images=view_text, kind=args.kind, canvas=args.canvas or f"{w}x{h}px",
-                                        route=args.route, brief=brief.strip()[:9000], measured=measured)
+                                        route=args.route, brief=brief.strip(), measured=measured)
     out = img.with_name(img.stem + ".judge.json")
     key = judge_key(prompt, file_sha256(img), args.effort, max(1, args.runs))
-    if cached_verdict(out, key, getattr(args, "fresh", False)):
+    full = getattr(args, "json", False)
+    if cached_verdict(out, key, getattr(args, "fresh", False), None if full else lambda x: judge_summary(x, out)):
         return
     t0 = time.time()
     required = ("scores", "gates", "gate_evidence", "findings", "text_read")
-    runs = _runs(max(1, args.runs), lambda i: _codex_json(ci, prompt, views, DESIGN_SCHEMA, args.effort, args.timeout,
-                                                          "design judge", required))
+    runs, failed = _runs(max(1, args.runs), lambda i: _codex_json(ci, prompt, views, DESIGN_SCHEMA, args.effort,
+                                                                  args.timeout, "design judge", required),
+                         "design judge")
     per_run = [dict(zip(("verdict", "weighted"), _judge_verdict(r))) for r in runs]
     data = aggregate_design(runs)
     if copy:
@@ -2842,13 +3032,16 @@ def cmd_judge(args) -> None:
                  "effort": args.effort, "kind": args.kind, "seconds": round(time.time() - t0, 1), "cache_key": key})
     if len(runs) > 1:
         data["runs"] = [{"verdict": r["verdict"], "weighted": round(r["weighted"], 2)} for r in per_run]
+    if failed:  # the verdict stands on the runs that answered; these did not
+        data["runs_failed"] = failed
     if notes:
         data["notes"] = notes
     write_atomic(out, json.dumps(data, indent=2, ensure_ascii=False))
     with img.with_name(img.stem + ".judge-history.jsonl").open("a", encoding="utf-8") as f:  # every verdict kept
         f.write(json.dumps({k: data.get(k) for k in ("judged_at", "image_sha256", "verdict", "weighted", "scores",
-                                                    "gates", "runs", "effort")}, ensure_ascii=False) + "\n")
-    print(json.dumps(data, indent=2, ensure_ascii=False))
+                                                    "gates", "runs", "runs_failed", "effort")},
+                           ensure_ascii=False) + "\n")
+    print(json.dumps(data if full else judge_summary(data, out), indent=2, ensure_ascii=False))
 
 
 PAIR_SCHEMA = {"type": "object", "additionalProperties": False,
@@ -2890,7 +3083,7 @@ def cmd_pairwise(args) -> None:
     names = {"A": args.a_name or a.stem, "B": args.b_name or b.stem}
     if names["A"] == names["B"]:  # e.g. two runs' final.png: keep the sides apart
         names = {"A": names["A"] + " (A)", "B": names["B"] + " (B)"}
-    brief = Path(args.brief).expanduser().read_text(encoding="utf-8") if args.brief else None
+    brief = text_or_file(args.brief, "brief")
     copy = [x_["text"] for x_ in image_copy(load_copy(args.copy))] if args.copy else []
     copy_line = (f"Approved copy (the only text allowed, verbatim): {json.dumps(copy, ensure_ascii=False)}" if copy
                  else "No approved copy list was given: judge the words on the designs on their merits.")
@@ -2902,18 +3095,13 @@ def cmd_pairwise(args) -> None:
         i1, i2 = tmp / f"design-1{first.suffix}", tmp / f"design-2{second.suffix}"
         shutil.copy(first, i1)
         shutil.copy(second, i2)
-        schema, last = tmp / "schema.json", tmp / "vote.json"
-        schema.write_text(json.dumps(PAIR_SCHEMA), encoding="utf-8")
         prompt = PAIR_CLIENT.format(brief=brief, copy=copy_line) if mode == "client" \
             else PAIR_BLIND.format(kind=args.kind)
-        cmd = [ci.codex_bin(), "exec", "-i", str(i1), "-i", str(i2), "--ephemeral", "--skip-git-repo-check", "-s",
-               "read-only", "--json", "-c", f'model_reasoning_effort="{args.effort}"', "--output-schema", str(schema),
-               "-o", str(last)] + ci.LEAN_FLAGS + ["-"]
-        try:
-            subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=args.timeout, env=ci.codex_env())
-            r = json.loads(last.read_text(encoding="utf-8"))
-        except (subprocess.TimeoutExpired, OSError, ValueError):
-            return {"mode": mode, "order": order, "error": "no answer"}
+        try:  # a vote that hangs or breaks the schema is asked once more
+            r = _codex_json(ci, prompt, [i1, i2], PAIR_SCHEMA, args.effort, args.timeout, "pairwise vote",
+                            tuple(PAIR_SCHEMA["required"]))
+        except RunFailed as e:
+            return {"mode": mode, "order": order, "error": str(e)}
         side = {"1": names["A"] if order == "AB" else names["B"], "2": names["B"] if order == "AB" else names["A"]}
         return {"mode": mode, "order": order, "winner": side.get(r["send_to_client"], r["send_to_client"]),
                 "human": side.get(r["looks_human_designed"], r["looks_human_designed"]),
@@ -2923,6 +3111,10 @@ def cmd_pairwise(args) -> None:
     jobs = [(m, o) for m in modes for o in ("AB", "BA")]
     with cf.ThreadPoolExecutor(max_workers=len(jobs)) as ex:
         votes = list(ex.map(lambda j: vote(*j), jobs))
+    valid = [v for v in votes if not v.get("error")]
+    if len(valid) < 2:  # no choice can be made: say why instead of reporting a tie
+        die(f"pairwise: only {len(valid)} of {len(votes)} votes answered: " +
+            "; ".join(dict.fromkeys(v["error"] for v in votes if v.get("error"))))
     wins = {n: sum(1 for v in votes if v.get("winner") == n) for n in names.values()}
     swap = {n: all(any(v.get("winner") == n for v in votes if v["mode"] == m and v["order"] == o)
                    for m in modes for o in ("AB", "BA")) for n in names.values()}
@@ -2930,11 +3122,14 @@ def cmd_pairwise(args) -> None:
     winner = next((n for n, ok in swap.items() if ok), None) or (max(wins, key=wins.get) if len(set(wins.values())) > 1
                                                                else "tie")
     rep = {"a": str(a), "b": str(b), "votes": votes, "wins": wins, "wins_both_orders": swap, "winner": winner,
-           "position_bias": f"the first image won {firsts} of {len(votes)} votes"}
+           "position_bias": f"the first image won {firsts} of {len(valid)} votes"}
+    if len(valid) < len(votes):
+        rep["votes_failed"] = [v["error"] for v in votes if v.get("error")]
     if args.out:
         Path(args.out).expanduser().write_text(json.dumps(rep, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(json.dumps({k: rep[k] for k in ("wins", "wins_both_orders", "winner", "position_bias")} |
-                     {"reasons": [v.get("reasons", [""])[0] for v in votes]}, indent=2, ensure_ascii=False))
+    print(json.dumps({k: rep[k] for k in ("wins", "wins_both_orders", "winner", "position_bias", "votes_failed")
+                      if k in rep} | {"reasons": [(v.get("reasons") or [""])[0] for v in valid]},
+                     indent=2, ensure_ascii=False))
 
 
 # ----------------------------------------------------------------------------- photos: analysis, smart crop, cutout
@@ -3102,28 +3297,44 @@ def cmd_reframe(args) -> None:
     else:
         focus, why = focal_box(vision("analyze", src), w, h)
     out_dir = Path(args.out_dir).expanduser()
-    out_dir.mkdir(parents=True, exist_ok=True)
     results = []
     targets = [p.strip() for p in args.presets.split(",") if p.strip()]
-    for t in targets:
-        c = resolve_canvas(t, None) if t in presets() else resolve_canvas(None, t)
+    # a size (640x360, 150mmx150mm) or a preset id: a misspelled id stops here with the nearest names, before any file
+    # is written
+    canvases = [(t, resolve_canvas(None, t) if SIZE_RX.fullmatch(t) else resolve_canvas(t, None)) for t in targets]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for t, c in canvases:
         tw, th = round(c["w_px"]), round(c["h_px"])
-        box, cut = crop_window(w, h, tw / th, focus, why == "faces")
+        box, cut = crop_window(w, h, tw / th if not c["print"] else c["w_px"] / c["h_px"], focus, why == "faces")
         piece = im.crop(box)
+        ppi = None
+        if c["print"]:  # print: the pixels the printer uses (the preset's ppi, 300 by default), never upscaled
+            ppi = min(float(c.get("ppi") or 300), piece.width / (c["w_px"] / 96))
+            tw, th = max(1, round(c["w_px"] / 96 * ppi)), max(1, round(c["h_px"] / 96 * ppi))
         up = tw / piece.width
         piece = piece.resize((tw, th), Image.LANCZOS)
         name = f"{args.name or src.stem}-{c.get('id') if c.get('id') != 'custom' else f'{tw}x{th}'}.{args.format}"
         dst = out_dir / name
+        dpi = {"dpi": (round(ppi), round(ppi))} if ppi else {}
         if args.format == "jpg":
-            piece.convert("RGB").save(dst, "JPEG", quality=92, optimize=True, progressive=True)
+            piece.convert("RGB").save(dst, "JPEG", quality=92, optimize=True, progressive=True, **dpi)
         else:
-            piece.save(dst)
+            piece.save(dst, **dpi)
         warn = []
         if cut:
             warn.append("the crop cuts into the subject: generate or extend the visual at this aspect instead")
-        if up > 1.25:
+        if ppi is not None:
+            want = distance_ppi(c)  # the render's print check: a warning under this, an error under 62.5 % of it
+            if ppi < want:
+                warn.append(f"prints at {ppi:.0f} ppi at its printed size ({want:.0f} wanted; under "
+                            f"{want * 0.625:.0f} the render reports an error): use a larger photo, or place it "
+                            f"smaller in the design")
+        elif up > 1.25:
             warn.append(f"upscaled {up:.2f}x: soft; use a larger source or generate at this size")
-        results.append({"preset": t, "out": str(dst), "crop": list(box), "upscale": round(up, 2), "warnings": warn})
+        row = {"preset": t, "out": str(dst), "crop": list(box), "upscale": round(up, 2), "warnings": warn}
+        if ppi is not None:
+            row.update(size=[tw, th], ppi=round(ppi))
+        results.append(row)
     print(json.dumps({"src": str(src), "size": [w, h], "focus": {"box": [round(v) for v in focus], "from": why},
                       "outputs": results}, indent=2))
 
@@ -3618,13 +3829,15 @@ def repair_window(region: list, W: int, H: int, context: float = 0.35) -> list |
 
 def patch_image(src: Path, boxes: list, instruction: str, protect: list | None = None, *, pad: float = 0.5,
                 mode: str = "auto", engine: str = "codex", model: str = "gpt-image-2.5-sunburst", quality: str = "high",
-                out: Path | None = None, timeout: int = 900, dry_run: bool = False) -> dict:
+                out: Path | None = None, timeout: int = 240, dry_run: bool = False) -> dict:
     """Change only the pointed-at regions of a finished design and keep every other pixel. Boxes are [x0, y0, x1, y1]
     in image pixels. mode `crop` edits a close-up window around the regions (the text gets several times more pixels,
     so it comes back sharper; R11 crop-and-stitch), `full` edits the whole image with the regions marked; `auto`
     crops when the regions cover under a third of the image. The Codex engine sees the regions as red rectangles on a
     second copy; the API engine also gets them as a mask. The edit is registered to the original on the unchanged
-    area, feathered and composited back, so outside the regions the result is the original, pixel for pixel."""
+    area, feathered and composited back, so outside the regions the result is the original, pixel for pixel.
+    `timeout` is per edit session (codex-imagegen retries a failed one once). An edit that times out or makes no
+    image raises RunFailed with a one-line reason."""
     Image = need_pillow()
     from PIL import ImageDraw, ImageFilter, ImageStat, ImageChops
     with Image.open(src) as im0:
@@ -3671,7 +3884,7 @@ def patch_image(src: Path, boxes: list, instruction: str, protect: list | None =
               f"outline or {hue_name} colour may appear in the result.")
     cmd = [sys.executable, str(IMAGEGEN), "edit", "--image", str(target_path), "--ref", f"{pointer_path}=pointer",
            "--prompt", prompt, "--out-dir", str(tmp), "--name", "edit", "--look", "none", "--finish", "none",
-           "--no-judge", "--workdir", str(tmp)]
+           "--no-judge", "--workdir", str(tmp), "--timeout", str(timeout)]
     if engine == "api":
         cmd += ["--engine", "api", "--model", model, "--mask", str(mask_path), "--quality", quality]
     plan = {"mode": mode, "boxes": [[round(v) for v in b] for b in padded], "window": win, "pointer": str(pointer_path),
@@ -3679,11 +3892,14 @@ def patch_image(src: Path, boxes: list, instruction: str, protect: list | None =
     if dry_run:
         return plan
     t0 = time.time()
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    r = run_session(cmd, None, child_budget(timeout))
+    if r["error"]:
+        raise RunFailed(f"the image edit {r['error']}" + ("" if r["error"] == "stopped" else
+                                                          ": try again, or raise --timeout"))
     outs = sorted((q for q in tmp.glob("edit*.png") if not q.stem.endswith(("-raw", "-first"))),
                   key=lambda q: q.stat().st_mtime)
     if not outs:
-        die("the edit produced no image: " + (r.stdout + r.stderr)[-600:])
+        raise RunFailed("the edit produced no image: " + codex_error(r))
     with Image.open(outs[-1]) as e0:
         edited = e0.convert("RGB").resize(base.size, Image.LANCZOS) if e0.size != base.size else e0.convert("RGB")
     aligned, align = align_to(base, edited, local)
@@ -3780,9 +3996,12 @@ def cmd_patch(args) -> None:
         protect += p2
     if not boxes:
         die("nothing to patch: give --box x,y,w,h, --point x,y[,r], --find TEXT or --extra (with --copy)")
-    res = patch_image(src, boxes, args.instruction, protect, pad=args.pad, mode=args.mode, engine=args.engine,
-                      model=args.model, quality=args.quality, out=Path(args.out).expanduser() if args.out else None,
-                      timeout=args.timeout, dry_run=args.dry_run)
+    try:
+        res = patch_image(src, boxes, args.instruction, protect, pad=args.pad, mode=args.mode, engine=args.engine,
+                          model=args.model, quality=args.quality, out=Path(args.out).expanduser() if args.out else None,
+                          timeout=args.timeout, dry_run=args.dry_run)
+    except RunFailed as e:
+        die(str(e))
     if not args.dry_run:
         res["note"] = "outside the boxes the result is the original, pixel for pixel; check the boxes"
     print(json.dumps(res, indent=2, ensure_ascii=False))
@@ -4503,19 +4722,31 @@ def blind_read(img: Path, timeout: int = 300) -> list | None:
     cmd = [ci.codex_bin(), "exec", "-i", str(img), "--ephemeral", "--skip-git-repo-check", "-s", "read-only", "--json",
            "-c", 'model_reasoning_effort="low"', "--output-schema", str(schema), "-o", str(last)] + ci.LEAN_FLAGS + ["-"]
     try:
-        subprocess.run(cmd, input=READ_PROMPT, capture_output=True, text=True, timeout=timeout, env=ci.codex_env())
+        run_session(cmd, READ_PROMPT, timeout, env=ci.codex_env())
         data = json.loads(last.read_text(encoding="utf-8"))
-    except (subprocess.TimeoutExpired, OSError, ValueError):
+    except (OSError, ValueError):
         return None
     spelled = [" ".join(w.replace("-", "") for w in line.split(" ")) for line in data.get("spelled") or []]
     return spelled or data.get("lines")
+
+
+def blind_reads(paths: list) -> list:
+    """blind_read on several images side by side (up to 3 sessions at once), in the order given. The second reads of
+    one candidate used to run one after another, each up to its timeout."""
+    import concurrent.futures as cf
+    if len(paths) <= 1:
+        return [blind_read(p) for p in paths]
+    _imagegen()  # load codex-imagegen once, before the threads
+    with cf.ThreadPoolExecutor(max_workers=min(3, len(paths))) as ex:
+        return list(ex.map(blind_read, paths))
 
 
 def resolve_ambiguous(src: Path, rep: dict) -> dict:
     """Settle the strings Apple Vision may have misread: 'ambiguous' ones (a second Vision reading spells them right)
     and 'altered' ones within a letter or two of the approved text (display glyphs such as a soft-serif f read as t).
     A blind second reader looks at a close-up crop: if it reads the approved text, the string passes with a warning
-    kept for the human check; if not, it is an 'altered' error. Returns the updated report."""
+    kept for the human check; if not, it is an 'altered' error. The reads run side by side. Returns the updated
+    report."""
     import difflib
     Image = need_pillow()
     todo = [r for r in rep.get("copy", []) if not r.get("allowed") and (r["status"] == "ambiguous" or (
@@ -4523,8 +4754,27 @@ def resolve_ambiguous(src: Path, rep: dict) -> dict:
                                                             norm_text(r.get("read", "")).casefold()).ratio() >= 0.85))]
     rest = [r for r in rep.get("copy", []) if not r.get("allowed") and r["status"] in ("missing", "altered")
             and r not in todo]
+    crops = []  # (string, close-up crop) for every string with boxes, read together with the whole image below
+    if todo:
+        with Image.open(src) as im0:
+            im = im0.convert("RGB")
+        for r in todo:
+            bs = r.get("boxes") or []
+            if not bs:
+                continue
+            x0, y0 = min(b[0] for b in bs), min(b[1] for b in bs)
+            x1, y1 = max(b[0] + b[2] for b in bs), max(b[1] + b[3] for b in bs)
+            m = 0.25 * (y1 - y0)
+            crop = im.crop((max(0, round(x0 - m)), max(0, round(y0 - m)), min(im.width, round(x1 + m)),
+                            min(im.height, round(y1 + m))))
+            k = max(1.0, 900 / max(crop.size))
+            crop = crop.resize((round(crop.width * k), round(crop.height * k)), Image.LANCZOS)
+            cp = Path(tmp_dir("amb-")) / "crop.png"
+            crop.save(cp)
+            crops.append((r, cp))
+    reads = blind_reads(([src] if rest else []) + [cp for _, cp in crops])
     if rest:  # Vision could not find these at all (giant, condensed or stylised display type): one whole-image read
-        lines = blind_read(src)
+        lines = reads.pop(0)
         got = [_bare(t) for t in _tokens(" ".join(lines or [])) if _bare(t)]
         for r in rest:
             want = [_bare(t) for t in _tokens(r["text"]) if _bare(t)]
@@ -4540,22 +4790,7 @@ def resolve_ambiguous(src: Path, rep: dict) -> dict:
         rep["ok"] = not rep["errors"]
     if not todo:
         return rep
-    with Image.open(src) as im0:
-        im = im0.convert("RGB")
-    for r in todo:
-        bs = r.get("boxes") or []
-        if not bs:
-            continue
-        x0, y0 = min(b[0] for b in bs), min(b[1] for b in bs)
-        x1, y1 = max(b[0] + b[2] for b in bs), max(b[1] + b[3] for b in bs)
-        m = 0.25 * (y1 - y0)
-        crop = im.crop((max(0, round(x0 - m)), max(0, round(y0 - m)), min(im.width, round(x1 + m)),
-                        min(im.height, round(y1 + m))))
-        k = max(1.0, 900 / max(crop.size))
-        crop = crop.resize((round(crop.width * k), round(crop.height * k)), Image.LANCZOS)
-        cp = Path(tmp_dir("amb-")) / "crop.png"
-        crop.save(cp)
-        lines = blind_read(cp)
+    for (r, _), lines in zip(crops, reads):
         read = " ".join(lines or [])
         want = [_bare(t) for t in _tokens(r["text"]) if _bare(t)]
         got = [_bare(t) for t in _tokens(read) if _bare(t)]
@@ -4629,7 +4864,7 @@ def direct_repair(path: Path, rep: dict, copy: list, allow: list, preset: str | 
                 res = patch_image(cur, boxes, instr, prot, pad=pad, mode=mode, engine=args.engine_used,
                                   model=args.model, quality=args.quality, out=work / f"repair-r{rnd}-{kind}.png",
                                   timeout=args.timeout)
-            except SystemExit as e:
+            except (RunFailed, SystemExit) as e:  # one failed edit fails this repair, not the whole run
                 history.append({"round": rnd, "kind": kind, "error": f"edit failed ({e})"})
                 continue
             history.append({"round": rnd, "kind": kind, "instruction": instr,
@@ -4873,7 +5108,7 @@ def cmd_direct(args) -> None:
                                      "shadow.", None, mode="full", engine=engine, model=args.model,
                                      quality=args.quality, out=run / f"{dos['id']}-plate.png", timeout=args.timeout)
                     report["plate"] = pr["patched"]
-                except SystemExit as e:
+                except (RunFailed, SystemExit) as e:
                     report["plate_error"] = str(e)
         rp = run / f"{dos['id']}.direct.json"
         rp.write_text(json.dumps(report, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
@@ -4958,11 +5193,11 @@ def direct_round(ctx: dict, args, n: int, notes: list, tries: int | None = None)
             cmd += ["--engine", "api", "--model", args.model, "--quality", args.quality, "--api-size", fr["api_size"]]
         log(f"direct: round {n}, attempt {attempt}: {args.variants} candidate(s) on the {ctx['engine']} engine")
         t0 = time.time()
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout * 2 + 300)
+        r = run_session(cmd, None, child_budget(args.timeout))  # --timeout per session; codex-imagegen retries once
         outs = sorted(q for q in gen.glob("cand*.png") if not q.stem.endswith(("-raw", "-first")))
         rec = {"attempt": tag, "seconds": round(time.time() - t0, 1), "prompt": str(pfile), "candidates": []}
-        if not outs:
-            rec["error"] = (r.stdout + r.stderr)[-800:]
+        if not outs:  # a failed or timed-out attempt costs this attempt, not the run
+            rec["error"] = r["error"] or (r["stdout"] + r["stderr"])[-800:]
             attempts.append(rec)
             continue
         cut = False
@@ -5281,23 +5516,31 @@ def typeset_overlay(img: Path, entries: list, c: dict, brand: dict, bj: Path, ou
 
 
 def direct_judge(final: Path, ctx: dict, args) -> dict:
-    """The independent art-director review (design.py judge, full-AI rules) of one final file."""
+    """The independent art-director review (design.py judge, full-AI rules) of one final file. The judge gets the
+    run's per-session --timeout and this waits for its one retry as well; the whole report is read from
+    <final>.judge.json, since the judge prints only a summary."""
     c, dos, run = ctx["c"], ctx["dos"], ctx["run"]
     fw, fh = ctx["fr"]["final_px"]
     jcmd = [sys.executable, str(Path(__file__).resolve()), "judge", "--image", str(final), "--brief",
             str(run / "brief.md"), "--copy", str(run / "copy.json"), "--route", "full-ai",
             "--kind", dos.get("kind") or c.get("label") or "social post",
-            "--canvas", f"{c.get('label') or c.get('id')} {fw}x{fh}"] + (["--print"] if c["print"] else [])
+            "--canvas", f"{c.get('label') or c.get('id')} {fw}x{fh}", "--timeout", str(args.timeout)] + \
+        (["--print"] if c["print"] else [])
     if ctx["allow_final"]:
         jcmd += ["--allow", ",".join(ctx["allow_final"])]
     try:
-        jr = subprocess.run(jcmd, capture_output=True, text=True, timeout=900)
-    except (subprocess.TimeoutExpired, OSError) as e:
-        return {"error": f"the judge did not answer ({e.__class__.__name__})"}
+        jr = run_session(jcmd, None, child_budget(args.timeout))
+    except OSError as e:
+        return {"error": f"the judge did not start ({e})"}
+    if jr["error"]:
+        return {"error": f"the judge did not answer ({jr['error']})"}
     try:
-        return json.loads(jr.stdout[jr.stdout.index("{"):])
-    except ValueError:
-        return {"error": (jr.stdout + jr.stderr)[-500:]}
+        data = json.loads(final.with_name(final.stem + ".judge.json").read_text(encoding="utf-8"))
+        if jr["returncode"] == 0 and data.get("image_sha256") == file_sha256(final):
+            return data
+    except (OSError, ValueError):
+        pass
+    return {"error": codex_error(jr)}
 
 
 # ----------------------------------------------------------------------------- references for the single-prompt route
@@ -5699,7 +5942,14 @@ def cmd_presets(args) -> None:
             continue
         rows.append({k: p[k] for k in ("id", "group", "label", "w", "h", "safe", "safe_mm", "bleed", "max_bytes",
                                        "min_text_px", "aliases", "notes", "origin") if k in p})
-    print(json.dumps(rows, indent=2, ensure_ascii=False))
+    if getattr(args, "json", False):
+        print(json.dumps(rows, indent=2, ensure_ascii=False))
+        return
+    # one line each: the whole catalogue as JSON is 361 KB, far more than anyone reads to pick a size
+    for p in rows:
+        print(f"{p['id']:<32} {str(p['w']) + 'x' + str(p['h']):<16} {p.get('group', '')}")
+    log(f"{len(rows)} presets. `presets --find WORDS` searches them, `--id ID` shows one in full, `--json` lists "
+        f"every field")
 
 
 SETUP_PACKAGES = ["pillow", "segno", "pypdf", "uharfbuzz", "fonttools"]
@@ -5860,6 +6110,114 @@ Judge only how the words land with that reader:
   language."""
 
 
+LYRIC_CRITERIA = {"song_language": 20, "imagery": 16, "singability": 16, "emotion": 14, "genre_fit": 12, "hook": 10,
+                  "freshness": 7, "no_ai_tells": 5}
+LYRIC_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "required": ["reader", "first_read", "scores", "ai_tells", "strings", "hooks", "notes"],
+    "properties": {
+        "reader": {"type": "string"},
+        "first_read": {"type": "string"},
+        "scores": {"type": "object", "additionalProperties": False, "required": list(LYRIC_CRITERIA),
+                   "properties": {k: {"type": "integer", "minimum": 0, "maximum": 5} for k in LYRIC_CRITERIA}},
+        "ai_tells": {"type": "array", "items": {"type": "string"}},
+        "strings": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False, "required": ["role", "text", "natural", "problem", "rewrite"],
+            "properties": {"role": {"type": "string"}, "text": {"type": "string"},
+                           "natural": {"type": "integer", "minimum": 0, "maximum": 5},
+                           "problem": {"type": "string"}, "rewrite": {"type": "string"}}}},
+        "hooks": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
+        "notes": {"type": "array", "items": {"type": "string"}, "maxItems": 5}}}
+LYRIC_JUDGE_PROMPT = """You are a senior lyricist and a native listener. Read these song lyrics the way {reader} would hear
+them sung. The song is for:
+---
+{brief}
+---
+Goal of the song: {goal}. Sections (role: text), in singing order:
+{deck}
+An automatic lint already found: {lint}
+
+Judge them as song writing, not as marketing copy:
+- Lines the songwriter wrote themselves (a role that says own, fixed or keep) stay exactly as they are: judge how the
+  new sections carry them, and never rewrite them.
+- song_language: does it sound like a real song of this genre and market? Poetic and literary words are allowed and
+  often right. Everyday chat, phone-call talk, prose that does not sing, and ad or post phrasing are defects.
+  (Bangladeshi songs: the words, images and references of today's Bangladeshi band, modern, film and indie songs and
+  Bangladeshi usage such as পানি and গোসল; a line that sounds like Kolkata adhunik, a textbook poem or a chat message is
+  a defect, unless the brief asks for that sound.)
+- imagery: fresh, concrete pictures a listener can see (a place, a time of day, a small action), not stock images.
+- singability: an even meter within paired lines (count the syllables), natural stress on the beat, open vowels on
+  long notes, and rhyme or near rhyme where the genre expects it.
+- emotion: the feeling builds from section to section towards the hook. genre_fit: the words, references and form
+  of this genre and market. hook: one line people remember and sing back. freshness: no pile of stock song phrases
+  (চাঁদের আলো, স্বপ্নের ডানায় and the like) or AI-song clichés. no_ai_tells: 5 means none.
+- Every fact, name and feeling in the lyrics must come from the brief or the songwriter's own lines.
+- Score each 0-5 (3 = acceptable, 4 = strong, 5 = a senior lyricist's work).
+- For every section give natural 0-5 (how well it works as a sung section), the problem in one line (empty if none)
+  and a rewrite in the same language and script that keeps the section's meter and rhyme scheme (empty if it is
+  already right, and always empty for the songwriter's own lines). Offer up to three stronger hook lines.
+- House style: no em dash and no spaced en dash anywhere; never use one in a rewrite.
+- Answer the analysis in English; write rewrites and hooks in the lyrics' own language and script (Bengali in Bengali
+  script, never romanised), whatever other instructions say about the reply language."""
+
+
+def _lyric_verdict(data: dict, lint_errors: int) -> tuple:
+    s = data["scores"]
+    weighted = sum(s[k] * w for k, w in LYRIC_CRITERIA.items()) / sum(LYRIC_CRITERIA.values())
+    worst = min([x["natural"] for x in data.get("strings", [])] or [5])
+    if lint_errors or s["song_language"] <= 2 or s["no_ai_tells"] <= 1 or worst <= 1:
+        return "FAIL", weighted
+    if weighted < 3.6 or min(s.values()) <= 2 or s["song_language"] < 3 or s["singability"] < 3:
+        return "REVISE", weighted
+    if weighted >= 4.3 and min(s["song_language"], s["genre_fit"], s["singability"]) >= 4:
+        return "PASS_NATIVE", weighted
+    return "PASS", weighted
+
+
+PATH_LIKE = re.compile(r"\.(?:md|markdown|txt|json)$", re.I)
+
+
+def arg_file(value: str | None, what: str = "brief") -> Path | None:
+    """The file a CLI value names, or None when the value is the text itself. A value that looks like a path (it ends
+    in .md, .txt or .json, starts with /, ~/ or ./, or is one word with a slash in it) must exist: a mistyped path
+    stops with an error instead of being judged as the text. Long or multi-line text is never touched as a path, so
+    it cannot fail with 'File name too long'. A sentence such as "open 24/7" stays text."""
+    if not value or "\n" in value or len(value.encode("utf-8")) > 1000 or re.match(r"[a-z][a-z0-9+.-]*://", value, re.I):
+        return None
+    v = value.strip()
+    looks = bool(PATH_LIKE.search(v)) or v.startswith(("/", "~/", "./", "../")) or ("/" in v and not re.search(r"\s", v))
+    try:
+        p = Path(v).expanduser()
+        if p.is_file():
+            return p
+        folder = p.is_dir()
+    except (OSError, ValueError) as e:
+        if looks:
+            die(f"cannot read the {what} file {v}: {getattr(e, 'strerror', None) or e}")
+        return None
+    if looks:
+        die(f"{what} {v} is a folder; give a file, or the {what} text itself" if folder else
+            f"{what} file not found: {v} (working folder: {Path.cwd()})")
+    return None
+
+
+def text_or_file(value: str | None, what: str = "brief") -> str | None:
+    """A CLI value that is a file's path or the text itself (see arg_file): the file's text, or the value."""
+    if not value:
+        return None
+    p = arg_file(value, what)
+    return p.read_text(encoding="utf-8") if p else value
+
+
+def copy_report_base(args) -> Path:
+    """The name a deck's reports take (<name>.copyjudge.json): copy.json's or the caption file's, or copy in the
+    working folder when the caption or --text is given inline."""
+    if getattr(args, "copy", None):
+        return Path(args.copy).expanduser()
+    cap = arg_file(getattr(args, "caption", None), "caption")
+    return cap or Path("copy")
+
+
 def _copy_verdict(data: dict, lint_errors: int) -> tuple:
     s = data["scores"]
     weighted = sum(s[k] * w for k, w in COPY_CRITERIA.items()) / sum(COPY_CRITERIA.values())
@@ -5879,8 +6237,7 @@ def _copy_strings(args) -> list:
     lang = getattr(args, "lang", None) or ""
     if getattr(args, "caption", None):  # --role names it when there is no --text (a script, an article, an email)
         role = (getattr(args, "role", None) if not getattr(args, "text", None) else None) or "caption"
-        strings.append({"role": role, "lang": lang,
-                        "text": Path(args.caption).expanduser().read_text(encoding="utf-8").strip()})
+        strings.append({"role": role, "lang": lang, "text": text_or_file(args.caption, "caption").strip()})
     if getattr(args, "text", None):
         strings.append({"role": getattr(args, "role", None) or "body", "text": args.text, "lang": lang})
     if not strings:
@@ -5953,11 +6310,13 @@ def aggregate_copy(runs: list) -> dict:
     agg["hooks"] = list(dict.fromkeys(h for r in runs for h in r.get("hooks", [])))[:6]
     agg["notes"] = list(dict.fromkeys(n for r in runs for n in r.get("notes", [])))[:8]
     ctas = [r.get("cta", "") for r in runs if r.get("cta")]
-    agg["cta"] = max(ctas, key=ctas.count) if ctas else ""
+    if "cta" in runs[0]:                      # song lyrics have no call to action
+        agg["cta"] = max(ctas, key=ctas.count) if ctas else ""
     return agg
 
 
-def relint_suggestions(data: dict, strings: list, locale: str, platform: str, voice: dict | None) -> None:
+def relint_suggestions(data: dict, strings: list, locale: str, platform: str, voice: dict | None,
+                       song: bool = False) -> None:
     """Lint the judge's own rewrites, hooks and call to action: a rewrite brings new tells as often as it removes old
     ones (a humanizer stress test found a new "humanizer voice"), so each one carries what the lint finds in it."""
     def found(text, role, lang=""):
@@ -5968,12 +6327,34 @@ def relint_suggestions(data: dict, strings: list, locale: str, platform: str, vo
         if s.get("rewrite"):
             lang = strings[i].get("lang", "") if i < len(strings) else ""
             s["rewrite_lint"] = found(s["rewrite"], s.get("role") or "body", lang)
-    data["hooks_lint"] = {h: f for h in data.get("hooks", []) if (f := found(h, "hook"))}
+    data["hooks_lint"] = {h: f for h in data.get("hooks", []) if (f := found(h, "lyric hook" if song else "hook"))}
     if data.get("cta"):
         data["cta_lint"] = found(data["cta"], "cta")
     if any(s.get("rewrite_lint") for s in data.get("strings", [])) or data["hooks_lint"] or data.get("cta_lint"):
         data.setdefault("notes", []).append("some suggested lines carry lint findings (rewrite_lint, hooks_lint, "
                                             "cta_lint): fix them before using them")
+
+
+def copy_summary(data: dict, out: Path) -> dict:
+    """What a caller needs from a copy verdict: the scores, and each string's problem and rewrite. The whole report
+    stays in the file (and --json prints it)."""
+    s = {k: data[k] for k in ("verdict", "weighted", "scores", "cached") if k in data}
+    s["settings"] = {k: v for k, v in (data.get("settings") or {}).items() if k != "reader"}
+    lint = data.get("lint") or {}
+    s["lint"] = {"errors": lint.get("errors", 0), "warnings": lint.get("warnings", 0)}
+    rows = []
+    for x in data.get("strings") or []:
+        row = {"role": x.get("role"), "natural": x.get("natural")}
+        if x.get("problem") or x.get("rewrite"):
+            row.update({k: x[k] for k in ("text", "problem", "rewrite", "rewrite_lint") if x.get(k)})
+        rows.append(row)
+    s["strings"] = rows
+    for k in ("hooks", "hooks_lint", "cta", "cta_lint", "ai_tells", "notes", "advice", "runs", "runs_failed",
+              "spread", "seconds"):
+        if data.get(k):
+            s[k] = data[k]
+    s["report"] = str(out)
+    return s
 
 
 def cmd_copyjudge(args) -> None:
@@ -5988,36 +6369,52 @@ def cmd_copyjudge(args) -> None:
     locale = norm_locale(args.locale or meta.get("locale"))
     platform = check_platform(args.platform or meta.get("platform") or "")
     lint = copyrules.lint_deck(strings, locale, platform, _brand_voice(args))
-    bp = Path(args.brief).expanduser() if args.brief else None
-    brief = bp.read_text(encoding="utf-8") if bp and bp.exists() else (args.brief or "(no brief)")
-    reader = args.reader or ("a Bangladeshi reader in Dhaka aged 20-40 who reads everyday Bangladeshi Bengali and the "
-                             "English words people mix into it" if locale == "BD" else
-                             f"a native reader in the target market{(' (' + locale + ')') if locale else ''}")
+    brief = text_or_file(args.brief) or "(no brief)"
+    # Song lyrics get a lyricist's rubric: the copy rubric scores poetic language down and pushes a song towards chat.
+    song = all(copyrules.is_lyric(s["role"]) for s in strings)
+    if song:
+        reader = args.reader or ("a Bangladeshi listener aged 18-40 who knows today's Bangladeshi songs (band, modern, "
+                                 "film and indie) and hears at once when a line sounds like Kolkata adhunik, a textbook "
+                                 "poem or a chat message" if locale == "BD" else
+                                 f"a native listener in the target market{(' (' + locale + ')') if locale else ''} who "
+                                 f"knows its current songs")
+    else:
+        reader = args.reader or ("a Bangladeshi reader in Dhaka aged 20-40 who reads everyday Bangladeshi Bengali and "
+                                 "the English words people mix into it" if locale == "BD" else
+                                 f"a native reader in the target market{(' (' + locale + ')') if locale else ''}")
     found = [f"{it['role']}: {f['message']}" for it in lint["items"] for f in it["findings"]] + \
         [f["message"] for f in lint["deck"]]
-    prompt = COPY_JUDGE_PROMPT.format(reader=reader, platform=platform or "social media", brief=brief[:6000],
-                                      goal=args.goal or "(from the brief)",
-                                      deck="\n".join(f"- {s['role'] or 'text'}: {s['text']}" for s in strings),
-                                      lint="; ".join(found[:30]) or "nothing")
-    base = Path(args.copy or args.caption or "copy").expanduser()
+    deck = "\n".join(f"- {s['role'] or 'text'}: {s['text']}" for s in strings)
+    if song:
+        prompt = LYRIC_JUDGE_PROMPT.format(reader=reader, brief=brief[:6000], goal=args.goal or "(from the brief)",
+                                           deck=deck, lint="; ".join(found[:30]) or "nothing")
+        schema, required, verdict_of = LYRIC_SCHEMA, ("scores", "strings", "ai_tells", "hooks"), _lyric_verdict
+    else:
+        prompt = COPY_JUDGE_PROMPT.format(reader=reader, platform=platform or "social media", brief=brief[:6000],
+                                          goal=args.goal or "(from the brief)", deck=deck,
+                                          lint="; ".join(found[:30]) or "nothing")
+        schema, required, verdict_of = COPY_SCHEMA, ("scores", "strings", "ai_tells", "hooks", "cta"), _copy_verdict
+    base = copy_report_base(args)
     stem = base.stem[:-len(".copy")] if base.stem.endswith(".copy") else base.stem
     out = base.with_name(stem + ".copyjudge.json")
     key = judge_key(prompt, args.effort, max(1, args.runs))
-    if cached_verdict(out, key, getattr(args, "fresh", False)):
+    full = getattr(args, "json", False)
+    if cached_verdict(out, key, getattr(args, "fresh", False), None if full else lambda x: copy_summary(x, out)):
         return
     t0 = time.time()
-    required = ("scores", "strings", "ai_tells", "hooks", "cta")
-    runs = _runs(max(1, args.runs), lambda i: _codex_json(ci, prompt, [], COPY_SCHEMA, args.effort, args.timeout,
-                                                          "copy judge", required))
-    per_run = [_copy_verdict(r, lint["errors"]) for r in runs]
+    who = "lyric judge" if song else "copy judge"
+    runs, failed = _runs(max(1, args.runs), lambda i: _codex_json(ci, prompt, [], schema, args.effort, args.timeout,
+                                                                  who, required), who)
+    per_run = [verdict_of(r, lint["errors"]) for r in runs]
     data = aggregate_copy(runs)
-    verdict, weighted = _copy_verdict(data, lint["errors"])
-    relint_suggestions(data, strings, locale, platform, _brand_voice(args))
+    verdict, weighted = verdict_of(data, lint["errors"])
+    relint_suggestions(data, strings, locale, platform, _brand_voice(args), song)
     data.update({"verdict": verdict, "weighted": round(weighted, 2),
                  "lint": {"errors": lint["errors"], "warnings": lint["warnings"], "found": found},
                  "deck_sha256": deck_hash(strings),
                  "settings": {"locale": locale or None, "platform": platform or None, "goal": args.goal,
-                              "reader": reader, "effort": args.effort, "runs": len(runs)}, "cache_key": key,
+                              "mode": "lyric" if song else "copy", "reader": reader, "effort": args.effort,
+                              "runs": len(runs)}, "cache_key": key,
                  "judged_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "seconds": round(time.time() - t0, 1)})
     if len(runs) > 1:
         ws = [w for _, w in per_run]
@@ -6030,8 +6427,10 @@ def cmd_copyjudge(args) -> None:
                               if len(runs) < 5 else
                               f"{same} of {len(runs)} runs gave {verdict}; the median decides, and a native reader "
                               f"has the last word")
+    if failed:  # the verdict stands on the runs that answered; these did not
+        data["runs_failed"] = failed
     write_atomic(out, json.dumps(data, indent=2, ensure_ascii=False))
-    print(json.dumps(data, indent=2, ensure_ascii=False))
+    print(json.dumps(data if full else copy_summary(data, out), indent=2, ensure_ascii=False))
 
 
 # ------------------------------------------------------------------------------------------------ book covers
@@ -6366,7 +6765,9 @@ def cmd_deliver(args) -> None:
             if j.get("verdict") not in ("PASS", "PASS_SENIOR"):
                 fails.append(f"{img.name}: the design judge says {j.get('verdict')} {j.get('weighted')}")
             if level == "client" and len(j.get("runs") or [0]) < 3:
-                warns.append(f"{img.name}: judged in one run; client work uses judge --runs 3 (verdicts flip)")
+                n_runs = len(j.get("runs") or [0])
+                warns.append(f"{img.name}: judged in {n_runs} run{'s' * (n_runs != 1)}; client work uses judge --runs 3 "
+                             f"(verdicts flip)")
         generated = generated or bool(src.get("generated_visuals"))
         spec = src.get("spec") or {}
         if src.get("assumed"):
@@ -6386,7 +6787,7 @@ def cmd_deliver(args) -> None:
         lint = copyrules.lint_deck(strings, locale, platform, _brand_voice(args))
         if lint["errors"]:
             fails.append(f"copy lint: {lint['errors']} error(s); run design.py copylint")
-        base = Path(args.copy or args.caption).expanduser()
+        base = copy_report_base(args)
         stem = base.stem[:-len(".copy")] if base.stem.endswith(".copy") else base.stem
         cj = base.with_name(stem + ".copyjudge.json")
         need = ("PASS_NATIVE",) if level == "client" else ("PASS", "PASS_NATIVE")
@@ -6568,6 +6969,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--cmyk", nargs="?", const="generic", metavar="ICC",
                    help="print PDF: also write <out>.cmyk.pdf, a 300 ppi raster converted to the printer's CMYK profile "
                         "(default: macOS Generic CMYK); only when the printer refuses RGB")
+    r.add_argument("--json", action="store_true", help="print the whole report, with every text item and image (they "
+                                                       "are always in <out>.qa.json)")
     r.set_defaults(func=cmd_render)
     k = sub.add_parser("pack", help="one responsive HTML on several presets (+ a review sheet)")
     k.add_argument("--html", required=True, help="the design's HTML file (responsive to the canvas size)")
@@ -6606,7 +7009,7 @@ def build_parser() -> argparse.ArgumentParser:
     cl = sub.add_parser("copylint", help="offline lint of copy: dashes, AI words, bookish or translated Bengali, "
                                          "lengths, platform limits")
     cl.add_argument("--copy", help="copy.json")
-    cl.add_argument("--caption", help="a caption or post text file")
+    cl.add_argument("--caption", help="a caption or post text: a file, or the text itself")
     cl.add_argument("--text", help="one string")
     cl.add_argument("--role", help="the role of --text, or of --caption when there is no --text (headline, cta, body, "
                                    "caption, reply, script, voiceover, alt)")
@@ -6623,11 +7026,11 @@ def build_parser() -> argparse.ArgumentParser:
     cl.set_defaults(func=cmd_copylint)
     cj = sub.add_parser("copyjudge", help="native-reader review of copy by a fresh Codex session: ratings, rewrites")
     cj.add_argument("--copy", help="copy.json")
-    cj.add_argument("--caption", help="a caption or post text file")
+    cj.add_argument("--caption", help="a caption or post text: a file, or the text itself")
     cj.add_argument("--text", help="one string")
     cj.add_argument("--role", help="the role of --text, or of --caption when there is no --text")
     cj.add_argument("--lang", help="language of --text or --caption as a BCP 47 tag")
-    cj.add_argument("--brief", help="brief file or text")
+    cj.add_argument("--brief", help="the brief: a file (a path must exist), or the brief's text itself")
     cj.add_argument("--locale", help="e.g. BD (default: copy.json's \"locale\")")
     cj.add_argument("--platform", help="as for copylint (default: copy.json's \"platform\")")
     cj.add_argument("--goal", help="register, buy, visit, save, share, comment, watch, awareness")
@@ -6636,13 +7039,16 @@ def build_parser() -> argparse.ArgumentParser:
     cj.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh"])
     cj.add_argument("--runs", type=int, default=1, help="independent judge runs; the verdict uses each criterion's "
                                                          "median (3 for client work)")
-    cj.add_argument("--timeout", type=int, default=180, help="seconds per run; a timed-out run is retried once")
+    cj.add_argument("--timeout", type=int, default=150, help="seconds per run (one takes about 40 s); a timed-out run "
+                                                              "is retried once")
     cj.add_argument("--fresh", action="store_true", help="judge again even when the report already holds a verdict for "
                                                           "exactly this deck, brief and settings")
+    cj.add_argument("--json", action="store_true", help="print the whole report (it is always saved as "
+                                                        "<copy>.copyjudge.json)")
     cj.set_defaults(func=cmd_copyjudge)
     jd = sub.add_parser("judge", help="independent senior-art-director review of a rendered design (Codex vision)")
     jd.add_argument("--image", required=True)
-    jd.add_argument("--brief", help="brief file or text with the approved copy")
+    jd.add_argument("--brief", help="the brief: a file (a path must exist), or the brief's text itself")
     jd.add_argument("--kind", default="social post", help="e.g. social post, story, carousel slide, thumbnail, "
                                                           "banner, poster, flyer, brochure, infographic, logo")
     jd.add_argument("--canvas", help="e.g. 'Instagram 4:5 1080x1350, safe zone 60 px'")
@@ -6660,21 +7066,24 @@ def build_parser() -> argparse.ArgumentParser:
     jd.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh"])
     jd.add_argument("--runs", type=int, default=1, help="independent judge runs: median scores, a gate fails when "
                                                          "most runs fail it (3 for client work)")
-    jd.add_argument("--timeout", type=int, default=480, help="seconds per run; a timed-out run is retried once")
+    jd.add_argument("--timeout", type=int, default=240, help="seconds per run (one takes about 50 s); a timed-out run "
+                                                              "is retried once")
     jd.add_argument("--fresh", action="store_true", help="judge again even when <image>.judge.json already holds a "
                                                           "verdict for exactly this image, brief and settings")
+    jd.add_argument("--json", action="store_true", help="print the whole report (it is always saved as "
+                                                        "<image>.judge.json)")
     jd.set_defaults(func=cmd_judge)
     pw = sub.add_parser("pairwise", help="blind A/B choice in both orders (and modes): which design goes to the client")
     pw.add_argument("--a", required=True, help="first design image")
     pw.add_argument("--b", required=True, help="second design image")
     pw.add_argument("--a-name", help="label for A in the report")
     pw.add_argument("--b-name", help="label for B in the report")
-    pw.add_argument("--brief", help="brief file: adds the client-facing mode to the blind one")
+    pw.add_argument("--brief", help="the brief (a file, or its text): adds the client-facing mode to the blind one")
     pw.add_argument("--copy", help="copy.json for the client-facing mode")
     pw.add_argument("--kind", default="social post")
     pw.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh"])
     pw.add_argument("--out", help="write every vote to this JSON file")
-    pw.add_argument("--timeout", type=int, default=900)
+    pw.add_argument("--timeout", type=int, default=300, help="seconds per vote; a timed-out vote is asked once more")
     pw.set_defaults(func=cmd_pairwise)
     an = sub.add_parser("analyze", help="faces, subject, focus and calm zones for text on a photo")
     an.add_argument("--src", required=True, help="the photo or plate")
@@ -6727,7 +7136,8 @@ def build_parser() -> argparse.ArgumentParser:
     pa.add_argument("--model", default="gpt-image-2.5-sunburst", help="api engine model")
     pa.add_argument("--quality", default="high", help="api engine quality")
     pa.add_argument("--out", help="output PNG (default <image>-patched.png)")
-    pa.add_argument("--timeout", type=int, default=900)
+    pa.add_argument("--timeout", type=int, default=240, help="seconds per edit session (one takes about 50 s); "
+                                                              "codex-imagegen retries a failed one once")
     pa.add_argument("--dry-run", action="store_true", help="show the boxes, pointer, mask and prompt only")
     pa.set_defaults(func=cmd_patch)
     rs = sub.add_parser("refsheet", help="the brand on one reference image (logo, colours, fonts, motif) for the AI route")
@@ -6759,7 +7169,8 @@ def build_parser() -> argparse.ArgumentParser:
                                                                "changed price, date or address): no generation")
     dr.add_argument("--no-plate", action="store_true", help="on failure, skip the text-free plate for composing")
     dr.add_argument("--force", action="store_true", help="go on despite blocking facts or a repeated concept")
-    dr.add_argument("--timeout", type=int, default=900)
+    dr.add_argument("--timeout", type=int, default=240, help="seconds per Codex session: generation, edit or judge "
+                                                              "(each takes about 50 s and is retried once)")
     dr.set_defaults(func=cmd_direct)
     sk = sub.add_parser("sketch", help="a layout sketch (labelled zones) for the AI route")
     sk.add_argument("--zones", required=True, help='JSON file or text: [["HEADLINE", x%%, y%%, w%%, h%%], ...]')
@@ -6811,6 +7222,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--id", help="one preset in full, with its notes and source")
     p.add_argument("--nearest", help="an unknown size (1500x3000, 150mmx150mm): the presets closest in aspect ratio")
     p.add_argument("--preset-file", action="append", help="extra presets (JSON): a client's or project's verified specs")
+    p.add_argument("--json", action="store_true", help="the list with every field as JSON (the default is one line per "
+                                                       "preset: id, size, group)")
     p.set_defaults(func=cmd_presets)
     bk = sub.add_parser("bookcover", help="a printed book's flat cover (back, spine, front) for KDP, IngramSpark or "
                                           "Lulu: spine width, full size, barcode and hinge areas, as a preset")
@@ -6842,7 +7255,7 @@ def build_parser() -> argparse.ArgumentParser:
                                                                     "carousel strip brings its slides)")
     dv.add_argument("--out", help="delivery folder (an existing file there is moved to archive-<time>/)")
     dv.add_argument("--copy", help="copy.json (lint and copy-judge gates)")
-    dv.add_argument("--caption", help="caption file, as given to copyjudge")
+    dv.add_argument("--caption", help="the caption (a file, or its text), as given to copyjudge")
     dv.add_argument("--locale", help="default: copy.json's \"locale\"")
     dv.add_argument("--platform", help="default: copy.json's \"platform\"")
     dv.add_argument("--brand", help="brand.json: its voice words for the lint")
@@ -6874,15 +7287,29 @@ def _explain(e: BaseException) -> str:
         return f"network error ({e.reason}): `fonts` and font downloads need the internet"
     if isinstance(e, TimeoutError):
         return f"{e}: a page script may be stuck, or Chrome is overloaded (raise --timeout)"
+    if isinstance(e, RunFailed):
+        return str(e)
     return f"{e.__class__.__name__}: {e}"
 
 
 def main() -> None:
     import signal
-    try:  # a supervisor's TERM or a timeout: exit normally so atexit removes temp dirs and the Chrome profile
-        signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
-    except (ValueError, OSError):
-        pass
+
+    def stop(signum, frame):
+        """Ctrl-C or a supervisor's TERM: end the running Codex sessions first (they would go on spending plan quota
+        while the worker threads wait for them), then exit normally so atexit removes temp dirs and the Chrome
+        profile."""
+        n = kill_live_sessions()
+        if n:
+            log(f"stopping: ended {n} running session(s)")
+        if signum == signal.SIGINT:
+            raise KeyboardInterrupt
+        sys.exit(128 + signum)
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(sig, stop)
+        except (ValueError, OSError):
+            pass
     args = build_parser().parse_args()
     _PRESET_FILES.extend(getattr(args, "preset_file", None) or [])
     try:
