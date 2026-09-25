@@ -62,7 +62,11 @@ colour. The creator cutout and the presenter are pictures in `public/`: the kit 
 - Check drawing order at contact moments on stills (the finish tape and poles sat in front of the runner's arm once).
 - Small bars that grow in the same frames as big ones are not seen growing: stagger their start.
 - Counters and growing charts pass through in-between values: judge the settled frame.
-- Keep text clear of the top-left and bottom-right corners, where YouTube's player shows the title and the time.
+- A swinging leg points its foot along the shin: a foot drawn at 90 degrees to the shin stood up behind the planted
+  leg and read as a glitch.
+- Break two-line titles by hand (two strings in `copy.ts`) instead of letting the browser wrap them.
+- Keep text at least 5% from every edge, and clear of the top-left and bottom-right corners, where YouTube's player
+  shows the title and the time.
 - Colour is BT.709 (`remotion.config.ts`), what YouTube expects for SDR.
 - Remotion moves what is drawn in code and can pop, sway, breathe and push in on a picture. It cannot turn a
   picture's head, move its hands or lip-sync: for acting shots use real footage or an image-to-video model (Wan 2.2),
