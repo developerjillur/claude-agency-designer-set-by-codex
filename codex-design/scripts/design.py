@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # no __pycache__ inside the skill folder
 import copyrules  # noqa: E402  (copy that reads human: references/copy.md)
 
-SKILL_VERSION = "2026.09.25.2"
+SKILL_VERSION = "2026.09.25.3"
 SKILL_DIR = Path(__file__).resolve().parent.parent
 PRESETS_FILE = SKILL_DIR / "scripts" / "presets.json"
 
@@ -2234,6 +2234,14 @@ def plate_notes(qa: dict | None) -> list:
 PROMPT_DETAIL = re.compile(r"\b(?:requested|specified|requirement|reserved|asked for|the prompt)\b", re.I)
 
 
+def pdf_preview_scale(c: dict, slides: int = 1, pages: int = 1) -> float:
+    """The device scale of a print PDF's --preview, which the judge reads: 200 dpi (at 96 dpi a 5x7 in card was 492 px
+    wide and the judge failed its resolution, 2026-09-25), less for a sheet so large that 200 dpi would pass the
+    raster limit, and never under 96 dpi."""
+    area = c["w_px"] * c["h_px"] * max(1, slides) * max(1, pages)
+    return max(1.0, min(200 / 96, 0.95 * (MAX_RASTER_PX / area) ** 0.5))
+
+
 def produce(ch: Chrome, html: Path, c: dict, out: Path, scale: float | None = None, transparent: bool = False,
             slides: int = 1, qa: bool = True, overlay: bool = False, quality: int = 90, max_bytes: int | None = None,
             preview: bool = False, pages: int = 1, copy: list | None = None, simulate: list | None = None,
@@ -2256,9 +2264,8 @@ def produce(ch: Chrome, html: Path, c: dict, out: Path, scale: float | None = No
     raster_pdf = fmt == "pdf" and slides > 1  # a carousel PDF (LinkedIn document) is one page per slide
     if cmyk and not (fmt == "pdf" and c["print"] and not raster_pdf):
         die("--cmyk works with a print preset (or a mm/in size) and a .pdf output")
-    # a PDF's --preview is what the judge reads: at 96 dpi a 5x7 in card was 492 px wide, and the judge failed its
-    # "resolution" (2026-09-25); 200 dpi keeps small print readable
-    scale = scale or (300 / 96 if c["print"] and (fmt != "pdf" or cmyk) else 200 / 96 if c["print"] and preview else 1)
+    scale = scale or (300 / 96 if c["print"] and (fmt != "pdf" or cmyk) else
+                      pdf_preview_scale(c, slides, pages) if c["print"] and preview else 1)
     want_png = fmt != "pdf" or preview or raster_pdf or bool(cmyk)
     raster_px = c["w_px"] * c["h_px"] * slides * pages * (scale if not raster_pdf else max(scale, 1)) ** 2
     if want_png and raster_px > MAX_RASTER_PX:
@@ -3013,9 +3020,12 @@ def cmd_judge(args) -> None:
     ci = _imagegen()
     if ci is None:
         die(f"the design judge uses codex-imagegen's Codex setup ({IMAGEGEN})")
-    img = Path(args.image).expanduser()
+    img = judged_image(Path(args.image).expanduser())
     if not img.exists():
         die(f"not found: {img}")
+    if img.suffix.lower() == ".pdf":
+        die(f"the judge reads images: render {img.name} with --preview (it writes {img.stem}.preview.png) and judge "
+            f"that, or pass the PDF to deliver, which judges its preview")
     brief = (text_or_file(args.brief, "brief") or "(no brief: judge craft only)").strip()
     if len(brief) > BRIEF_MAX:  # only the brief is cut: the approved copy and brand facts below always reach the judge
         log(f"the brief has {len(brief)} characters: the judge reads the first {BRIEF_MAX}")
@@ -6858,6 +6868,17 @@ def deck_hash(strings: list) -> str:
                                      ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
+def judged_image(img: Path) -> Path:
+    """What the design judge looks at for a file: a PDF's own preview (render --preview writes <name>.preview.png),
+    since the judge reads images. A wedding card's PDF went to the judge as it was and stopped every delivery
+    (2026-09-25). Anything else is itself."""
+    if img.suffix.lower() == ".pdf":
+        prev = img.with_name(img.stem + ".preview.png")
+        if prev.exists():
+            return prev
+    return img
+
+
 def run_judges(args, designs: list) -> list:
     """deliver --judge: the design judge on each design and the copy judge on the copy, all at the same time, before
     the gates. Run one after the other they took two model turns and 1.5 to 4 minutes; together they take as long as
@@ -6879,7 +6900,7 @@ def run_judges(args, designs: list) -> list:
         made = {o.get("sha256") for o in (q.get("source") or {}).get("outputs") or []}
         if not q or (q.get("checks") or {}).get("errors") or file_sha256(img) not in made:
             continue  # the render gate stops it below, with the reason
-        cmd = me + ["judge", f"--image={img}"] + given(("brief", "kind", "copy", "brand", "allow")) + \
+        cmd = me + ["judge", f"--image={judged_image(img)}"] + given(("brief", "kind", "copy", "brand", "allow")) + \
             [f"--runs={runs}"]
         jobs.append((f"design judge ({img.name})", cmd, waves * child_budget(240)))
     if args.copy or args.caption:
@@ -6946,7 +6967,8 @@ def cmd_deliver(args) -> None:
                     "preset": src.get("preset"), "html": src.get("html")})
         if errs:
             fails.append(f"{img.name}: {len(errs)} render error(s), first: {errs[0][:160]}")
-        jp = img.with_name(img.stem + ".judge.json")
+        seen = judged_image(img)  # a PDF is judged through its preview
+        jp = seen.with_name(seen.stem + ".judge.json")
         if not jp.exists():
             fails.append(f"{img.name}: not judged; run design.py judge" + (" --runs 3" if level == "client" else ""))
         else:
@@ -6955,7 +6977,7 @@ def cmd_deliver(args) -> None:
                                                                          else "")
             if not j.get("image_sha256"):
                 warns.append(f"{img.name}: its judge report predates image hashes; judge it again to be sure")
-            elif j["image_sha256"] != h:
+            elif j["image_sha256"] != (h if seen == img else file_sha256(seen)):
                 fails.append(f"{img.name}: the judge saw an earlier version of this file; judge it again")
             if j.get("verdict") not in ("PASS", "PASS_SENIOR"):
                 fix = "; ".join((j.get("fixes") or [])[:3])  # what to change, so no second call reads the report

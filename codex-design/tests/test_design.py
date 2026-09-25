@@ -277,6 +277,14 @@ class Units(unittest.TestCase):
         self.assertEqual((res["verdict"], res["settings"]["mode"]), ("PASS", "lyric"))
         self.assertNotIn("cta", res)
 
+    def test_a_pdf_preview_is_200_dpi_within_the_raster_limit(self):
+        card = d.resolve_canvas(None, "5inx7in")
+        self.assertAlmostEqual(d.pdf_preview_scale(card), 200 / 96)
+        wall = d.resolve_canvas(None, "4000mmx3000mm")                  # a large banner: capped, never under 96 dpi
+        s = d.pdf_preview_scale(wall)
+        self.assertTrue(1 <= s < 200 / 96)
+        self.assertLessEqual(wall["w_px"] * wall["h_px"] * s * s, d.MAX_RASTER_PX)
+
     def test_lengths_and_canvases(self):
         self.assertAlmostEqual(d.parse_len("25.4mm"), 96, places=3)
         self.assertEqual(d.parse_len("2in"), 192)
@@ -1685,6 +1693,23 @@ class SpeedAndReliability(unittest.TestCase):
         self.assertIn('Agreed placeholders', seen["prompt"])
         self.assertIn('- "০১XXX-XXXXXX"', seen["prompt"].split("Agreed placeholders")[1])
 
+    @unittest.skipUnless(HAVE_PIL, "needs Pillow")
+    def test_a_pdf_is_judged_through_its_preview(self):
+        """2026-09-25: deliver --judge sent a wedding card's PDF to the judge, which reads images, and every delivery
+        stopped on 'not judged'."""
+        pdf = self.tmp / "invite.pdf"
+        pdf.write_bytes(b"%PDF-1.4 stand-in")
+        err = io.StringIO()
+        with self.fake_codex(lambda *a: judge_answer()), self.assertRaises(SystemExit), contextlib.redirect_stderr(err):
+            d.cmd_judge(self.judge_args(pdf, brief="Wedding card"))
+        self.assertIn("render invite.pdf with --preview", err.getvalue())
+        prev = self.tmp / "invite.preview.png"
+        Image.new("RGB", (1000, 1400), (245, 238, 225)).save(prev)
+        self.assertEqual(d.judged_image(pdf), prev)
+        with self.fake_codex(lambda *a: judge_answer()), contextlib.redirect_stdout(io.StringIO()):
+            d.cmd_judge(self.judge_args(pdf, brief="Wedding card"))
+        self.assertTrue((self.tmp / "invite.preview.judge.json").exists())
+
     def test_a_wider_claim_needs_most_runs(self):
         runs = []
         for flag in (True, False, True):
@@ -2248,6 +2273,22 @@ class RenderProduction(unittest.TestCase):
         self.assertTrue(any("agreed placeholder" in w for w in rep["checks"]["warnings"]))
         with Image.open(self.tmp / "card.preview.png") as im:
             self.assertGreaterEqual(im.size[0], 990)                                          # 5 in at 200 dpi
+
+    def test_deliver_ships_a_pdf_judged_through_its_preview(self):
+        c = d.resolve_canvas(None, "5inx7in")
+        p = self.tmp / "card.html"
+        p.write_text(page("<h1 style='margin:40px;font:48px serif'>Save the date</h1>"), encoding="utf-8")
+        d.produce(self.ch, p, c, self.tmp / "card.pdf", preview=True)
+        pdf, prev = self.tmp / "card.pdf", self.tmp / "card.preview.png"
+        (self.tmp / "card.preview.judge.json").write_text(json.dumps(
+            {"verdict": "PASS", "weighted": 3.9, "image_sha256": d.file_sha256(prev), "runs": [{}, {}, {}]}))
+        ns = argparse.Namespace(design=[str(pdf)], out=str(self.tmp / "final"), copy=None, caption=None, locale=None,
+                                platform=None, brand=None, level="draft", ledger=None, recipe=None, client=None,
+                                name=None, force=False, dry_run=False)
+        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+            d.cmd_deliver(ns)
+        self.assertTrue(json.loads(out.getvalue())["ok"])
+        self.assertTrue((self.tmp / "final" / "card.pdf").exists())
 
     def test_render_prints_a_summary_and_keeps_the_detail_in_the_report(self):
         p = self.tmp / "d.html"

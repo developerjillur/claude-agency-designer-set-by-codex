@@ -4,6 +4,15 @@ The version is `SKILL_VERSION` in `scripts/design.py`; `doctor` reports it. Afte
 `python3 -m unittest discover -s ~/.claude/skills/codex-design/tests`, and render the pattern library (every pattern
 on its presets must stay free of errors and warnings; `templates/README.md` lists them).
 
+## 2026.09.25.3 · a PDF is judged through its preview
+
+- **`deliver --judge` with a PDF** sent the PDF to the design judge, which reads images, and the gate then looked for
+  a report the judge could never write: a wedding card stopped on "not judged" in every run. The judge now reads a
+  PDF's own preview (`render --preview` writes `<name>.preview.png`), `deliver` takes that report for the PDF, and
+  `judge` on a PDF without a preview says how to make one.
+- **The PDF preview's 200 dpi stops under the raster limit** for very large sheets (never under 96 dpi).
+- **Tests:** 139 offline tests.
+
 ## 2026.09.25.2 · judges that converge, and gates that let good work ship
 
 Found in a real test on 2026-09-25: six client finals (a Bengali Facebook post, a Bengali carousel, a Lisbon web
