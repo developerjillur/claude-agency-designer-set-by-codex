@@ -42,7 +42,7 @@ import gemini_api  # noqa: E402
 import nvc_plan as P  # noqa: E402
 import pixabay_api as X  # noqa: E402
 
-SKILL_VERSION = "2026.09.25.4"
+SKILL_VERSION = "2026.09.25.5"
 REMOTION_VERSION = "4.0.528"
 SKILL_DIR = HERE.parent
 TEMPLATE = SKILL_DIR / "template"
@@ -946,8 +946,13 @@ def cmd_brief(args):
               "targets turn screenPip and split into stack.",
               "- Overlays: hook{text}, keyword{text}, stat{value,label,source?}, list{items[],title?}, "
               "compare{left,right,title?}, quote{text,by?}, chapter{title}, lowerThird{name,role?}, "
-              "callout{label?}+box, redact+box, broll|image|segment+source(+in), cta{text,sub?}.",
-              "- Transitions (into a segment): cut (default), zoom, whip, dip, flash. Use them sparingly.",
+              "callout{label?}+box, redact+box, broll|image|segment+source(+in), cta{text,sub?}, label{text,corner?}.",
+              "- Designed full-frame scenes (references/plan.md, Scenes): kinetic{text|lines,highlight?}, "
+              "step{n,title}, bigStat{value,label?,title?,series?}, bars{rows[{label,value,text?}],title?,note?}, "
+              "versus{left,right}, recap{items[]}, endCard{text,button?}, photo+source{label?}. Over a camera the "
+              "speaker stays in a round picture. A faceless video is carried by them: a scene every 3 to 8 s.",
+              "- Transitions (into a segment): cut (default), zoom, whip, dip, flash, slide, sweep. Use them "
+              "sparingly; scenes come in with their own (enter: slide, slideUp, sweep, pop, fade, cut).",
               ""]
     if preset["width"] > preset["height"]:
         lines[-1:-1] = [
@@ -1256,8 +1261,10 @@ def music_cuts(edl):
                          "label": c["layout"]})
         last_layout = c["layout"]
     for o in edl["overlays"]:
-        if o["type"] in ("hook", "stat", "cta", "chapter", "quote"):
-            cuts.append({"t": round(o["from"] / fps, 3), "weight": 3 if o["type"] in ("stat", "cta") else 2,
+        if o["type"] in ("hook", "stat", "cta", "chapter", "quote", "kinetic", "step", "bigStat", "bars", "versus",
+                         "recap", "endCard", "photo"):
+            cuts.append({"t": round(o["from"] / fps, 3),
+                         "weight": 3 if o["type"] in ("stat", "cta", "step", "bigStat", "endCard") else 2,
                          "label": o["type"]})
     return sorted(cuts, key=lambda c: c["t"])
 
@@ -1358,7 +1365,12 @@ def cmd_stills(args):
         fps = edl["fps"]
         frames.add(min(n - 1, int(0.5 * fps)))
         for o in edl["overlays"]:
-            frames.add(min(n - 1, o["from"] + min(o["durationInFrames"] - 1, int(0.8 * fps))))
+            # a designed scene is looked at once its parts have landed; other graphics 0.8 s in
+            t_ = (o.get("props") or {}).get("t") or {}
+            at = (t_.get("click", 0) + 12) if o["type"] == "endCard" and t_.get("click") else \
+                (t_["land"] + 8 if t_.get("land") else int(0.7 * o["durationInFrames"])) if o["type"] in P.SCENE_TYPES \
+                else int(0.8 * fps)
+            frames.add(min(n - 1, o["from"] + min(o["durationInFrames"] - 1, at)))
         for c in edl["clips"]:
             frames.add(min(n - 1, c["from"] + min(c["durationInFrames"] - 1, 6)))
         for z in edl["zooms"]:

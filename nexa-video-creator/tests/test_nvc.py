@@ -396,6 +396,133 @@ class SpeechImport(unittest.TestCase):
             self.assertEqual([w["id"] for w in words["words"]], ["w0001", "w0002"])
 
 
+SCENE_SENTENCES = ["Most people quit learning to edit halfway through.",
+                   "Step one: practise for ten minutes every day.",
+                   "Get one percent better every day for a year.",
+                   "The first month you barely notice it at all.",
+                   "Day one and day three hundred sixty five differ.",
+                   "Start today and subscribe for more."]
+
+
+class Scenes(unittest.TestCase):
+    """Designed full-frame scenes: what the compiler fills in for the renderer, and what it refuses."""
+
+    def setUp(self):
+        spec, t = [], 0.3
+        self.spans = []
+        for s in SCENE_SENTENCES:
+            first = len(spec) + 1
+            for w in s.split():
+                d = 0.16 + 0.04 * len(w)
+                spec.append((w, round(t, 3), round(t + d, 3)))
+                t += d + 0.08
+            self.spans.append((first, len(spec)))
+            t += 0.4
+        self.words = make_words(spec)
+        self.job = {"id": "v", "dialogue": "vo", "fps": 30, "language": "en",
+                    "sources": {"vo": {"kind": "voice", "duration": t + 1.0, "audio": "media/audio/vo.wav"}}}
+
+    def g(self, i):
+        a, b = self.spans[i]
+        return {"words": ["w%04d" % a, "w%04d" % b], "quote": quote(self.words, a, b)}
+
+    def plan(self, overlays, lang="en"):
+        return {"schema": "nvc-plan/1", "title": "t", "language": lang,
+                "segments": [dict(self.g(i), layout="voiceOnly") for i in range(len(SCENE_SENTENCES))],
+                "overlays": overlays}
+
+    def test_scenes_get_lines_labels_events_and_sounds(self):
+        growth = [round(1.01 ** d, 3) for d in range(0, 366, 73)]
+        r = compile_(self.plan([
+            dict(self.g(0), type="kinetic", props={"text": "Most people quit learning to edit halfway through",
+                                                   "highlight": "halfway"}),
+            dict(self.g(1), type="step", props={"n": 1, "title": "Practise ten minutes a day"}),
+            dict(self.g(2), type="bigStat", props={"title": "Get 1% better every day", "value": "37.8x",
+                                                   "series": growth}, facts=[{"text": "37.8x", "origin": "formula"}]),
+            dict(self.g(3), type="bars", props={"rows": [{"label": "1 week", "value": 1.07},
+                                                         {"label": "1 year", "value": 37.8, "text": "37.8x"}]},
+                 facts=[{"text": "1.07 37.8x", "origin": "formula"}]),
+            dict(self.g(5), type="endCard", props={"text": "Start today"})]), self.words, self.job)
+        self.assertTrue(r["report"]["ok"], r["report"]["errors"])
+        ov = {o["type"]: o for o in r["edl"]["overlays"]}
+        self.assertEqual(ov["kinetic"]["props"]["lines"], ["Most people quit learning", "to edit halfway through"])
+        self.assertTrue(ov["kinetic"]["props"]["hideCaptions"])                # the words are on screen already
+        st = ov["step"]
+        self.assertEqual((st["props"]["label"], st["props"]["numText"], st["enter"], st["slot"]),
+                         ("Step 1", "1", "sweep", "full"))
+        self.assertEqual(st["props"]["lines"], ["Practise", "ten minutes a day"])   # a number stays with its word
+        self.assertEqual(ov["bigStat"]["enter"], "slide")
+        bt = ov["bars"]["props"]["t"]
+        self.assertEqual(bt["focus"], 1)                                          # the largest value
+        self.assertEqual(bt["land"], bt["start"] + bt["step"] + int(math.floor(bt["len"] * 1.8 + 0.5)))
+        ec = ov["endCard"]["props"]
+        self.assertEqual((ec["button"], ec["pressed"]), ("Subscribe", "Subscribed"))
+        cues = {(c["name"], int(round(c["t"] * 30))) for c in r["sfx"]}
+        self.assertIn(("ding", ov["bigStat"]["from"] + ov["bigStat"]["props"]["t"]["land"]), cues)
+        self.assertIn(("ding", ov["bars"]["from"] + bt["land"]), cues)
+        self.assertIn(("click", ov["endCard"]["from"] + ec["t"]["click"]), cues)
+        self.assertEqual(r["edl"]["theme"]["backdrop"], "paper")                  # nothing filmed: warm paper
+        self.assertFalse(any(o["props"].get("pip") for o in r["edl"]["overlays"]))
+        self.assertTrue(r["edl"]["speech"] and all(b > a for a, b in r["edl"]["speech"]))
+
+    def test_bangla_labels_and_buttons(self):
+        r = compile_(self.plan([dict(self.g(1), type="step", props={"n": 2, "title": "যা বানালেন, শেয়ার করুন"}),
+                                dict(self.g(5), type="endCard", props={"text": "আজ থেকেই শুরু করুন"})], lang="bn"),
+                     self.words, self.job)
+        self.assertTrue(r["report"]["ok"], r["report"]["errors"])
+        ov = {o["type"]: o for o in r["edl"]["overlays"]}
+        self.assertEqual((ov["step"]["props"]["label"], ov["step"]["props"]["numText"]), ("ধাপ ২", "২"))
+        self.assertEqual(ov["endCard"]["props"]["button"], "সাবস্ক্রাইব করুন")
+        self.assertEqual(r["edl"]["theme"]["displayBn"], "AnekBangla")
+
+    def test_scene_props_are_checked(self):
+        r = compile_(self.plan([
+            dict(self.g(0), type="bars", props={"rows": [{"label": "only", "value": 1}]}),
+            dict(self.g(1), type="step", props={"n": "one", "title": "x"}),
+            dict(self.g(2), type="versus", props={"left": {"label": "A"}, "right": "B"}),
+            dict(self.g(3), type="kinetic", props={"text": "The first month"}, enter="spin")]), self.words, self.job)
+        errors = " ".join(r["report"]["errors"])
+        for needle in ("props.rows needs 2 to 6 rows", "props.n must be", "props.left needs", "enter must be one of"):
+            self.assertIn(needle, errors)
+
+    def test_scenes_in_a_row_leave_no_gap(self):
+        r = compile_(self.plan([dict(self.g(i), type="kinetic", props={"text": SCENE_SENTENCES[i].rstrip(".")})
+                                for i in range(3)]), self.words, self.job)
+        self.assertTrue(r["report"]["ok"], r["report"]["errors"])
+        ov = r["edl"]["overlays"]
+        for a, b in zip(ov, ov[1:]):
+            self.assertEqual(a["from"] + a["durationInFrames"], b["from"])       # no backdrop flash between
+
+    def test_scene_transitions_are_heard(self):
+        r = compile_(self.plan([dict(self.g(i), type="step", props={"n": i + 1, "title": "Part"})
+                                for i in range(3)]), self.words, self.job)
+        names = [c["name"] for c in r["sfx"]]
+        self.assertEqual(names.count("whoosh"), 3)            # sweeps 3 s apart: each heard (long-form keeps 4 s
+        self.assertEqual(names.count("pop"), 3)               # between other default cues)
+
+    def test_title_lines(self):
+        self.assertEqual(P.balance_lines("Get 1% better every day", 16), ["Get 1% better", "every day"])
+        self.assertEqual(P.balance_lines("প্রতিদিন ১০ মিনিট অনুশীলন", 16), ["প্রতিদিন", "১০ মিনিট অনুশীলন"])
+        self.assertEqual(P.balance_lines("Share what you made", 20), ["Share what you made"])
+        self.assertEqual(P.title_lines(["kept", "as written"], "step", False), ["kept", "as written"])
+
+    def test_the_presenter_shows_over_a_scene_with_a_camera_under_it(self):
+        words = make_words(SPEC)
+        plan = {"schema": "nvc-plan/1", "title": "t",
+                "segments": [{"words": ["w0004", "w0012"], "quote": quote(words, 4, 12), "layout": "camFull"},
+                             {"words": ["w0013", "w0020"], "quote": quote(words, 13, 20), "layout": "camFull"}],
+                "overlays": [{"type": "bigStat", "words": ["w0004", "w0012"], "quote": quote(words, 4, 12),
+                              "props": {"value": "62%", "label": "faster edits"}},
+                             {"type": "step", "words": ["w0013", "w0016"], "quote": quote(words, 13, 16),
+                              "props": {"n": 1, "title": "Open the folder"}}]}
+        r = compile_(plan, words)
+        self.assertTrue(r["report"]["ok"], r["report"]["errors"])
+        ov = {o["type"]: o for o in r["edl"]["overlays"]}
+        self.assertTrue(ov["bigStat"]["props"]["pip"])
+        self.assertFalse(ov["step"]["props"]["pip"])                  # a step card is a short full stop
+        self.assertEqual(r["edl"]["theme"]["backdrop"], "pools")
+
+
 class StockVerdict(unittest.TestCase):
     def c(self, **kw):
         base = {"subject": 4, "action": 4, "setting": 4, "people_market": None, "quality": 4, "framing": 4,

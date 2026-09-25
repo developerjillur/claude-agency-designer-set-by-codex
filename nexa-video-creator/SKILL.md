@@ -1,6 +1,6 @@
 ---
 name: nexa-video-creator
-description: "Edits real footage and makes finished videos for every platform, like a professional editor: YouTube long-form, Shorts, Reels, TikTok, Facebook and Instagram feed and Stories, ads, promos, tutorials, talking-head and screen-recording videos, faceless explainers and day or occasion videos. It syncs a separately recorded camera and screen recording by their sound (offset and clock drift), transcribes with word timings (Bangla included), cuts pauses, fillers and retakes on the frame grid, and places layouts (picture-in-picture, split, stacked 9:16), zooms, punch-ins, hook titles, stat and list cards, keyword pops, lower thirds, b-roll (judged Pixabay stock), 2D explainer animation from remotion-broll, burned captions, music, sound effects and platform loudness, then renders with Remotion and checks the result. Use it whenever someone asks to edit, cut or make a video, or to turn raw recordings into a finished one, Banglish included ('video edit kore dao', 'youtube er jonno edit koro', 'reels banao', 'shorts cut koro', 'screen recording ar face cam sync koro')."
+description: "Edits real footage and makes finished videos for every platform, like a professional editor: YouTube long-form, Shorts, Reels, TikTok, Facebook and Instagram feed and Stories, ads, promos, tutorials, talking-head and screen-recording videos, faceless explainers and day or occasion videos. It syncs a separately recorded camera and screen recording by their sound (offset and clock drift), transcribes with word timings (Bangla included), cuts pauses, fillers and retakes on the frame grid, and places layouts (picture-in-picture, split, stacked 9:16), zooms, punch-ins, designed full-frame scenes (kinetic words, step cards, charts, before and after, end cards), hook titles, lower thirds, b-roll (judged Pixabay stock), burned captions, music, sound effects and platform loudness, then renders with Remotion and checks the result. Use it whenever someone asks to edit, cut or make a video, or to turn raw recordings into a finished one, Banglish included ('video edit kore dao', 'youtube er jonno edit koro', 'reels banao', 'shorts cut koro', 'screen recording ar face cam sync koro')."
 ---
 
 # nexa-video-creator
@@ -32,7 +32,8 @@ Command prefix: `python3 ~/.claude/skills/nexa-video-creator/scripts/nvc.py`.
 
 Another format from the same footage: write `plan.shorts.json`, then `compile`, `audio`, `render` with
 `--target shorts`. Faceless explainer: make the voice with nexa-speech, `add JOB vo_48k.wav --role voice`, and
-carry the picture with b-roll, images, segments and graphics.
+carry the picture with a designed scene per sentence or two (kinetic, step, bigStat, bars, versus, photo, recap,
+endCard; the recipe is in `references/plan.md`).
 
 B-roll for a slot (a common, real-world shot: hands typing, a city street, coffee being poured):
 1. `nvc.py stock JOB "hands typing laptop" --also "keyboard close up" --also "person working laptop" --judge --slot
@@ -63,11 +64,17 @@ B-roll for a slot (a common, real-world shot: hands typing, a city street, coffe
 - **Graphics.** A number said becomes a stat card, steps become a list, a claim against another a compare card, a
   quote a quote card, a name a lower third, one stressed word a keyword pop, a chapter a chapter card, the ask a CTA.
   B-roll (1.5 to 6 s) starts on the word it shows. Every shown number must be in the grounded quote, or carry
-  `facts` with origin brief, client or web.
-- **2D explainer animation.** Build it with remotion-broll (the kit's rigged characters, charts and scenes), then
-  `nvc.py segment broll KIT_PROJECT --comp NAME --job JOB` and place it as a `segment` overlay. HyperFrames for a
-  short design-led unit (kinetic title, logo sting, website capture): `nvc.py segment hf HF_PROJECT --alpha --job JOB`
-  (see `references/engines.md`). Remotion stays the master timeline.
+  `facts` with origin brief, client, web or formula.
+- **Scenes: the quality bar.** Where the words carry the video (a faceless explainer, a key point in a talk), use
+  the designed full-frame scenes (`references/plan.md`, Scenes), made in the remotion-broll kit's style: `kinetic`
+  for the hook and key lines, `step` for each section, `bigStat` and `bars` for numbers, `versus` for before and
+  after, `photo` for b-roll and stock, `recap` and `endCard` to close. Colours change from scene to scene, every hold
+  moves, sweeps and slides carry the cuts, and every moment has its sound; over a camera the speaker stays in a round
+  picture. Judge the stills against the kit's minute cut, not against "clean".
+- **2D explainer animation.** For drawn characters and acting, build a remotion-broll kit segment, then
+  `nvc.py segment broll KIT_PROJECT --comp NAME --job JOB` and place it as a `segment` overlay. Remotion comes first
+  for everything; HyperFrames only where Remotion cannot do the job (`nvc.py segment hf HF_PROJECT --alpha --job JOB`,
+  see `references/engines.md`).
 - **Captions.** Word style (1 to 3 words, the spoken word lit) for vertical and short-form; sentence subtitles as an
   SRT for YouTube (burn them only when asked). Emphasise one word per phrase at most. Bangla: whole-word styling, no
   letter-spacing, the danda never starts a line (the tool enforces these).
@@ -118,6 +125,7 @@ B-roll for a slot (a common, real-world shot: hands typing, a city street, coffe
 | `compile`, `audio` | under 1 s each; the mix -14.2 LUFS, true peak -4.0 dBTP |
 | `stills` (5 to 11 frames) | 2.8 to 5.5 s |
 | `render` 1080p | 13.4 s of video in 11.5 s (0.86 s a second); research measured 50 to 60 s a minute for 1080p edits |
+| a 43 s Bangla explainer of 11 scenes (voice, music, 17 effects) | compile under 1 s, `audio` 6 s, `stills` 3 s, `render` 24 s (0.55 s a second) |
 
 ## Licence
 
@@ -133,8 +141,8 @@ credit needed, the limits above; `references/cli.md` has the full list), recorde
   safe zones, captions, pacing, loudness), `gemini_api.py` and `elevenlabs_api.py` (shared with nexa-speech and
   nexa-sound), `pixabay_api.py` (the stock search: cache, rate limits, the key kept out of every URL shown),
   `sheet.swift` (the numbered contact sheet).
-- `template/`: the Remotion renderer (layouts, overlays, captions, transitions), synced to
-  `~/.nexa-video-creator/renderer` on use.
+- `template/`: the Remotion renderer (layouts, overlays, the designed scenes in `src/scenes.tsx`, captions,
+  transitions), synced to `~/.nexa-video-creator/renderer` on use.
 - `references/plan.md` (the plan, with examples per video type), `references/cli.md` (every command and file),
   `references/editing-rules.md` (the craft rules and their sources), `references/engines.md` (Remotion, remotion-broll
   and HyperFrames together).

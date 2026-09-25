@@ -130,6 +130,8 @@ export const Captions: React.FC<{ edl: Edl }> = ({ edl }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const ms = (frame / fps) * 1000;
+  // a scene that already shows the words on screen (kinetic text, a step card, the end card) hides the captions
+  if (edl.overlays.some((o) => o.props?.hideCaptions && frame >= o.from && frame < o.from + o.durationInFrames)) return null;
   if (edl.captions.style === "word") {
     const page = findActive(edl.captions.pages, ms);
     if (!page) return null;

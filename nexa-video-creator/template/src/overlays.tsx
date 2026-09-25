@@ -8,19 +8,25 @@ import {
   Edl,
   Overlay,
   Rect,
+  bodyFont as themeBodyFont,
   clampOpts,
   containRect,
+  countUp,
   coverRect,
+  displayFont as themeDisplayFont,
   easeOut,
+  fitSize,
   font,
-  formatNumber,
   hexToRgba,
+  highlightOf,
   inOut,
   isBengali,
   mediaSrc,
-  splitNumber,
+  mix,
+  paletteOf,
   unit,
 } from "./lib";
+import { LabelOverlay, Words, keySet, linesOf } from "./scenes";
 
 const IMAGE = /\.(png|jpe?g|webp|gif|bmp)$/i;
 
@@ -37,8 +43,8 @@ const useBasics = (edl: Edl) => {
 
 const H_VERTICAL = (edl: Edl) => edl.height > edl.width;
 
-const displayFont = (edl: Edl, text: string) => font(isBengali(text) ? "HindSiliguri" : edl.theme.display);
-const bodyFont = (edl: Edl, text: string) => font(isBengali(text) ? "HindSiliguri" : edl.theme.body);
+const displayFont = (edl: Edl, text: string) => themeDisplayFont(edl.theme, text);
+const bodyFont = (edl: Edl, text: string) => themeBodyFont(edl.theme, text);
 
 const clipAt = (edl: Edl, frame: number) => edl.clips.find((c) => frame >= c.from && frame < c.from + c.durationInFrames);
 
@@ -57,73 +63,16 @@ const freeSide = (edl: Edl, overlay: Overlay): "left" | "right" => {
 
 const shadow = (u: number, strength = 0.35) => `0 ${Math.round(18 * u)}px ${Math.round(48 * u)}px rgba(0,0,0,${strength})`;
 
-// Words that pop in one after another; `highlight` words take the accent colour.
-const WordsIn: React.FC<{
-  text: string;
-  frame: number;
-  fps: number;
-  size: number;
-  color: string;
-  accent: string;
-  highlight?: string;
-  family: string;
-  weight?: number;
-  align?: "center" | "left";
-  upper?: boolean;
-  stroke?: number;
-}> = ({ text, frame, fps, size, color, accent, highlight, family, weight = 900, align = "center", upper, stroke = 0 }) => {
-  const words = text.split(/\s+/).filter(Boolean);
-  const hl = new Set((highlight || "").toLowerCase().split(/\s+/).filter(Boolean));
-  const bn = isBengali(text);
-  return (
-    <div
-      style={{
-        fontFamily: family,
-        fontWeight: weight,
-        fontSize: size,
-        lineHeight: bn ? 1.35 : 1.08,
-        textAlign: align,
-        color,
-        textTransform: upper && !bn ? "uppercase" : "none",
-        letterSpacing: bn ? 0 : "-0.01em",
-        display: "flex",
-        flexWrap: "wrap",
-        justifyContent: align === "center" ? "center" : "flex-start",
-        gap: `${Math.round(size * 0.12)}px ${Math.round(size * 0.24)}px`,
-      }}
-    >
-      {words.map((w, i) => {
-        const p = spring({ frame: frame - i * 2, fps, config: { damping: 16, stiffness: 180, mass: 0.7 } });
-        const key = w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
-        const on = hl.has(key) || hl.has(w.toLowerCase());
-        return (
-          <span
-            key={i}
-            style={{
-              display: "inline-block",
-              transform: `translateY(${(1 - p) * size * 0.45}px)`,
-              opacity: Math.min(1, p * 1.4),
-              color: on ? accent : color,
-              WebkitTextStroke: stroke ? `${stroke}px rgba(0,0,0,0.85)` : undefined,
-              paintOrder: "stroke fill",
-              textShadow: stroke ? undefined : `0 ${Math.round(size * 0.05)}px ${Math.round(size * 0.18)}px rgba(0,0,0,0.45)`,
-            }}
-          >
-            {w}
-          </span>
-        );
-      })}
-    </div>
-  );
-};
-
 const Hook: React.FC<P> = ({ edl, overlay }) => {
-  const { frame, fps, u, vertical, t } = useBasics(edl);
-  const text = String(overlay.props.text || "");
+  const { frame, u, vertical, t } = useBasics(edl);
+  const lines = linesOf(overlay.props);
+  const text = lines.join(" ");
   const band = edl.bands.title;
   const io = inOut(frame, overlay.durationInFrames, 0, 8);
-  const size = Math.round((vertical ? 92 : 84) * u * (overlay.props.scale || 1));
+  const upper = overlay.props.upper !== false && !vertical && !isBengali(text);
+  const size = fitSize(lines, Math.round((vertical ? 92 : 84) * u * (overlay.props.scale || 1) * (isBengali(text) ? 0.92 : 1)), edl.safe.w - 80 * u, { upper });
   const boxed = overlay.props.box !== false;
+  const nWords = text.split(/\s+/).filter(Boolean).length;
   return (
     <AbsoluteFill style={{ opacity: io.out, transform: `translateY(${(1 - io.out) * -20 * u}px)` }}>
       <div style={{ position: "absolute", left: edl.safe.x, width: edl.safe.w, top: band.y, height: band.h, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -136,7 +85,21 @@ const Hook: React.FC<P> = ({ edl, overlay }) => {
             maxWidth: edl.safe.w,
           }}
         >
-          <WordsIn text={text} frame={frame} fps={fps} size={size} color={t.text} accent={t.accent} highlight={overlay.props.highlight} family={displayFont(edl, text)} upper={overlay.props.upper !== false && !vertical} />
+          <Words
+            lines={lines}
+            size={size}
+            color={t.text}
+            family={displayFont(edl, text)}
+            weight={800}
+            start={0}
+            stagger={2}
+            keys={keySet(overlay.props.highlight)}
+            keyColor={t.accent}
+            underlineAt={nWords * 2 + 10}
+            upper={upper}
+            shadow={boxed ? undefined : `0 ${Math.round(size * 0.05)}px ${Math.round(size * 0.18)}px rgba(0,0,0,0.45)`}
+            seed={overlay.id}
+          />
         </div>
       </div>
     </AbsoluteFill>
@@ -193,6 +156,7 @@ const CardFrame: React.FC<{ edl: Edl; overlay: Overlay; width: number; children:
   const top = vertical ? edl.bands.title.y : Math.round(H * 0.2);
   const dx = vertical ? 0 : (side === "right" ? 1 : -1) * (1 - p) * 80 * u;
   const dy = vertical ? (1 - p) * -40 * u : 0;
+  const hold = 1 + 0.03 * Math.min(1, frame / Math.max(1, overlay.durationInFrames));
   return (
     <div
       style={{
@@ -200,7 +164,8 @@ const CardFrame: React.FC<{ edl: Edl; overlay: Overlay; width: number; children:
         left,
         top,
         width,
-        transform: `translate(${dx}px, ${dy}px)`,
+        transform: `translate(${dx}px, ${dy}px) scale(${hold})`,
+        transformOrigin: side === "right" ? "100% 50%" : "0% 50%",
         opacity: Math.min(io.out, p * 1.3),
         backgroundColor: t.card,
         color: t.cardText,
@@ -220,14 +185,8 @@ const Stat: React.FC<P> = ({ edl, overlay }) => {
   const u = u0 * (H_VERTICAL(edl) ? 1.3 : 1);
   const value = String(overlay.props.value ?? "");
   const label = String(overlay.props.label ?? "");
-  const n = splitNumber(value);
   const settle = Math.round(0.9 * fps);
-  const shown =
-    n.num === null
-      ? value
-      : frame >= settle
-        ? value
-        : n.pre + formatNumber(interpolate(frame, [0, settle], [0, n.num], { ...clampOpts, easing: easeOut }), n.decimals, n.comma) + n.post;
+  const shown = countUp(value, interpolate(frame, [0, settle], [0, 1], { ...clampOpts, easing: easeOut }));
   const width = Math.round(vertical ? edl.safe.w : 620 * u);
   return (
     <CardFrame edl={edl} overlay={overlay} width={width}>
@@ -310,16 +269,21 @@ const Compare: React.FC<P> = ({ edl, overlay }) => {
 };
 
 const Quote: React.FC<P> = ({ edl, overlay }) => {
-  const { frame, fps, u: u0, t } = useBasics(edl);
+  const { frame, u: u0, t } = useBasics(edl);
   const u = u0 * (H_VERTICAL(edl) ? 1.3 : 1);
-  const text = String(overlay.props.text || "");
+  const lines = linesOf(overlay.props);
+  const text = lines.join(" ");
   const io = inOut(frame, overlay.durationInFrames, 6, 8);
   const bn = isBengali(text);
+  const c = paletteOf(t)[1];
+  const size = fitSize(lines, Math.round(64 * u * (bn ? 0.92 : 1)), edl.safe.w * 0.86);
+  const nWords = text.split(/\s+/).filter(Boolean).length;
+  const push = 1 + 0.04 * Math.min(1, frame / Math.max(1, overlay.durationInFrames));
   return (
-    <AbsoluteFill style={{ backgroundColor: hexToRgba(t.ink, 0.92), opacity: io.v, alignItems: "center", justifyContent: "center" }}>
-      <div style={{ width: edl.safe.w * 0.86, textAlign: "center" }}>
-        <div style={{ fontFamily: font(t.display), fontWeight: 900, fontSize: Math.round(200 * u), lineHeight: 0.6, color: t.accent }}>&ldquo;</div>
-        <WordsIn text={text} frame={frame} fps={fps} size={Math.round(64 * u)} color={t.text} accent={t.accent} highlight={overlay.props.highlight} family={displayFont(edl, text)} weight={800} />
+    <AbsoluteFill style={{ background: `radial-gradient(ellipse at 50% 55%, ${mix(c, "#000000", 0.6)} 0%, ${mix(c, "#000000", 0.84)} 60%, #0B070B 100%)`, opacity: io.v, alignItems: "center", justifyContent: "center" }}>
+      <div style={{ width: edl.safe.w * 0.9, textAlign: "center", transform: `scale(${push})` }}>
+        <div style={{ fontFamily: font(t.display), fontWeight: 900, fontSize: Math.round(200 * u), lineHeight: 0.6, color: highlightOf(t) }}>&ldquo;</div>
+        <Words lines={lines} size={size} color={t.text} family={displayFont(edl, text)} weight={800} start={4} stagger={3} keys={keySet(overlay.props.highlight)} keyColor={highlightOf(t)} underlineAt={4 + nWords * 3 + 10} seed={overlay.id} />
         {overlay.props.by ? (
           <div style={{ marginTop: Math.round(30 * u), fontFamily: bodyFont(edl, String(overlay.props.by)), fontWeight: 600, fontSize: Math.round(30 * u), color: t.muted, lineHeight: bn ? 1.4 : 1.2 }}>
             {String(overlay.props.by)}
@@ -476,6 +440,8 @@ export const OverlayView: React.FC<P> = ({ edl, overlay }) => {
     case "callout":
     case "redact":
       return <FrameMark edl={edl} overlay={overlay} />;
+    case "label":
+      return <LabelOverlay edl={edl} overlay={overlay} />;
     default:
       return null;
   }

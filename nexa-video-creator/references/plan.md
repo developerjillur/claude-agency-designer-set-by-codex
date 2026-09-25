@@ -79,7 +79,8 @@ both: YouTube 550 to 300 ms, vertical 300 to 150 ms). Bounded filled pauses are 
 
 - A zoom starts 0.3 s before its words, eases in and out over half a second and holds at least 2 s. `x`, `y` are the
   point to bring to the centre (0 to 1 of the source frame). Layers: screen or cam. Read the point from a still.
-- Transitions go into a segment: cut (default), zoom, whip, dip, flash. One kind per video, used at section changes.
+- Transitions go into a segment: cut (default), zoom, whip, dip, flash, slide (the new clip slides over the last
+  one), sweep (colour bars cross the frame and hide the cut). One kind per video, used at section changes.
 
 ### overlays
 
@@ -97,6 +98,7 @@ both: YouTube 550 to 300 ms, vertical 300 to 150 ms). Bounded filled pauses are 
 | redact | style? (blur, solid), layer? + `box` | on the recording, from its first frame | none |
 | broll, image, segment | `source` (+ `in` seconds), fit (full, box), box?, motion? (push, pull, pan-left, pan-right, none), enter? (cut) | full frame or an inset card | whoosh |
 | cta | text, sub? | lower band, centred | ding |
+| label | text, corner? (tl, tr, bl, br), tone? (dark, light, accent) | a location-style chip in a corner of the safe area | pop |
 
 - `box` for callouts and redactions: `{"x": 0.62, "y": 0.08, "w": 0.3, "h": 0.06}` as fractions of the source frame
   (take them from a still of the proxy). `layer: "frame"` puts them in output coordinates instead.
@@ -106,6 +108,44 @@ both: YouTube 550 to 300 ms, vertical 300 to 150 ms). Bounded filled pauses are 
 - `sfx: null` silences an overlay's default sound; `sfx: "ding"` changes it.
 - `facts`: `[{"text": "62%", "origin": "brief"}]` when a number on screen comes from the client, not the speaker.
 
+### scenes (designed full-frame moments)
+
+A scene fills the whole frame with a designed composition in the remotion-broll kit's style: bright palette colours,
+warm dotted paper, white cards with soft shadows, words that rise out of a blur, hand-drawn underlines on key words,
+drifting bubbles, count-ups that land with a bounce, and a slow push-in on every hold. A faceless video is carried by
+them (one every 3 to 8 s); over a camera the speaker stays on in a round picture with a ring that moves while they
+talk (`"pip": false` turns it off). Ground each scene on the sentence it shows, like any overlay.
+
+| Type | Props | What it shows | Comes in | Sound |
+|---|---|---|---|---|
+| kinetic | text (or lines[]), highlight?, bg? (dusk, paper, color), color? | the words said, large, rising one by one; highlight words in the key colour with a hand-drawn underline | cut | whoosh-short |
+| step | n, title (or lines[]), label?, color? | a numbered chapter card on a palette colour: the badge spins in, "Step n" (ধাপ n in Bangla), the title word by word, an accent bar | sweep | whoosh, then pop on the badge |
+| bigStat | value, title?, label?, series[]?, xLabels?, source?, color? | a big number counting up on a white card on paper; with `series` a curve drawn with it, the tip pulsing once it lands | slide | whoosh-short, ding on landing |
+| bars | rows[{label, value, text?}] (2 to 6), title?, note?, focus?, color? | bars that grow one after another, linear in value; the focus row (default the largest) grows last and lands with a bounce | slide | whoosh-short, ding on landing |
+| versus | left, right: {label?, text?, value?, source?, color?} or a string | a split: two panels, a label chip on each, a hand-drawn seam that boils; a picture or clip in a panel when `source` is given | sweep | whoosh-short |
+| recap | items[{label, text?, source?}] (2 to 4), title?, color? | cards on a dark board, popping in turn and floating; a picture in a card, else its number | slideUp | whoosh-short |
+| endCard | text (or lines[]), button?, pressed?, icon? (bell, none), color? | the call to action rising in, a cursor that clicks the button, the button turning into its pressed state, the bell ringing | slideUp | whoosh, click and ding on the click |
+| photo | `source` (+ `in`), label?, caption?, style? (card, full), bg?, motion? (push, pull) | a picture or clip in a tilted white card on paper with a label chip, or full frame with a slow push | slide | whoosh-short |
+
+- `enter` and `exit` on any full-frame overlay: slide, slideUp, pop, fade, sweep or cut. A scene that slides, pops
+  or fades in lands over the one before it (that one stays underneath for its first frames); a sweep hides the cut
+  with colour bars.
+- Titles are broken into even lines by the compiler (a number stays with its word); `lines` keeps a hand break,
+  which is broken again when it is far too long for the frame (a 16:9 break used on 9:16).
+- Scenes in a row touch: a gap under a second between two full-frame overlays is closed. A scene next to another
+  ends where the next begins, down to its type's minimum (the compile warns when that leaves its words too little
+  time).
+- Numbers on a scene follow the overlay rule: said in the grounded words, or `facts` with origin brief, client, web
+  or formula (a value computed from others, such as 1.01 to the power of 365). A `series` always asks for its
+  source.
+- kinetic, step, endCard and quote hide burned captions while they show (the words are on screen already);
+  `"captions": true` in props keeps them. Other scenes keep their cards above the caption box.
+- In Bangla, labels and buttons come in Bangla (ধাপ ১, সাবস্ক্রাইব করুন), numbers in Bengali digits, titles in
+  Anek Bangla. The end card's button defaults to Subscribe on YouTube and Shorts and Follow elsewhere; `"button":
+  null` leaves it out.
+- The palette, paper, key colour and backdrop come from the theme (below). A faceless edit gets the paper backdrop
+  between scenes, a filmed one the dark light pools.
+
 ### captions, chapters, music, sound effects, theme
 
 ```json
@@ -113,7 +153,9 @@ both: YouTube 550 to 300 ms, vertical 300 to 150 ms). Bounded filled pauses are 
 "chapters": [{"words": ["w0001", "w0004"], "quote": "why your audio drifts", "title": "Why it drifts"}],
 "music": {"generate": "final", "mood": "tech"},
 "sfx": [{"at": "word:w0044", "name": "impact"}, {"at": "overlay:2", "name": "pop"}, {"at": "time:12.4", "name": "riser"}],
-"theme": {"accent": "#00C2A8", "display": "Montserrat", "body": "Inter"}
+"theme": {"accent": "#00C2A8", "display": "Poppins", "body": "Inter",
+          "palette": ["#FF7A2F", "#6D3AF0", "#1F5C63", "#E8521A", "#2A6FDB"], "paper": "#F4EEE5", "highlight": "#FFC43D",
+          "backdrop": "paper"}
 ```
 
 - Caption style `word` (vertical default), `sentence` (YouTube default, as SRT; `"burn": true` to burn in), `none`.
@@ -122,7 +164,12 @@ both: YouTube 550 to 300 ms, vertical 300 to 150 ms). Bounded filled pauses are 
   `nexa-sound moods`. The music is fitted to the edit's length, hits land near the weighted cuts, and it ducks under
   speech.
 - Sound-effect cues: `overlay:<index or id>`, `word:<id>`, `clip:<index or id>`, `time:<seconds>`. Names come from
-  `nexa-sound sfx list`. Default cues too close to another cue are dropped.
+  `nexa-sound sfx list`. Default cues too close to another cue are dropped (4 s apart in long videos, 1 s in short
+  ones); a scene's own moments (a landing, a click) are always kept, and a scene that comes in with a sweep or a
+  slide keeps its whoosh unless another transition is under 1.5 s away.
+- Theme: `palette` gives the scene colours in order (step 1 takes the first), `paper` and `paperText` the data
+  cards' ground and ink, `highlight` the key-word and ring colour, `backdrop` (paper, dusk, pools) what shows between
+  scenes, `displayBn` and `bodyBn` the Bangla fonts (Anek Bangla and Hind Siliguri).
 
 ## Recipes
 
@@ -170,9 +217,22 @@ middle is fine), stack layout for screen parts, word captions with one emphasis 
 1. Script with natural-copy; voice with nexa-speech (`render`, `master`, `align`).
 2. `nvc.py add JOB vo_48k.wav --role voice`: the `words.json` that nexa-speech's `align` wrote next to it becomes
    the transcript (ids w0001...), so no transcription is needed. Without it, run `transcribe`.
-3. Segments in `voiceOnly` (the themed backdrop) or `brollFull`; the picture comes from b-roll, images
-   (codex-imagegen), remotion-broll segments (2D characters, charts) and graphics. Keep a visual change every 3 to
-   8 s (long) or 1.5 to 3 s (short).
+3. Segments in `voiceOnly` (the paper backdrop) or `brollFull`; the picture is carried by scenes, one per sentence
+   or two: kinetic for the hook and key lines, step cards for sections, bigStat and bars for numbers, versus for
+   before and after, photo for b-roll and stock (nvc.py stock), recap, and an end card. remotion-broll segments add
+   drawn characters where the story needs acting. Keep a visual change every 3 to 8 s (long) or 1.5 to 3 s (short).
+
+```json
+"overlays": [
+  {"type": "kinetic", "words": ["w0001", "w0008"], "quote": "...", "props": {"text": "Most people quit learning to edit halfway through", "highlight": "halfway"}},
+  {"type": "step", "words": ["w0017", "w0023"], "quote": "...", "props": {"n": 1, "title": "Practise ten minutes a day"}},
+  {"type": "photo", "words": ["w0024", "w0029"], "quote": "...", "source": "px-43559", "props": {"label": "Every day"}},
+  {"type": "bigStat", "words": ["w0045", "w0058"], "quote": "...", "props": {"title": "Get 1% better every day", "value": "37.8x",
+   "label": "after one year", "series": [1, 1.35, 1.82, 2.45, 3.3, 4.45, 6.0, 8.1, 10.9, 14.7, 19.8, 26.7, 36.0, 37.8],
+   "xLabels": ["Today", "1 year"]}, "facts": [{"text": "37.8x", "origin": "formula"}]},
+  {"type": "endCard", "words": ["w0092", "w0103"], "quote": "...", "props": {"text": "Start today"}}
+]
+```
 
 ### Ads (15 to 30 s)
 

@@ -591,6 +591,59 @@
       "slot": "bar",
       "min_s": 1.0,
       "max_s": null
+    },
+    "kinetic": {
+      "slot": "full",
+      "min_s": 1.5,
+      "max_s": 8.0,
+      "enter": "cut"
+    },
+    "step": {
+      "slot": "full",
+      "min_s": 1.6,
+      "max_s": 3.5,
+      "enter": "sweep"
+    },
+    "bigStat": {
+      "slot": "full",
+      "min_s": 3.0,
+      "max_s": 8.0,
+      "enter": "slide"
+    },
+    "bars": {
+      "slot": "full",
+      "min_s": 4.0,
+      "max_s": 10.0,
+      "enter": "slide"
+    },
+    "versus": {
+      "slot": "full",
+      "min_s": 3.0,
+      "max_s": 9.0,
+      "enter": "sweep"
+    },
+    "recap": {
+      "slot": "full",
+      "min_s": 3.0,
+      "max_s": 8.0,
+      "enter": "slideUp"
+    },
+    "endCard": {
+      "slot": "full",
+      "min_s": 4.0,
+      "max_s": 8.0,
+      "enter": "slideUp"
+    },
+    "photo": {
+      "slot": "full",
+      "min_s": 1.5,
+      "max_s": 8.0,
+      "enter": "slide"
+    },
+    "label": {
+      "slot": "chip",
+      "min_s": 1.2,
+      "max_s": 10.0
     }
   },
   "sfx_defaults": {
@@ -606,6 +659,56 @@
     "broll": "whoosh",
     "image": "whoosh",
     "segment": "whoosh",
-    "cta": "ding"
+    "cta": "ding",
+    "kinetic": "whoosh-short",
+    "step": [
+      {
+        "at": "start",
+        "name": "whoosh"
+      },
+      {
+        "at": 2,
+        "name": "pop"
+      }
+    ],
+    "bigStat": [
+      {
+        "at": "start",
+        "name": "whoosh-short"
+      },
+      {
+        "at": "land",
+        "name": "ding"
+      }
+    ],
+    "bars": [
+      {
+        "at": "start",
+        "name": "whoosh-short"
+      },
+      {
+        "at": "land",
+        "name": "ding"
+      }
+    ],
+    "versus": "whoosh-short",
+    "recap": "whoosh-short",
+    "endCard": [
+      {
+        "at": "start",
+        "name": "whoosh"
+      },
+      {
+        "at": "click",
+        "name": "click"
+      },
+      {
+        "at": "click",
+        "delay": 4,
+        "name": "ding"
+      }
+    ],
+    "photo": "whoosh-short",
+    "label": "pop"
   }
 }

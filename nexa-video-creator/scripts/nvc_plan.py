@@ -12,6 +12,7 @@ for at least clamp(0.35 x words + 0.5, 0.83, 7) seconds, shown numbers must be i
 """
 import bisect
 import difflib
+import itertools
 import math
 import re
 import unicodedata
@@ -22,7 +23,10 @@ PAD_BEFORE = 0.05
 PAD_AFTER = 0.08
 MIN_CUT_PAUSE = 0.15
 LAYOUTS = ("camFull", "screenFull", "screenPip", "split", "stack", "brollFull", "voiceOnly")
-TRANSITIONS = ("cut", "zoom", "whip", "dip", "flash")
+TRANSITIONS = ("cut", "zoom", "whip", "dip", "flash", "slide", "sweep")
+# designed full-frame scenes (template/src/scenes.tsx) and how any full-frame overlay may come in and go out
+SCENE_TYPES = ("kinetic", "step", "bigStat", "bars", "versus", "recap", "endCard", "photo")
+MOTIONS = ("cut", "slide", "slideUp", "pop", "fade", "sweep")
 CAMERA_KINDS = ("camera", "talking_head", "phone_clip")
 SCREEN_KINDS = ("screen", "screen_recording", "screen_with_cam", "slides")
 MEDIA_KINDS = ("broll", "b_roll", "image", "segment", "camera", "talking_head", "screen", "screen_recording", "logo")
@@ -32,7 +36,17 @@ DISCOURSE = {"like", "basically", "actually", "literally", "so", "right", "you k
              "মানে", "আসলে", "তো", "আচ্ছা", "ইয়ে", "আরকি", "বুঝলেন", "বুঝছেন", "বুঝলা", "তাই না", "ঠিক আছে"}
 TEXT_PROPS = {"hook": ["text"], "keyword": ["text"], "stat": ["value", "label"], "list": ["items"],
               "compare": ["left", "right"], "quote": ["text"], "chapter": ["title"], "lowerThird": ["name"],
-              "callout": [], "redact": [], "broll": [], "image": [], "segment": [], "cta": ["text"], "progress": []}
+              "callout": [], "redact": [], "broll": [], "image": [], "segment": [], "cta": ["text"], "progress": [],
+              "kinetic": [], "step": ["n"], "bigStat": ["value"], "bars": ["rows"], "versus": ["left", "right"],
+              "recap": ["items"], "endCard": [], "photo": [], "label": ["text"]}
+# one of these is needed (the lines as broken by hand, or one text the compiler breaks)
+TEXT_ANY = {"kinetic": ("lines", "text"), "step": ("lines", "title"), "endCard": ("lines", "text")}
+# the longest line in letters at each scene's base size (landscape, vertical) and the most lines it takes; a longer
+# text is broken into even lines, and the renderer shrinks a line only when a hand break is still too long
+LINE_FIT = {"hook": ((26, 16), 2), "quote": ((30, 18), 3), "kinetic": ((28, 16), 3), "step": ((20, 15), 2),
+            "endCard": ((22, 16), 2), "bigStat": ((16, 16), 2), "bigStat-plain": ((34, 16), 2),
+            "bars": ((32, 18), 2), "recap": ((40, 20), 1)}
+FACT_ORIGINS = {"brief", "client", "web", "formula"}
 BN_DIGITS = str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789")
 NUMBER_WORDS = {"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
                 "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
@@ -528,6 +542,49 @@ def word_pages(mapped, max_words, max_chars, emphasis, gap_break=0.3):
     return out
 
 
+def balance_lines(text, max_chars, max_lines=2):
+    """Break a title into the fewest lines that fit max_chars letters, as even as possible; a break after a comma or
+    a full stop wins a tie. A title that fits stays on one line."""
+    text = " ".join(str(text or "").split())
+    words = text.split(" ") if text else []
+    if not words:
+        return []
+    if graphemes(text) <= max_chars or len(words) == 1:
+        return [text]
+    best = None
+    for n in range(2, max_lines + 1):
+        if n > len(words):
+            break
+        for cut in itertools.combinations(range(1, len(words)), n - 1):
+            bounds = (0,) + cut + (len(words),)
+            parts = [" ".join(words[a:b]) for a, b in zip(bounds, bounds[1:])]
+            if any(q.startswith(("।", "॥", ")", "]")) for q in parts[1:]):
+                continue
+            lens = [graphemes(q) for q in parts]
+            over = sum(max(0, n_ - int(max_chars * 1.15)) for n_ in lens)     # the renderer takes up to 15 % more
+            punct = sum(0 if re.search(r"[,;:.!?।]$", q) else 1 for q in parts[:-1])
+            # a number stays with the word after it ("10 minutes", "১০ মিনিট"), and a short word with the next
+            glue = sum(8 if re.search(r"[\d০-৯%]$", q) or q.split(" ")[-1].lower() in NUMBER_WORDS
+                       else 4 if len(q.split(" ")[-1]) <= 2 else 0 for q in parts[:-1])
+            score = (over, max(lens) - min(lens) + 3 * punct + glue)
+            if best is None or score < best[0]:
+                best = (score, parts)
+        if best and best[0][0] == 0:
+            break
+    return best[1] if best else [text]
+
+
+def title_lines(value, key, vertical):
+    """A title as lines: kept as written when the plan gives a list, else balanced for its scene."""
+    if isinstance(value, list):
+        return [str(x) for x in value if str(x).strip()]
+    (land, vert), most = LINE_FIT[key]
+    limit = vert if vertical else land
+    if is_bengali(str(value or "")):
+        limit = max(8, int(limit * 0.8))      # a Bengali letter with its vowel sign is wider than a Latin one
+    return balance_lines(str(value or ""), limit, most)
+
+
 def _split_lines(text, max_chars):
     if graphemes(text) <= max_chars:
         return [text]
@@ -608,12 +665,51 @@ def _frames(t, fps):
 
 
 def _overlay_text(ov):
+    """Every word an overlay puts on screen (for reading time, number checks and the review's expected lines)."""
     props = ov.get("props") or {}
-    parts = [str(props.get(k, "")) for k in ("text", "title", "value", "label", "name", "role", "left", "right",
-                                            "source", "subtitle")]
-    items = props.get("items") or []
-    parts += [str(x) for x in items]
+    parts = []
+
+    def add(v):
+        if isinstance(v, (list, tuple)):
+            for x in v:
+                add(x)
+        elif isinstance(v, dict):
+            for k in ("label", "text", "value", "title", "name"):
+                if v.get(k) not in (None, ""):
+                    add(v[k])
+        elif v not in (None, ""):
+            parts.append(str(v))
+    for k in ("text", "title", "value", "label", "name", "role", "left", "right", "subtitle", "caption", "note",
+              "by", "button", "pressed"):
+        add(props.get(k))
+    if not props.get("text"):
+        add(props.get("lines"))
+    add(props.get("items"))
+    for r in props.get("rows") or []:
+        if isinstance(r, dict):
+            add(r.get("label"))
+            add(r.get("text") if r.get("text") not in (None, "") else r.get("value"))
+    if ov.get("type") in ("stat", "bigStat") and props.get("source"):
+        add(props.get("source"))
     return " ".join(p for p in parts if p).strip()
+
+
+def _reading_text(ov):
+    """The words a viewer has to read on a scene: its headline parts, not the small print (a source, a note, axis
+    labels). Other overlays are read whole."""
+    if ov.get("type") not in SCENE_TYPES:
+        return _overlay_text(ov)
+    props = dict(ov.get("props") or {})
+    for k in ("source", "note", "xLabels", "caption", "pressed", "series"):
+        props.pop(k, None)
+    rows = props.pop("rows", None)
+    if isinstance(rows, list) and rows:
+        # a chart is glanced at: its title and the bar it points to, not every row as prose
+        vals = [_num(r.get("value")) or 0 for r in rows if isinstance(r, dict)]
+        focus = props.get("focus") if isinstance(props.get("focus"), int) else (vals.index(max(vals)) if vals else 0)
+        if 0 <= focus < len(rows) and isinstance(rows[focus], dict):
+            props["rows"] = [rows[focus]]
+    return _overlay_text({"type": ov.get("type"), "props": props})
 
 
 def compile_plan(plan, words, job, preset, overlay_rules, sfx_defaults=None, fps=None):
@@ -774,6 +870,11 @@ def compile_plan(plan, words, job, preset, overlay_rules, sfx_defaults=None, fps
         for key in TEXT_PROPS.get(otype, []):
             if props.get(key) in (None, "", []):
                 rep.error(where, "props.%s is required" % key)
+        if otype in TEXT_ANY and all(props.get(k) in (None, "", []) for k in TEXT_ANY[otype]):
+            rep.error(where, "props.%s or props.%s is required" % TEXT_ANY[otype])
+        for key in ("enter", "exit"):
+            if ov.get(key) and ov[key] not in MOTIONS:
+                rep.error(where, "%s must be one of %s" % (key, ", ".join(MOTIONS)))
         start = end = None
         grounded_quote = None
         if "words" in ov:
@@ -807,9 +908,12 @@ def compile_plan(plan, words, job, preset, overlay_rules, sfx_defaults=None, fps
             rep.error(where, "needs \"words\" and a quote, \"at\": \"start\"|\"end\", or \"from\" and \"to\"")
             continue
         text = _overlay_text(ov)
-        need = max(float(rule.get("min_s") or 0), reading_time(text, lang) if text else 0.0)
-        if otype in ("stat", "list", "compare"):
+        read = _reading_text(ov)
+        need = max(float(rule.get("min_s") or 0), reading_time(read, lang) if read else 0.0)
+        if otype in ("stat", "list", "compare", "versus", "recap"):
             need += 1.0
+        elif otype in ("bigStat", "bars"):
+            need += 1.5
         if ov.get("seconds") and "words" in ov:
             end = start + float(ov["seconds"])
         if end - start < need:
@@ -840,6 +944,22 @@ def compile_plan(plan, words, job, preset, overlay_rules, sfx_defaults=None, fps
             src = job["sources"][sid]
             if otype == "broll" and src.get("duration") and float(ov.get("in") or 0) + (end - start) > float(src["duration"]) + 0.05:
                 rep.warn(where, "the clip is shorter than its slot; it holds its last frame")
+        if otype == "photo":
+            sid = ov.get("source") or props.get("source")
+            if not sid or sid not in job["sources"]:
+                rep.error(where, "needs \"source\": an ingested picture or clip id (nvc.py add JOB FILE --role image)")
+                continue
+            if not ready(job["sources"][sid]):
+                rep.error(where, "source %s has no proxy yet: run nvc.py ingest" % sid)
+                continue
+            props["source"] = sid
+            props["trimBefore"] = _frames(float(ov.get("in") or 0), fps)
+        if otype in ("versus", "recap"):
+            refs = [props.get("left"), props.get("right")] if otype == "versus" else list(props.get("items") or [])
+            for ref in refs:
+                sid = ref.get("source") if isinstance(ref, dict) else None
+                if sid and (sid not in job["sources"] or not ready(job["sources"][sid])):
+                    rep.error(where, "source %s is not an ingested picture or clip (nvc.py add, then ingest)" % sid)
         if otype in ("callout", "redact"):
             box = ov.get("box")
             if not isinstance(box, dict) or not all(k in box for k in ("x", "y", "w", "h")):
@@ -853,19 +973,23 @@ def compile_plan(plan, words, job, preset, overlay_rules, sfx_defaults=None, fps
             said = numbers_in(grounded_quote if grounded_quote else " ".join(m["text"] for m in mapped))
             origin = {str(f.get("origin")) for f in (ov.get("facts") or []) if isinstance(f, dict)}
             extra = sorted(x for x in shown if x not in said)
-            if extra and not (origin & {"brief", "client", "web"}):
+            if extra and not (origin & FACT_ORIGINS):
                 rep.ask(where, "shows %s, which the speaker %s; confirm the source (add facts with origin brief, "
-                        "client or web)" % (", ".join(("%g" % x) for x in extra),
+                        "client, web or formula)" % (", ".join(("%g" % x) for x in extra),
                                             "did not say in the grounded words" if grounded_quote
                                             else "does not say anywhere in the edit"))
         slot = rule["slot"]
         f0, f1 = _frames(start, fps), _frames(end, fps)
+        if otype in SCENE_TYPES or otype in ("hook", "quote", "label"):
+            props = scene_props(otype, props, ov, (f0, f1), lang, preset, vertical, clips, rep, where)
         overlays.append({"id": "o%03d" % (n + 1), "type": otype, "from": f0, "durationInFrames": max(1, f1 - f0),
-                         "props": props, "enter": ov.get("enter"), "exit": ov.get("exit"),
-                         "sfx": ov.get("sfx", "default")})
+                         "props": props, "slot": slot, "enter": ov.get("enter") or rule.get("enter"),
+                         "exit": ov.get("exit") or rule.get("exit"), "sfx": ov.get("sfx", "default")})
         if slot not in ("redact", "screen", "bar"):
-            slot_busy.append({"i": len(overlays) - 1, "slot": slot, "need": int(math.ceil(need * fps)),
-                              "name": "overlays[%d]" % n})
+            # a scene next to another scene ends where the next begins, down to its type's minimum
+            floor = need if otype not in SCENE_TYPES else float(rule.get("min_s") or 0)
+            slot_busy.append({"i": len(overlays) - 1, "slot": slot, "need": int(math.ceil(floor * fps)),
+                              "want": int(math.ceil(need * fps)), "name": "overlays[%d]" % n})
         if ov.get("words"):
             rep.decisions.append({"kind": "graphic" if otype not in ("broll", "image", "segment") else "broll",
                                   "ref": overlays[-1]["id"], "words": ov["words"], "quote": grounded_quote})
@@ -885,10 +1009,30 @@ def compile_plan(plan, words, job, preset, overlay_rules, sfx_defaults=None, fps
             if room >= a["need"] and room >= 1:
                 oa["durationInFrames"] = room
                 rep.decisions.append({"kind": "trim_overlay", "ref": oa["id"], "why": "ends where %s begins" % ob["id"]})
+                if room < 0.8 * a.get("want", room):
+                    rep.warn(a["name"], "stays %.1f s before %s begins; its words need about %.1f s: shorten them or "
+                             "ground it on more words" % (room / fps, ob["id"], a["want"] / fps))
             else:
                 rep.error(b["name"], "overlaps %s in the %s slot (%.2f-%.2f s) and there is no room to shorten it: "
                           "move one, shorten its text or use another type" % (
                               a["name"], slot, oa["from"] / fps, (oa["from"] + oa["durationInFrames"]) / fps))
+
+    # full-frame overlays in a row: a gap under a second between them would flash the backdrop, so the earlier one
+    # runs on to the next
+    fulls = sorted((o for o in overlays if o.get("slot") == "full"), key=lambda o: o["from"])
+    for a, b in zip(fulls, fulls[1:]):
+        gap = b["from"] - (a["from"] + a["durationInFrames"])
+        if 0 < gap <= int(round(1.0 * fps)):
+            a["durationInFrames"] += gap
+            rep.decisions.append({"kind": "close_gap", "ref": a["id"], "frames": gap, "why": "runs on to %s" % b["id"]})
+    scenes = [o for o in overlays if o["type"] in SCENE_TYPES]
+    for o in overlays:
+        if o["slot"] in ("title", "centre", "card"):
+            for sc in scenes:
+                if o["from"] < sc["from"] + sc["durationInFrames"] and sc["from"] < o["from"] + o["durationInFrames"]:
+                    rep.warn(o["id"], "the %s is drawn over the %s scene %s, which has its own words: move one"
+                             % (o["type"], sc["type"], sc["id"]))
+                    break
 
     zooms = []
     for n, z in enumerate(plan.get("zooms") or []):
@@ -988,9 +1132,11 @@ def compile_plan(plan, words, job, preset, overlay_rules, sfx_defaults=None, fps
         "schema": EDL_SCHEMA, "job": job.get("id"), "target": preset.get("name"), "title": plan.get("title")
         or job.get("title"), "language": lang, "width": preset["width"], "height": preset["height"], "fps": fps,
         "durationInFrames": total_frames, "safe": preset.get("safe"), "bands": preset.get("bands"),
-        "theme": theme_for(plan, job, lang), "base": "", "audio": None, "sources": sources, "clips": clips,
+        "theme": theme_for(plan, job, lang, faceless=not (cams or screens)), "base": "", "audio": None,
+        "sources": sources, "clips": clips,
         "overlays": overlays, "zooms": zooms, "captions": captions, "chapters": chapters,
         "progress": bool(plan.get("progress_bar")),
+        "speech": [[_frames(a, fps), _frames(b, fps)] for a, b in speech],
         "meta": {"warnings": rep.warnings, "review": rep.review},
     }
     return {"edl": edl, "pieces": [{"masterIn": round(p.f_in / fps, 6), "masterOut": round(p.f_out / fps, 6),
@@ -999,15 +1145,164 @@ def compile_plan(plan, words, job, preset, overlay_rules, sfx_defaults=None, fps
             "report": rep.as_dict(), "duration": duration}
 
 
-def theme_for(plan, job, lang):
+def theme_for(plan, job, lang, faceless=False):
+    """The look: Poppins titles (Anek Bangla for Bangla), Montserrat captions, the scene palette, warm paper for data
+    cards, and a paper backdrop when nothing is filmed (a faceless video) or light pools on dark otherwise."""
     theme = {"accent": "#FFD23F", "text": "#FFFFFF", "ink": "#0E1014", "bg": "#0E1014", "card": "#FFFFFF",
              "cardText": "#0E1014", "muted": "#9AA3B2", "danger": "#FF4D4D",
-             "display": "Montserrat", "body": "Inter", "captions": "Montserrat", "radius": 28}
+             "display": "Poppins", "body": "Inter", "captions": "Montserrat", "radius": 28,
+             "displayBn": "AnekBangla", "bodyBn": "HindSiliguri",
+             "palette": ["#FF7A2F", "#6D3AF0", "#1F5C63", "#E8521A", "#2A6FDB"], "paper": "#F4EEE5",
+             "paperText": "#1E1B2E", "highlight": "#FFC43D", "backdrop": "paper" if faceless else "pools"}
     if str(lang).startswith("bn"):
-        theme.update({"display": "HindSiliguri", "body": "HindSiliguri", "captions": "HindSiliguri"})
+        theme.update({"captions": "HindSiliguri"})
     theme.update(job.get("theme") or {})
     theme.update(plan.get("theme") or {})
     return theme
+
+
+STEP_LABEL = {"en": "Step %s", "bn": "ধাপ %s"}
+# the end card's button before and after the click: Subscribe on YouTube and Shorts, Follow elsewhere
+END_BUTTON = {("subscribe", "en"): ("Subscribe", "Subscribed"), ("subscribe", "bn"): ("সাবস্ক্রাইব করুন", "সাবস্ক্রাইবড"),
+              ("follow", "en"): ("Follow", "Following"), ("follow", "bn"): ("ফলো করুন", "ফলো করা হলো")}
+CORNERS = ("tl", "tr", "bl", "br")
+
+
+def _round(x):
+    """Round half up, the way the renderer's Math.round does."""
+    return int(math.floor(x + 0.5))
+
+
+def _num(v):
+    try:
+        f = float(str(v).translate(BN_DIGITS).replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+def _bn(text):
+    return str(text).translate(str.maketrans("0123456789", "০১২৩৪৫৬৭৮৯"))
+
+
+def scene_events(otype, props, frames):
+    """Frames, from a scene's start, of the moments its sound lands on (a counter or a bar landing, a click). The
+    renderer reads the same numbers, so picture and sound cannot drift apart."""
+    t = {}
+    if otype == "bigStat":
+        t["land"] = max(13, min(frames - 12, 12 + max(24, _round(0.35 * frames))))
+    elif otype == "bars":
+        rows = props.get("rows") or []
+        n = max(1, len(rows))
+        focus = props.get("focus")
+        if not isinstance(focus, int) or not 0 <= focus < len(rows):
+            focus = max(range(len(rows)), key=lambda i: _num(rows[i].get("value")) or 0) if rows else 0
+        window = max(n * 10, _round(0.42 * frames))
+        step = window // n
+        ln = max(12, _round(step * 1.1))
+        t.update({"start": 20, "step": step, "len": ln, "focus": focus,
+                  "land": 20 + focus * step + _round(ln * 1.8)})
+    elif otype == "endCard" and props.get("button"):
+        words = len(" ".join(props.get("lines") or []).split())
+        t["click"] = max(40, min(frames - 30, max(6 + words * 4 + 36, _round(0.56 * frames))))
+    return t
+
+
+def scene_props(otype, props, ov, span, lang, preset, vertical, clips, rep, where):
+    """A scene's props made ready for the renderer: lines broken for its size, labels and buttons in the video's
+    language, the moments its sound lands on, the presenter in a round picture when a camera is under it, and the
+    captions hidden where the scene shows the words itself."""
+    bn = str(lang).startswith("bn")
+    p = dict(props)
+    f0, f1 = span
+    if otype in ("hook", "quote", "kinetic", "endCard", "step"):
+        if isinstance(p.get("lines"), str):
+            p["lines"] = [p["lines"]]
+        if p.get("lines"):
+            # hand breaks made for one shape: a line far past this frame's measure is broken again for it
+            (land, vert), most = LINE_FIT[otype]
+            limit = vert if vertical else land
+            if any(is_bengali(x) for x in p["lines"]):
+                limit = max(8, int(limit * 0.8))
+            if max(graphemes(x) for x in p["lines"]) > 1.3 * limit:
+                p["lines"] = balance_lines(" ".join(p["lines"]), limit, most + 1)
+        elif p.get("text") and otype != "step":
+            p["lines"] = title_lines(p["text"], otype, vertical)
+    if otype == "step":
+        n = p.get("n")
+        if not isinstance(n, int) or n < 1:
+            rep.error(where, "props.n must be the step's number (1, 2, 3...)")
+            n = 1
+        if not p.get("lines"):
+            p["lines"] = title_lines(p.get("title"), "step", vertical)
+        if "label" not in p:
+            p["label"] = STEP_LABEL["bn" if bn else "en"] % (_bn(n) if bn else n)
+        p["numText"] = _bn(n) if bn else str(n)
+    if otype == "bigStat":
+        series = p.get("series")
+        if series is not None:
+            vals = [_num(v) for v in series] if isinstance(series, list) else []
+            if len(vals) < 2 or any(v is None for v in vals):
+                rep.error(where, "props.series must be a list of 2 or more numbers (the curve's values in order)")
+                p.pop("series", None)
+            else:
+                p["series"] = vals
+                origin = {str(f.get("origin")) for f in (ov.get("facts") or []) if isinstance(f, dict)}
+                if not origin & FACT_ORIGINS:
+                    rep.ask(where, "the curve plots %d values; confirm where they come from (facts with origin brief, "
+                            "client, web or formula)" % len(vals))
+        if p.get("title"):
+            p["title"] = title_lines(p["title"], "bigStat" if p.get("series") else "bigStat-plain", vertical)
+    if otype == "bars":
+        rows = p.get("rows")
+        good = isinstance(rows, list) and 2 <= len(rows) <= 6 and all(
+            isinstance(r, dict) and str(r.get("label") or "").strip() and _num(r.get("value")) is not None
+            and _num(r.get("value")) >= 0 for r in rows)
+        if not good:
+            rep.error(where, "props.rows needs 2 to 6 rows, each {\"label\": ..., \"value\": a number 0 or more, "
+                      "\"text\"?: how the value reads}")
+            p["rows"] = []
+        else:
+            p["rows"] = [dict(r, value=_num(r["value"])) for r in rows]
+        if "focus" in p and not (isinstance(p["focus"], int) and 0 <= p["focus"] < len(p["rows"])):
+            rep.error(where, "props.focus must be the index of a row (0 for the first)")
+            p.pop("focus")
+        if p.get("title"):
+            p["title"] = title_lines(p["title"], "bars", vertical)
+    if otype == "versus":
+        for key in ("left", "right"):
+            side = p.get(key)
+            if isinstance(side, str):
+                side = {"text": side}
+            if not isinstance(side, dict) or not any(side.get(k) for k in ("text", "value", "source")):
+                rep.error(where, "props.%s needs text, value or source (and a label for its chip)" % key)
+                side = {}
+            p[key] = side
+    if otype == "recap":
+        items = p.get("items")
+        if not isinstance(items, list) or not 2 <= len(items) <= 4:
+            rep.error(where, "props.items needs 2 to 4 cards ({\"label\": ..., \"text\"?: ..., \"source\"?: ...})")
+        if p.get("title"):
+            p["title"] = title_lines(p["title"], "recap", vertical)
+    if otype == "endCard" and "button" not in p:
+        kind = "subscribe" if preset.get("name") in ("youtube", "shorts") else "follow"
+        p["button"], p["pressed"] = END_BUTTON[(kind, "bn" if bn else "en")]
+    if otype == "label" and p.get("corner") not in (None,) + CORNERS:
+        rep.error(where, "props.corner must be one of " + ", ".join(CORNERS))
+    events = scene_events(otype, p, f1 - f0)
+    if events:
+        p["t"] = events
+    if otype in SCENE_TYPES:
+        has_cam = any(c.get("cam") and c["from"] < f1 and f0 < c["from"] + c["durationInFrames"] for c in clips)
+        want = p.get("pip")
+        if want is None:
+            p["pip"] = bool(has_cam) and otype not in ("step", "endCard")
+        elif want and not has_cam:
+            rep.warn(where, "pip: there is no camera under this scene to show")
+            p["pip"] = False
+    if otype in ("kinetic", "step", "endCard", "quote"):
+        p.setdefault("hideCaptions", not p.get("captions", False))
+    return p
 
 
 def build_sfx(plan, overlays, clips, by_index, words, idx, rep, fps, preset, defaults):
@@ -1040,29 +1335,53 @@ def build_sfx(plan, overlays, clips, by_index, words, idx, rep, fps, preset, def
             rep.error("sfx[%d]" % n, "\"at\" must be overlay:<id or index>, word:<id>, clip:<id> or time:<seconds>")
             continue
         cues.append({"t": round(t, 3), "name": item.get("name") or "whoosh", "gain_db": item.get("gain_db"),
-                     "align": item.get("align") or _sfx_align(item.get("name")), "why": "plan", "explicit": True})
+                     "align": item.get("align") or _sfx_align(item.get("name")), "why": "plan", "prio": 0})
     for ov in overlays:
         name = ov.get("sfx")
         if name == "default":
             name = defaults.get(ov["type"])
         if not name or ov["type"] in ("redact", "progress"):
             continue
-        cues.append({"t": round(ov["from"] / fps, 3), "name": name, "gain_db": None, "align": _sfx_align(name),
-                     "why": "%s %s" % (ov["type"], ov["id"]), "explicit": False})
+        events = (ov.get("props") or {}).get("t") or {}
+        items = name if isinstance(name, list) else [{"at": "start", "name": name}]
+        for k, it in enumerate(items):
+            it = {"at": "start", "name": it} if isinstance(it, str) else dict(it)
+            at = it.get("at", "start")
+            off = 0 if at == "start" else (int(at) if isinstance(at, (int, float)) else events.get(at))
+            if off is None or not it.get("name"):
+                continue
+            off += int(it.get("delay") or 0)
+            if off >= ov["durationInFrames"]:
+                continue
+            # a scene's later cues are part of its movement (a counter landing, a click); a scene that comes in with
+            # a sweep or a slide is heard coming in; other graphics' cues keep to the spacing below
+            prio = 1 if k > 0 else 2 if ov.get("enter") in ("sweep", "slide", "slideUp") else 3
+            cues.append({"t": round((ov["from"] + off) / fps, 3), "name": it["name"], "gain_db": it.get("gain_db"),
+                         "align": _sfx_align(it["name"]), "why": "%s %s%s" % (ov["type"], ov["id"],
+                                                                            "" if k == 0 else " (%s)" % at),
+                         "prio": prio})
     for c in clips:
-        if c["transitionIn"]["type"] in ("zoom", "whip", "flash"):
-            cues.append({"t": round(c["from"] / fps, 3), "name": "whoosh-short" if c["transitionIn"]["type"] != "flash"
-                         else "impact", "gain_db": None, "align": "peak", "why": "transition into " + c["id"],
-                         "explicit": False})
-    cues.sort(key=lambda c: (c["t"], not c["explicit"]))
+        kind = c["transitionIn"]["type"]
+        if kind in ("zoom", "whip", "flash", "slide", "sweep"):
+            cues.append({"t": round(c["from"] / fps, 3), "name": {"flash": "impact", "sweep": "whoosh"}.get(
+                kind, "whoosh-short"), "gain_db": None, "align": "peak", "why": "transition into " + c["id"],
+                         "prio": 2 if kind in ("slide", "sweep") else 3})
+    cues.sort(key=lambda c: (c["t"], c["prio"]))
     kept = []
     for c in cues:
-        if not c["explicit"] and any(abs(c["t"] - k["t"]) < spacing for k in kept):
+        gap = {2: TRANSITION_SFX_GAP_S, 3: spacing}.get(c["prio"])
+        # a transition is kept apart from other transitions and default cues (a click or a ding next to it is a
+        # different sound); a default cue keeps its distance from everything
+        near = [k for k in kept if c["prio"] == 3 or k["prio"] >= 2]
+        if gap and any(abs(c["t"] - k["t"]) < gap for k in near):
             continue
         kept.append(c)
     for c in kept:
-        c.pop("explicit", None)
+        c.pop("prio", None)
     return kept
+
+
+TRANSITION_SFX_GAP_S = 1.5    # scene transitions are heard; closer than this they blur into one
 
 
 def _sfx_align(name):

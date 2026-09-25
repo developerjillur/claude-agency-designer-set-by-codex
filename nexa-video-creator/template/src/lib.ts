@@ -3,16 +3,22 @@
 import { loadFont as loadInter } from "@remotion/google-fonts/Inter";
 import { loadFont as loadHind } from "@remotion/google-fonts/HindSiliguri";
 import { loadFont as loadMontserrat } from "@remotion/google-fonts/Montserrat";
-import { Easing, interpolate, staticFile } from "remotion";
+import { loadFont as loadPoppins } from "@remotion/google-fonts/Poppins";
+import { loadFont as loadAnek } from "@remotion/google-fonts/AnekBangla";
+import { Easing, interpolate, random, staticFile } from "remotion";
 
 const montserrat = loadMontserrat("normal", { weights: ["600", "700", "800", "900"], subsets: ["latin"] });
 const inter = loadInter("normal", { weights: ["400", "500", "600", "700", "800"], subsets: ["latin"] });
 const hind = loadHind("normal", { weights: ["500", "600", "700"], subsets: ["bengali", "latin"] });
+const poppins = loadPoppins("normal", { weights: ["500", "600", "700", "800"], subsets: ["latin"] });
+const anek = loadAnek("normal", { weights: ["500", "600", "700", "800"], subsets: ["bengali", "latin"] });
 
 export const FONTS: Record<string, string> = {
   Montserrat: montserrat.fontFamily,
   Inter: inter.fontFamily,
   HindSiliguri: hind.fontFamily,
+  Poppins: poppins.fontFamily,
+  AnekBangla: anek.fontFamily,
 };
 
 export const font = (name?: string): string => {
@@ -24,7 +30,7 @@ export type Box = { x: number; y: number; w: number; h: number };
 export type Band = { y: number; h: number };
 export type Layout = "camFull" | "screenFull" | "screenPip" | "split" | "stack" | "brollFull" | "voiceOnly";
 export type Placement = { source: string; trimBefore: number } | null;
-export type Transition = { type: "cut" | "zoom" | "whip" | "dip" | "flash"; frames: number };
+export type Transition = { type: "cut" | "zoom" | "whip" | "dip" | "flash" | "slide" | "sweep"; frames: number };
 export type Pip = { corner: "tl" | "tr" | "bl" | "br"; shape: "circle" | "rounded"; size: number };
 
 export type Clip = {
@@ -51,6 +57,7 @@ export type Overlay = {
   durationInFrames: number;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   props: Record<string, any>;
+  slot?: string;
   enter?: string | null;
   exit?: string | null;
 };
@@ -93,6 +100,14 @@ export type Theme = {
   body: string;
   captions: string;
   radius: number;
+  // the designed scenes: paper and its text, scene colours, the key-word colour, the faceless backdrop, Bangla fonts
+  paper?: string;
+  paperText?: string;
+  palette?: string[];
+  highlight?: string;
+  backdrop?: "pools" | "paper" | "dusk";
+  displayBn?: string;
+  bodyBn?: string;
 };
 
 export type Edl = {
@@ -125,6 +140,8 @@ export type Edl = {
   };
   chapters: { t: number; title: string }[];
   progress: boolean;
+  // speech on the output timeline, in frames: the presenter's ring moves only while someone talks
+  speech?: [number, number][];
 };
 
 export const clampOpts = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
@@ -135,6 +152,11 @@ export const easeInOut = Easing.bezier(0.65, 0, 0.35, 1);
 export const unit = (width: number, height: number): number => Math.min(width, height) / 1080;
 
 export const isBengali = (text: string): boolean => /[ঀ-৿]/.test(text);
+
+export const displayFont = (theme: Theme, text: string): string =>
+  font(isBengali(text) ? theme.displayBn || "AnekBangla" : theme.display);
+export const bodyFont = (theme: Theme, text: string): string =>
+  font(isBengali(text) ? theme.bodyBn || "HindSiliguri" : theme.body);
 
 export const mediaSrc = (base: string, src: string): string => {
   if (/^(https?:|data:|blob:)/.test(src)) return src;
@@ -208,13 +230,23 @@ export const zoomTransform = (w: number, h: number, z: { s: number; cx: number; 
   return `translate(${tx}px, ${ty}px) scale(${z.s})`;
 };
 
-// Numbers inside a label ("62%", "$1,200", "3.5x"), for count-up animations that settle on the exact text.
-export const splitNumber = (text: string): { pre: string; num: number | null; post: string; decimals: number; comma: boolean } => {
-  const m = String(text).match(/^(\D*?)(\d[\d,]*(?:\.\d+)?)(.*)$/);
-  if (!m) return { pre: String(text), num: null, post: "", decimals: 0, comma: false };
+const BN_TO_ASCII: Record<string, string> = { "০": "0", "১": "1", "২": "2", "৩": "3", "৪": "4", "৫": "5", "৬": "6", "৭": "7", "৮": "8", "৯": "9" };
+const ASCII_TO_BN = "০১২৩৪৫৬৭৮৯";
+export const toAsciiDigits = (s: string): string => s.replace(/[০-৯]/g, (c) => BN_TO_ASCII[c] ?? c);
+export const toBengaliDigits = (s: string): string => s.replace(/[0-9]/g, (c) => ASCII_TO_BN[Number(c)]);
+
+// Numbers inside a label ("62%", "$1,200", "3.5x", "৫০০ টাকা"), for count-ups that settle on the exact text.
+export const splitNumber = (
+  text: string,
+): { pre: string; num: number | null; post: string; decimals: number; comma: boolean; bengali: boolean } => {
+  const raw0 = String(text);
+  const bengali = /[০-৯]/.test(raw0);
+  const m = toAsciiDigits(raw0).match(/^(\D*?)(\d[\d,]*(?:\.\d+)?)(.*)$/);
+  if (!m) return { pre: raw0, num: null, post: "", decimals: 0, comma: false, bengali };
   const raw = m[2];
   const decimals = raw.includes(".") ? raw.split(".")[1].length : 0;
-  return { pre: m[1], num: parseFloat(raw.replace(/,/g, "")), post: m[3], decimals, comma: raw.includes(",") };
+  const back = (s: string) => (bengali ? toBengaliDigits(s) : s);
+  return { pre: back(m[1]), num: parseFloat(raw.replace(/,/g, "")), post: back(m[3]), decimals, comma: raw.includes(","), bengali };
 };
 
 export const formatNumber = (n: number, decimals: number, comma: boolean): string => {
@@ -224,9 +256,92 @@ export const formatNumber = (n: number, decimals: number, comma: boolean): strin
   return a.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (b ? "." + b : "");
 };
 
-export const hexToRgba = (hex: string, alpha: number): string => {
-  const h = hex.replace("#", "");
-  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
-  const n = parseInt(full.slice(0, 6), 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+// The label at progress p (0..1) of its count-up; at 1 it is exactly the given text.
+export const countUp = (text: string, p: number, from = 0): string => {
+  if (p >= 1) return text;
+  const n = splitNumber(text);
+  if (n.num === null) return text;
+  const v = from + (n.num - from) * Math.max(0, p);
+  const s = formatNumber(v, n.decimals, n.comma);
+  return n.pre + (n.bengali ? toBengaliDigits(s) : s) + n.post;
 };
+
+export const hexToRgba = (hex: string, alpha: number): string => {
+  const [r, g, b] = rgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const rgb = (hex: string): [number, number, number] => {
+  const h = String(hex || "#000000").replace("#", "");
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const n = parseInt(full.slice(0, 6), 16) || 0;
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
+
+// Mix two colours: t = 0 gives a, t = 1 gives b.
+export const mix = (a: string, b: string, t: number): string => {
+  const x = rgb(a);
+  const y = rgb(b);
+  const c = x.map((v, i) => Math.round(v + (y[i] - v) * t));
+  return "#" + c.map((v) => v.toString(16).padStart(2, "0")).join("");
+};
+
+// Relative luminance (0 dark to 1 light), for choosing text on a colour.
+export const luminance = (hex: string): number => {
+  const [r, g, b] = rgb(hex).map((v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
+export const onColor = (hex: string, dark = "#1E1B2E", light = "#FFFFFF"): string => (luminance(hex) > 0.45 ? dark : light);
+
+// The scene palette: the theme's own, else the default set (warm orange, violet, deep teal, burnt orange, blue).
+export const paletteOf = (t: Theme): string[] =>
+  t.palette && t.palette.length ? t.palette : ["#FF7A2F", "#6D3AF0", "#1F5C63", "#E8521A", "#2A6FDB"];
+export const paperOf = (t: Theme): string => t.paper || "#F4EEE5";
+export const paperTextOf = (t: Theme): string => t.paperText || "#1E1B2E";
+export const highlightOf = (t: Theme): string => t.highlight || "#FFC43D";
+
+// Letters as a reader counts them: a Bengali conjunct or a vowel sign is part of one letter.
+export const graphemes = (text: string): number => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const Seg = (Intl as any).Segmenter;
+  if (Seg) {
+    let n = 0;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    for (const _ of new Seg("bn", { granularity: "grapheme" }).segment(text)) n++;
+    return n;
+  }
+  return Array.from(text).filter((ch) => !/[ঁ-ঃ়া-্ৗৢৣ‌‍]/.test(ch)).length;
+};
+
+// Average advance of a letter as a share of the font size, for the fonts the scenes use at weight 700 to 800
+// (Anek Bangla 800 measured in a render: 14.4 em for 20 Bengali letters with their vowel signs).
+const PER_CHAR = (text: string, upper: boolean): number => (isBengali(text) ? 0.74 : upper ? 0.72 : 0.58);
+
+// The largest size up to `base` at which every line fits `width` on one line (never under `floor` x base).
+export const fitSize = (lines: string[], base: number, width: number, opts: { upper?: boolean; floor?: number; spacing?: number } = {}): number => {
+  const floor = opts.floor ?? 0.55;
+  let size = base;
+  for (const line of lines) {
+    const est = graphemes(line) * PER_CHAR(line, !!opts.upper) * base + (opts.spacing ?? 0) * graphemes(line);
+    if (est > width) size = Math.min(size, (base * width) / est);
+  }
+  return Math.round(Math.max(base * floor, size));
+};
+
+// Smooth noise in 0..1 from a seed and a position (value noise with a smoothstep), for boiling lines and talking rings.
+export const smoothNoise = (seed: string, x: number): number => {
+  const i = Math.floor(x);
+  const f = x - i;
+  const a = random(`${seed}-${i}`);
+  const b = random(`${seed}-${i + 1}`);
+  const s = f * f * (3 - 2 * f);
+  return a + (b - a) * s;
+};
+
+// Is anyone speaking at this output frame (with a short tail)?
+export const speakingAt = (edl: Edl, frame: number, tail = 3): boolean =>
+  (edl.speech || []).some(([a, b]) => frame >= a && frame < b + tail);

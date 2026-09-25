@@ -4,6 +4,34 @@ The version is `SKILL_VERSION` in `scripts/nvc.py`. Run the offline tests after 
 `python3 -m unittest discover -s ~/.claude/skills/nexa-video-creator/tests` (and with `NVC_RENDER_TESTS=1` once the
 renderer is set up).
 
+## 2026.09.25.5 · designed scenes, the remotion-broll way
+
+The 10 s demo's cards on a dark backdrop read as template work next to the remotion-broll minute cut, which set the
+bar. Its craft is now part of the edit itself, as eight full-frame scenes the plan places like any overlay
+(`references/plan.md`, Scenes; `template/src/scenes.tsx`):
+
+- **kinetic** words rising out of a blur with hand-drawn underlines on key words; **step** cards on palette colours
+  with a spinning badge and drifting bubbles; **bigStat**, a number counting up on a white card on dotted paper, with
+  its curve drawn alongside when there is data; **bars** growing in turn, linear in value, the focus bar landing
+  with a bounce; **versus**, a split with label chips and a boiling hand-drawn seam; **recap** cards on a dark board;
+  an **endCard** where a cursor clicks Subscribe and the bell rings; **photo** cards with a label chip. And a
+  **label** chip for any footage.
+- Every hold moves (a slow push-in: the kit's reviews flagged still holds as frozen), scenes come in with colour
+  sweeps or slides that land over the scene before, short gaps between scenes are closed, and each moment has its
+  sound: a whoosh on each transition (kept 1.5 s apart, outside the long-form 4 s rule), a ding when a counter or a
+  bar lands, a click and a ding on the end card's click. The compiler computes those moments and the renderer reads
+  them, so picture and sound cannot drift.
+- Over a camera the speaker stays in a round picture with a white rim and a ring that moves only while someone
+  speaks (the EDL now carries the speech spans in frames); cards and grids keep clear of it.
+- Titles are balanced into lines by the compiler (a number keeps its word, a Bengali letter is measured wider),
+  hand breaks made for 16:9 are broken again on 9:16, and cards end above burned captions.
+- Bangla: Anek Bangla for titles, ধাপ ১ and সাবস্ক্রাইব করুন by default, Bengali digits in count-ups and axes.
+- The theme adds a palette, paper, a key colour and a backdrop (paper for a faceless edit); titles use Poppins. The
+  hook and quote overlays use the rising words and underlines too; cards hold with a push-in. Transitions into a
+  segment add slide and sweep.
+- Measured: a 43 s Bangla explainer of 11 scenes (a nexa-speech voice, a Lyria bed, 17 effects) compiles in under
+  a second and renders in 24 s on the Mac Studio; the QA's frozen-picture check is clean.
+
 ## 2026.09.25.4 · the licence check covers the cleaned dialogue
 
 - `deliver` runs nexa-sound's `credits --strict` over the target's mix folder and `media/audio` (where `clean`
