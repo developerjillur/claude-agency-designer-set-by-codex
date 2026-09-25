@@ -411,7 +411,11 @@ class TextTests(unittest.TestCase):
                  "Meet at 10:30.": "Meet at ten thirty.",
                  "About 3,250,000,000 people.": "About three billion two hundred fifty million people.",
                  "Wait 1,500 days.": "Wait one thousand five hundred days.",
-                 "It hit $1.5 million.": "It hit one point five million dollars."}
+                 "It hit $1.5 million.": "It hit one point five million dollars.",
+                 "On April 26, 1956, it sailed.": "On April twenty-sixth, nineteen fifty-six, it sailed.",
+                 "Due 3 May.": "Due the third of May.",
+                 "By March 2026.": "By March twenty twenty-six.",
+                 "On Dec. 1st we open.": "On December first we open."}
         for raw, want in cases.items():
             self.assertEqual(self.en(raw), want, raw)
         self.assertEqual(S.en_int(0), "zero")
@@ -858,6 +862,21 @@ class AlignMatchTests(unittest.TestCase):
         self.assertNotEqual(S.match_key("কাল"), S.match_key("কাজ"))
 
 
+class NumberWordTests(unittest.TestCase):
+    """Numbers count as the words a voice says for them, so a line with a date or a price is not judged slow."""
+
+    def test_numbers_as_read(self):
+        cases = {"26,": 1, "1956,": 2, "2023.": 2, "$5.86": 5, "58": 1, "116": 3, "24,346": 5, "80%": 2,
+                 "1,200": 4, "3.5x": 4, "10k": 2, "1990s": 2, "box": 1, "১৯৫৬": 2, "৫০০": 1}
+        for token, words in cases.items():
+            self.assertEqual(S.number_words(token, token[0] in "০১২৩৪৫৬৭৮৯"), words, token)
+
+    def test_a_dated_line_is_not_counted_short(self):
+        words = S.spoken_words("On April 26, 1956, the Ideal-X left Newark for Houston.")
+        self.assertEqual(len(words), 10)
+        self.assertEqual(S.spoken_count(words), 11)
+
+
 class RenderSummaryTests(unittest.TestCase):
     def test_a_failing_chunk_says_how_to_ask_for_new_takes(self):
         res = {"rendered": 1, "chunks": 11, "calls": 2, "est_usd": 0.003, "budget": 0.05, "rerolls": [],
@@ -1016,6 +1035,25 @@ class AudioTests(unittest.TestCase):
         self.assertLessEqual(abs(got["I"] + 16.0), 0.5, got)
         self.assertLessEqual(got["TP"], -1.5, got)
         self.assertEqual(audio_format(out), (48000, 1, "pcm_s24le"))
+
+    def test_peaks_between_samples_are_caught_after_the_resample(self):
+        """A voice at 24 kHz with energy near 12 kHz: its sample peaks hide much higher true peaks, which show up once
+        it is resampled to 48 kHz. The ceiling works on the 48 kHz signal, so the master still lands on target."""
+        pcm, _ = fake_speech(" ".join(["word"] * 40) + ".", "Charon")
+        a = array("h")
+        a.frombytes(pcm)
+        f = array("f", [x / 32768.0 * 0.22 for x in a])
+        for k in range(RATE // 3, len(f) - 1200, RATE):
+            for j in range(1200):          # 50 ms of an 11.9 kHz tone, sampled where its peaks fall between samples
+                f[k + j] += 0.6 * math.sin(2 * math.pi * 11900.0 * j / RATE + 0.7)
+        pre = self.tmp / "pre_hf.f32"
+        S.write_f32(pre, f)
+        out = self.tmp / "out_hf.wav"
+        fin = S.finish_loudness(pre, RATE, {"stem_I": -16.0, "TP": -1.5, "LRA": 11.0}, out)
+        got = measure(out)
+        self.assertLessEqual(abs(got["I"] + 16.0), 0.5, got)
+        self.assertLessEqual(got["TP"], -1.5, got)
+        self.assertEqual(fin["normalization"], "linear")
 
 
 # --------------------------------------------------------------------------------------------- end to end

@@ -50,7 +50,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gemini_api as G  # noqa: E402  (shared by the nexa skills: never edit it here)
 import elevenlabs_api as EL  # noqa: E402  (shared by the nexa skills: never edit it here)
 
-SKILL_VERSION = "2026.09.25.5"
+SKILL_VERSION = "2026.09.25.6"
 PRICES_AS_OF = "2026-09-25"
 ANALYSIS_VERSION = "2026.09.25.1"   # bump when what analyse_audio() returns changes
 SCRIPTS = Path(__file__).resolve().parent
@@ -777,8 +777,16 @@ def en_money(sym: str, amount: str, scale: str = None) -> str:
 
 
 EN_NUM = r"\d(?:\d|,(?=\d))*(?:\.\d+)?"
+EN_MONTHS = (r"January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|"
+             r"Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec")
+EN_MONTH_FULL = {"jan": "January", "feb": "February", "mar": "March", "apr": "April", "jun": "June", "jul": "July",
+                 "aug": "August", "sep": "September", "sept": "September", "oct": "October", "nov": "November",
+                 "dec": "December"}
 EN_RX = re.compile(
-    r"(?P<money>(?<![\w.])(?P<cur>[$\u00a3\u20ac\u09f3])\s?(?P<amt>" + EN_NUM + r")"
+    # a day of the month is an ordinal: "April 26" April twenty-sixth, "26 April" the twenty-sixth of April
+    r"(?P<md>\b(?P<mon>" + EN_MONTHS + r")\.?\s(?P<mday>[0-3]?\d)(?:st|nd|rd|th)?(?![\w%:]|[.,]\d))"
+    r"|(?P<dm>(?<![\w.,])(?P<dday>[0-3]?\d)(?:st|nd|rd|th)?\s(?:of\s)?(?P<dmon>" + EN_MONTHS + r")\b)"
+    r"|(?P<money>(?<![\w.])(?P<cur>[$\u00a3\u20ac\u09f3])\s?(?P<amt>" + EN_NUM + r")"
     r"(?:\s(?P<scale>thousand|million|billion|trillion)\b|(?P<abbr>k|m|bn)\b)?)"
     r"|(?P<pct>(?<![\w.])(?P<pnum>-?" + EN_NUM + r")\s?%)"
     r"|(?P<time>(?<![\w:.])(?P<hh>[01]?\d|2[0-3]):(?P<mm>[0-5]\d)(?![\d:])(?:\s?(?P<ampm>[ap])\.?\s?m\b\.?)?)"
@@ -798,6 +806,14 @@ def _en_range_side(s: str) -> str:
 
 def en_number_match(m) -> str:
     g = m.groupdict()
+    if g["md"]:
+        day = int(g["mday"])
+        mon = EN_MONTH_FULL.get(g["mon"].lower(), g["mon"])
+        return f"{mon} {en_ordinal(day)}" if 1 <= day <= 31 else f"{mon} {en_int(day)}"
+    if g["dm"]:
+        day = int(g["dday"])
+        mon = EN_MONTH_FULL.get(g["dmon"].lower(), g["dmon"])
+        return f"the {en_ordinal(day)} of {mon}" if 1 <= day <= 31 else m.group(0)
     if g["money"]:
         scale = g["scale"] or SCALE_ABBR.get((g["abbr"] or "").lower())
         return en_money(g["cur"], g["amt"], scale.lower() if scale else None)
@@ -1078,6 +1094,54 @@ def spoken_words(text: str) -> list:
     text = TAG_RX.sub(" ", text or "")
     text = re.sub(r"\[[a-z][a-z \-]*\]", " ", text)
     return [w for w in text.split() if re.search(r"[\w\u0980-\u09ff]", w)]
+
+
+NUMBER_TOKEN_RX = re.compile(r"^([$€£৳₹¥]?)([0-9\u09e6-\u09ef][0-9\u09e6-\u09ef,]*)(?:\.([0-9\u09e6-\u09ef]+))?"
+                             r"(%|st|nd|rd|th|s|k|m|bn|x)?$", re.I)
+BN_DIGIT_MAP = str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789")
+
+
+def _int_words(n: int, bn: bool) -> int:
+    """Words in a whole number read aloud ("twenty-six" is one word, as the counts here hyphenate; Bangla has one
+    word for every number under 100 and for each hundred)."""
+    if n < 100:
+        return 1
+    if n < 1000:
+        return (1 if bn else 2) + (1 if n % 100 else 0)
+    for size in (10 ** 9, 10 ** 6, 10 ** 3):
+        if n >= size:
+            return _int_words(n // size, bn) + 1 + (_int_words(n % size, bn) if n % size else 0)
+    return 1
+
+
+def number_words(token: str, bn: bool = False) -> int:
+    """How many words a voice says for a number written in digits: a year is two ("nineteen fifty-six"), a price
+    with cents five ("five dollars and eighty-six cents"), 24,346 five. Counted as written digits, every one of these
+    was one word, so a line with a date or a price looked slow to the pace gates and was re-rolled for nothing."""
+    m = NUMBER_TOKEN_RX.match(re.sub(r"[^\w%$€£৳₹¥\u0980-\u09ff]+$", "", token))
+    if not m:
+        return 1
+    cur, whole, dec, suffix = m.group(1), m.group(2).translate(BN_DIGIT_MAP), m.group(3), (m.group(4) or "").lower()
+    digits = whole.replace(",", "")
+    if not digits.isdigit():
+        return 1
+    n = int(digits)
+    if not cur and not dec and "," not in whole and len(digits) == 4 and 1100 <= n <= 2099 and suffix in ("", "s"):
+        words = 2                                   # a year: "nineteen fifty-six", "twenty twenty-three"
+    else:
+        words = _int_words(n, bn)
+    if dec:
+        words += 3 if cur else 1 + len(dec)         # "and eighty-six cents", or "point eight six"
+    if cur:
+        words += 1                                  # "dollars", "taka"
+    if suffix in ("%", "k", "m", "bn", "x"):
+        words += 1                                  # "percent", "thousand", "million", "billion", "times"
+    return words
+
+
+def spoken_count(words: list, bn: bool = False) -> int:
+    """The number of words a voice says for these written words (numbers counted as read)."""
+    return sum(number_words(w, bn) for w in words)
 
 
 # ------------------------------------------------------------------------------------------------ text: warnings
@@ -1427,8 +1491,9 @@ def build_plan(script_text: str, main_name, pdir: Path, precise=None, source: st
         words = spoken_words(nm["spoken"])
         wps, _ = articulation_wps(p, calib)
         bn = is_bn(nm["spoken"])
-        est = len(words) / wps + tag_seconds(nm["tags"]) if words else tag_seconds(nm["tags"])
-        sents.append({"u": u, "profile": pname, "style": mode_style, "nm": nm, "n_words": len(words),
+        said = spoken_count(words, bn)
+        est = said / wps + tag_seconds(nm["tags"]) if words else tag_seconds(nm["tags"])
+        sents.append({"u": u, "profile": pname, "style": mode_style, "nm": nm, "n_words": said,
                       "chars": len(nm["spoken"]), "graphemes": graphemes(nm["spoken"]), "bn": bn,
                       "est_s": est, "fragment": len(words) < FRAGMENT_WORDS})
     # runs: same scene, paragraph, profile, speaker, turn and mode; a pause or a takes marker starts a new run
@@ -2588,62 +2653,49 @@ def _loudnorm_json(stderr: str) -> dict:
 
 
 def finish_loudness(pre: Path, rate: int, target: dict, out: Path) -> dict:
-    """Two-pass loudnorm in linear mode to the target; a limiter first when the gain would push the true peak over;
-    pass 2's report must say linear (else the ceiling goes down and it runs again); resample to 48 kHz, 24-bit;
-    verified with ebur128. Raises ToolError rather than ship a dynamic-mode result."""
+    """Linear gain to the target loudness, then 48 kHz, then a true-peak ceiling: a limiter that only touches the
+    peaks, run after the resampling so inter-sample overshoot is caught. (A limiter at the voice's 24 kHz before the
+    gain let the resampled peaks reach 0 dBTP while loudnorm reported -2, and the old loop circled until it gave
+    up.) Measured once with loudnorm, verified with ebur128 after every pass; the gain and the ceiling are corrected
+    and run again when either is off, 24-bit 48 kHz out. Raises ToolError rather than ship a result off target."""
     I, TP = float(target["stem_I"]), float(target["TP"])
     lra = float(target["LRA"])
     inp = ["-f", "f32le", "-ar", str(rate), "-ac", "1", "-i", pre]
-    limit_db, tp_goal, i_goal = None, TP, I
+    r = ff(["-v", "info", *inp, "-af", f"loudnorm=I={I:.2f}:TP={TP:.2f}:LRA={lra:.1f}:print_format=json",
+            "-f", "null", "-"], check=False)
+    m1 = _loudnorm_json(r.stderr)
+    mi, mtp, mlra = float(m1["input_i"]), float(m1["input_tp"]), float(m1["input_lra"])
+    if mi <= -69.0:
+        raise ToolError("the voice-over is silent: nothing to normalise")
+    gain = I - mi
+    ceiling = TP - 0.5                  # a sample-peak ceiling at 48 kHz, with room for the true-peak overshoot
+    limited = mtp + gain > TP - 0.3
     history = []
-    for attempt in range(8):
-        lim = (f"alimiter=limit={10 ** (limit_db / 20.0):.6f}:level=disabled:latency=1:attack=5:release=50,"
-               if limit_db is not None else "")
-        r = ff(["-v", "info", *inp, "-af", f"{lim}loudnorm=I={i_goal:.2f}:TP={tp_goal:.2f}:LRA={lra:.1f}:"
-                                            "print_format=json", "-f", "null", "-"], check=False)
-        m1 = _loudnorm_json(r.stderr)
-        mi, mtp, mlra = float(m1["input_i"]), float(m1["input_tp"]), float(m1["input_lra"])
-        if mi <= -69.0:
-            raise ToolError("the voice-over is silent: nothing to normalise")
-        gain = i_goal - mi
-        if mtp + gain > tp_goal - 0.2:
-            # limiter first: a sample-peak ceiling before the gain, with room for the true-peak overshoot; lower it
-            # further when the last ceiling was not enough
-            ceiling = tp_goal - gain - 0.8
-            if limit_db is not None:
-                ceiling = min(ceiling, limit_db - 0.5)
-            if limit_db is not None and limit_db <= -24.0:
-                raise ToolError("the peaks cannot be brought under the true-peak target: lower loudness.stem_I")
-            limit_db = max(-24.0, ceiling)
-            history.append({"attempt": attempt + 1, "limiter_db": round(limit_db, 2), "why": "peak over the target"})
-            continue
-        use_lra = max(lra, min(50.0, mlra + 0.1))
-        ln = (f"loudnorm=I={i_goal:.2f}:TP={tp_goal:.2f}:LRA={use_lra:.1f}:measured_I={m1['input_i']}:"
-              f"measured_TP={m1['input_tp']}:measured_LRA={m1['input_lra']}:measured_thresh={m1['input_thresh']}:"
-              f"offset={m1['target_offset']}:linear=true:print_format=json")
-        r2 = ff(["-v", "info", "-y", *inp, "-af", f"{lim}{ln},{RESAMPLE_48K}", "-ar", "48000", "-c:a", "pcm_s24le",
-                 out], check=False)
+    for attempt in range(6):
+        chain = f"volume={gain:.3f}dB,{RESAMPLE_48K}"
+        if limited:
+            chain += (f",alimiter=limit={10 ** (ceiling / 20.0):.6f}:level=disabled:latency=1:attack=1:release=60")
+        r2 = ff(["-v", "error", "-y", *inp, "-af", chain, "-ar", "48000", "-c:a", "pcm_s24le", out], check=False)
         if r2.returncode != 0:
             raise ToolError(f"ffmpeg failed in the loudness pass: {(r2.stderr or '')[-500:]}")
-        m2 = _loudnorm_json(r2.stderr)
-        if m2.get("normalization_type") != "linear":
-            limit_db = (limit_db if limit_db is not None else tp_goal - gain - 0.8) - 1.0
-            history.append({"attempt": attempt + 1, "limiter_db": round(limit_db, 2), "why": "pass 2 was dynamic"})
-            continue
         v = loudness(["-i", str(out)])
         if v["TP"] is not None and v["TP"] > TP:
-            tp_goal -= (v["TP"] - TP) + 0.1
-            history.append({"attempt": attempt + 1, "why": f"true peak {v['TP']} over {TP}"})
+            if limited:
+                ceiling -= (v["TP"] - TP) + 0.2
+            limited = True
+            history.append({"attempt": attempt + 1, "limiter_db": round(ceiling, 2),
+                            "why": f"true peak {v['TP']} over {TP}"})
+            if ceiling < TP - 12.0:
+                raise ToolError("the peaks cannot be brought under the true-peak target: lower loudness.stem_I")
             continue
         if v["I"] is not None and abs(v["I"] - I) > 0.5:
-            i_goal += I - v["I"]
+            gain += I - v["I"]
             history.append({"attempt": attempt + 1, "why": f"integrated {v['I']} off {I}"})
             continue
         return {"I": v["I"], "TP": v["TP"], "LRA": v["LRA"], "normalization": "linear", "target": dict(target),
-                "limiter_db": rnd(limit_db, 2), "loudnorm_lra": use_lra, "input_lra": mlra, "passes": attempt + 1,
-                "history": history}
-    raise ToolError("loudness could not be finished in linear mode after 8 tries (nothing shipped as dynamic): "
-                    "lower loudness.stem_I or the peaks, then run master again")
+                "limiter_db": rnd(ceiling, 2) if limited else None, "loudnorm_lra": lra, "input_lra": mlra,
+                "passes": attempt + 1, "history": history}
+    raise ToolError("loudness did not reach the target in 6 passes: lower loudness.stem_I, then run master again")
 
 
 def master_project(project: Path, overrides: dict = None) -> dict:
@@ -2787,7 +2839,7 @@ def match_boundaries(start: float, end: float, weights: list, pauses: list) -> l
 def sentence_weight(s: dict) -> float:
     """How long a sentence should take, relatively: its letters plus an allowance of 4 for each word."""
     text = TAG_RX.sub("", s["spoken"])
-    return float(max(1, graphemes(re.sub(r"[\W_]+", "", text)) + 4 * len(spoken_words(text))))
+    return float(max(1, graphemes(re.sub(r"[\W_]+", "", text)) + 4 * spoken_count(spoken_words(text), is_bn(text))))
 
 
 def build_manifest(project: Path, plan: dict, placed: list, fin: dict, tone: dict, overrides: dict,
@@ -3963,7 +4015,8 @@ def cmd_audition(args) -> None:
     nm = normalise(" ".join(text.split()), p["prompt_family"], lex, p["numbers"])
     words = spoken_words(nm["spoken"])
     wps, _ = articulation_wps(p)
-    est_s = len(words) / wps + tag_seconds(nm["tags"])
+    said = spoken_count(words, is_bn(nm["spoken"]))
+    est_s = said / wps + tag_seconds(nm["tags"])
     if est_s > 15.5:
         die(f"the audition text runs about {est_s:.0f} s: keep it to 15 s or less (about {int(15 * wps)} words)")
     chunks = []
@@ -3975,7 +4028,7 @@ def cmd_audition(args) -> None:
         ch = {"id": f"a-{vid}", "model": p["model"], "family": p["prompt_family"], "voice": vid, "voice_type": vtype,
               "voice_key": voice_key(voice), "language": p["language"], "send_language_code": p["send_language_code"],
               "style": p["style"], "request_text": nm["spoken"], "spoken": nm["spoken"], "display": nm["display"],
-              "est_s": round(est_s, 2), "n_words": len(words), "tags": nm["tags"], "lexicon_terms": nm["terms"],
+              "est_s": round(est_s, 2), "n_words": said, "tags": nm["tags"], "lexicon_terms": nm["terms"],
               "profile": p["name"], "takes": 1}
         ch["base_key"] = sha16(key_fields(ch))
         chunks.append(ch)

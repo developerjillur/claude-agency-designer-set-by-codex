@@ -230,15 +230,17 @@ once; transcripts are cached) and writes `qa.json`. It never calls the TTS API; 
 click at the start and noise after the last word are cut), faded in (8 ms) and out (40 ms), gain-matched to the median
 chunk loudness (at most 12 dB), stretched by the scene's tempo from `fit.json` if there is one, and placed at 24 kHz
 so that each gap is exact. The room tone goes under the whole track. Then: `highpass` (70 Hz), `equalizer` (250 Hz,
--1.5 dB), `deesser` only when asked, `acompressor` (threshold -20 dB, ratio 2), two-pass `loudnorm` in linear mode to
-the profile target, `aresample=48000:filter_size=64:phase_shift=10:cutoff=0.97`, `pcm_s24le`.
+-1.5 dB), `deesser` only when asked, `acompressor` (threshold -20 dB, ratio 2), then the loudness finish below and
+`pcm_s24le`.
 
-The loudness rule: pass 1 measures; when the gain would push the true peak over the target, `alimiter`
-(`level=disabled`, `latency=1`) goes in first and pass 1 runs again with it; pass 2's report must say `linear`, else
-the limiter ceiling goes down and it runs again; a loudness range above the target LRA is kept as it is (linear gain
-only). The result is checked with `ebur128=peak=true`: integrated within 0.5 LU of the target and the true peak at or
-under the target, or it runs again (8 tries at most, then an error: nothing is shipped in dynamic mode). The float
-files in `DIR/work/` are removed afterwards.
+The loudness finish: `loudnorm` measures once; the gain to the profile target is applied as plain linear gain
+(`volume`), then `aresample=48000:filter_size=64:phase_shift=10:cutoff=0.97`, then, when the gain would push the true
+peak over the target, `alimiter` (`level=disabled`, `latency=1`, attack 1 ms) at 0.5 dB under the target, working on
+the 48 kHz signal so the peaks that appear between samples are caught (a limiter at the voice's 24 kHz before the
+gain let them reach 0 dBTP). A loudness range above the target LRA is kept as it is (linear gain only). The result is
+checked with `ebur128=peak=true`: integrated within 0.5 LU of the target and the true peak at or under the target, or
+the gain or the ceiling is corrected and it runs again (6 passes at most, then an error). The float files in
+`DIR/work/` are removed afterwards.
 
 ### align
 

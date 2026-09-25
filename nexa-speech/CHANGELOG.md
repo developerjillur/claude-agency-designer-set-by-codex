@@ -4,6 +4,20 @@ The version is `SKILL_VERSION` in `scripts/speech.py`. Run the offline tests aft
 `python3 -m unittest discover -s ~/.claude/skills/nexa-speech/tests`, and run `plan`, `render`, `master` and `align`
 once by hand (against the real API only when a key and a budget are agreed).
 
+## 2026.09.25.6 · numbers as they are read, dates, a master that lands
+
+Found while voicing a 59 s explainer (a documentary voice, a date, a year, prices):
+- **The master reached its target again.** The limiter ran at the voice's 24 kHz before the gain, so the peaks that
+  appear between samples came back after the resample to 48 kHz (loudnorm reported -2.1 dBTP, the file measured
+  0.0), and the loop lowered the ceiling and moved the gain until it gave up after 8 tries. Now the gain is linear,
+  the resample comes next, and a 1 ms limiter works on the 48 kHz signal: the same voice finished at -16.3 LUFS and
+  -1.7 dBTP in one pass.
+- **Dates read as dates.** "April 26" was read "April twenty-six"; a day after a month (or before it) is now an
+  ordinal: April twenty-sixth, the third of May, and an abbreviated month is said in full (Dec. 1st, December first).
+- **Numbers count as the words they are read as** in the pace gates and the estimates: a year is two words, "$5.86"
+  five, 24,346 five, 80% two (Bangla by its own reading). Written as one token each, a line with a date or a price
+  looked slow and was re-rolled for nothing.
+
 ## 2026.09.25.5
 
 - A chunk still failing after its re-roll now says how many takes it has and what to ask for: `--takes N` counts the
