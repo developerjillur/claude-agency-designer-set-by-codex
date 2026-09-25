@@ -42,7 +42,7 @@ import gemini_api  # noqa: E402
 import nvc_plan as P  # noqa: E402
 import pixabay_api as X  # noqa: E402
 
-SKILL_VERSION = "2026.09.25.5"
+SKILL_VERSION = "2026.09.25.6"
 REMOTION_VERSION = "4.0.528"
 SKILL_DIR = HERE.parent
 TEMPLATE = SKILL_DIR / "template"

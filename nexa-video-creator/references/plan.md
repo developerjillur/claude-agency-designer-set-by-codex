@@ -106,7 +106,9 @@ both: YouTube 550 to 300 ms, vertical 300 to 150 ms). Bounded filled pauses are 
   the compiler lengthens them and warns when a type's maximum is too short for its text.
 - Two overlays of the same slot (title, centre, card, full, lower) may not overlap.
 - `sfx: null` silences an overlay's default sound; `sfx: "ding"` changes it.
-- `facts`: `[{"text": "62%", "origin": "brief"}]` when a number on screen comes from the client, not the speaker.
+- `facts`: `[{"text": "62%", "origin": "brief"}]` when a number on screen comes from the client, not the speaker. A
+  fact vouches for the numbers written in its text (list them all: "1 week 1.07x 6 months 6.1x"); a fact with no text
+  covers the whole overlay. Origins: brief, client, web, formula.
 
 ### scenes (designed full-frame moments)
 

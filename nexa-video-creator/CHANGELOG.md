@@ -4,6 +4,18 @@ The version is `SKILL_VERSION` in `scripts/nvc.py`. Run the offline tests after 
 `python3 -m unittest discover -s ~/.claude/skills/nexa-video-creator/tests` (and with `NVC_RENDER_TESTS=1` once the
 renderer is set up).
 
+## 2026.09.25.6 · review fixes for the scenes
+
+From an independent review of 2026.09.25.5:
+- **A shortened scene still lands.** A counter's landing, the bars' timing and the end card's click were computed on
+  the scene's length before it was cut short by the next scene, so the count could stop mid-way and its ding was
+  dropped. They are now timed on the final length.
+- **Axis labels are checked.** A chart's `xLabels` showed numbers that no check saw; they now go through the same
+  "said or sourced" check, and a fact vouches only for the numbers written in it (before, any sourced fact silenced
+  the whole overlay).
+- **The presenter stays put across scenes.** Back-to-back scenes with the round picture keep one steady picture
+  instead of popping out and in at the join.
+
 ## 2026.09.25.5 · designed scenes, the remotion-broll way
 
 The 10 s demo's cards on a dark backdrop read as template work next to the remotion-broll minute cut, which set the

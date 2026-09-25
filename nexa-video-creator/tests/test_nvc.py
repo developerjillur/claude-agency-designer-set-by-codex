@@ -500,6 +500,26 @@ class Scenes(unittest.TestCase):
         self.assertEqual(names.count("whoosh"), 3)            # sweeps 3 s apart: each heard (long-form keeps 4 s
         self.assertEqual(names.count("pop"), 3)               # between other default cues)
 
+    def test_a_trimmed_scene_still_lands_inside_itself(self):
+        r = compile_(self.plan([
+            dict(self.g(2), type="bigStat", props={"title": "Get one percent better every single day for a whole year",
+                                                   "value": "37.8x", "label": "better after a year of small steps"},
+                 facts=[{"text": "37.8x", "origin": "formula"}]),
+            dict(self.g(3), type="kinetic", props={"text": "The first month you barely notice it at all"})]),
+            self.words, self.job)
+        self.assertTrue(r["report"]["ok"], r["report"]["errors"])
+        st = r["edl"]["overlays"][0]
+        self.assertTrue(any(d.get("kind") == "trim_overlay" for d in r["report"]["decisions"]))   # it was cut short
+        self.assertLess(st["props"]["t"]["land"], st["durationInFrames"])
+        self.assertIn(("ding", st["from"] + st["props"]["t"]["land"]),
+                      {(c["name"], int(round(c["t"] * 30))) for c in r["sfx"]})
+
+    def test_axis_labels_are_checked_like_other_numbers(self):
+        r = compile_(self.plan([dict(self.g(2), type="bigStat", props={
+            "value": "37.8x", "series": [1, 2, 37.8], "xLabels": ["Today", "revenue 4.2M"]},
+            facts=[{"text": "37.8x", "origin": "formula"}])]), self.words, self.job)
+        self.assertTrue(any("4.2" in q for q in r["report"]["review"]), r["report"]["review"])
+
     def test_title_lines(self):
         self.assertEqual(P.balance_lines("Get 1% better every day", 16), ["Get 1% better", "every day"])
         self.assertEqual(P.balance_lines("প্রতিদিন ১০ মিনিট অনুশীলন", 16), ["প্রতিদিন", "১০ মিনিট অনুশীলন"])

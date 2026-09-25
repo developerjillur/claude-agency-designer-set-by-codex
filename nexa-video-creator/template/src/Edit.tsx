@@ -312,10 +312,15 @@ const scenePips = (edl: Edl) => {
     size: number;
     corner: string;
   }[] = [];
-  for (const o of edl.overlays) {
-    if (!isFull(o) || !o.props.pip) continue;
+  const withPip = edl.overlays.filter((o) => isFull(o) && o.props.pip);
+  // scenes with the presenter back to back keep one steady picture: no pop out and in at the join
+  const joined = (f: number, side: "end" | "start") =>
+    withPip.some((o) => Math.abs((side === "end" ? o.from + o.durationInFrames : o.from) - f) <= 1);
+  for (const o of withPip) {
     const end = o.from + o.durationInFrames;
     const look = scenePip(edl, o, edl.width, edl.height);
+    const joinedBefore = joined(o.from, "end");
+    const joinedAfter = joined(end, "start");
     for (const c of edl.clips) {
       if (!c.cam) continue;
       const a = Math.max(o.from, c.from);
@@ -327,8 +332,8 @@ const scenePips = (edl: Edl) => {
         dur: b - a,
         clip: c,
         place: { source: c.cam.source, trimBefore: c.cam.trimBefore + (a - c.from) },
-        animateIn: a === o.from,
-        exitAt: b === end ? b - a : null,
+        animateIn: a === o.from && !joinedBefore,
+        exitAt: b === end && !joinedAfter ? b - a : null,
         size: look.size,
         corner: look.corner,
       });
