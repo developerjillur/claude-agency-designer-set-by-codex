@@ -145,6 +145,7 @@ B-roll for a slot (a common, real-world shot: hands typing, a city street, coffe
 | `render` 1080p | 13.4 s of video in 11.5 s (0.86 s a second); research measured 50 to 60 s a minute for 1080p edits |
 | a 43 s Bangla explainer of 11 scenes (voice, music, 17 effects) | compile under 1 s, `audio` 6 s, `stills` 3 s, `render` 24 s (0.55 s a second) |
 | a 43 s Vox explainer of 7 beats (8 cut-outs, a keyed fire, 34 soft cues) | `cutout` 6 s for 8 pictures, `key` 11 s for 8 s of fire, compile under 1 s, `render` 34 s (0.8 s a second) |
+| "The box that shrank the world", a 59 s Vox explainer made end to end (nexa-speech voice, whisper words, 10 Pixabay files, 8 beats, Lyria music, 44 cues) | voice 2 min with retakes (about $0.05), `transcribe` 3 s, `audio` 33 s with music, `render` 46 s (0.79 s a second), QA clean |
 
 ## Licence
 

@@ -174,7 +174,7 @@ beat-by-beat recipe are in `vox.md`; `nvc.py brief JOB --style vox` writes a sto
 
 | Kind | Fields | What it is | Comes in |
 |---|---|---|---|
-| cutout | source, h? or w?, drift?{x,y}, shadow? (none, soft, ground), flip? | a cut-out picture (`nvc.py cutout`): halftone people with the marker stroke, colour objects | rise (grounded) or pop |
+| cutout | source, h? or w?, drift?{x,y}, shadow? (none, soft, ground), flip?, bw? | a cut-out picture (`nvc.py cutout`): halftone people with the marker stroke, colour objects; `bw` gives a colour cut-out the archival look | rise (grounded) or pop |
 | clip | source, w?, h?, feather?{top,bottom,left,right}, blend?, bw?, trimBefore? | a clip or picture in the collage: a band of sea (`slot: floor`), a keyed fire (`nvc.py key`) | fade |
 | card | source, caption?, bw? | a photo as a print with a white border and a typed caption | pop |
 | headline | text or lines, highlight?, mark?, markAt?, count?, land?, size?, color? | heavy caps; `highlight` words in the accent, `mark` words get a highlighter band at `markAt`, `count` counts the number up to `land` | wipe |
@@ -182,8 +182,8 @@ beat-by-beat recipe are in `vox.md`; `nvc.py brief JOB --style vox` writes a sto
 | credit | text | the source line, bottom left, small caps | fade |
 | tag | value, from?, unit?, icon? (barrel, coin, dollar, taka, up, down, pin, warning, check, cross), land?, follow?, dx?, dy? | a number that counts from `from` and lands on `land` with a bump; `follow` rides on a moving element | pop |
 | bubble | text or lines, highlight?, tail? (right, down-right, down, down-left, left, up-left, up, up-right, or degrees) | a comic speech bubble, key words in the marker colour | pop |
-| newspaper | masthead, headline, marks?[{text, at}], deck?, byline?, section?, kicker?, corner?, left?[], right?[], body?, source?, photoCaption?, tilt? | a tilted page; each mark's words get the highlighter as they are said | rise |
-| chart | title, series[{name?, values[], color?}] (1 to 3), xLabels?, yPrefix?, ySuffix?, note?, drawAt?, drawEnd?, callout?{text[], at, index?, series?} | a cream card: gridlines, the lines drawn left to right, dots popping as the line reaches them, a pulsing call-out | rise |
+| newspaper | masthead, headline, marks?[{text, at}], deck?, byline?, section?, kicker?, corner?, left?[], right?[], body?, source?, photoCaption?, tilt?, illustrative? | a tilted page; each mark's words get the highlighter as they are said. `"illustrative": true` says the masthead is made up; a real paper's headline needs its source in facts (else it goes to the review list) | rise |
+| chart | title, series[{name?, values[], color?}] (1 to 3), xLabels?, xValues?, yPrefix?, ySuffix?, note?, drawAt?, drawEnd?, callout?{text[], at, index?, series?} | a cream card: gridlines, the lines drawn left to right, dots popping as the line reaches them, a pulsing call-out; `xValues` (rising numbers, like years) places uneven steps truly | rise |
 | typewriter | text or lines | typed word by word on the spoken frames, block cursor | none |
 | scribble | shape (circle, underline, arrow, cross, box), w?, h?, thick?, color? | a marker mark drawn on | none |
 | icon | icon, size?, color? | one of the tag icons on its own | pop |

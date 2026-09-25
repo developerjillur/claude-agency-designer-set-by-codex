@@ -44,7 +44,7 @@ import gemini_api  # noqa: E402
 import nvc_plan as P  # noqa: E402
 import pixabay_api as X  # noqa: E402
 
-SKILL_VERSION = "2026.09.25.7"
+SKILL_VERSION = "2026.09.25.8"
 REMOTION_VERSION = "4.0.528"
 SKILL_DIR = HERE.parent
 TEMPLATE = SKILL_DIR / "template"
@@ -1545,7 +1545,12 @@ def cmd_deliver(args):
     if (od / "chapters.txt").exists():
         shutil.copy2(od / "chapters.txt", fd / (name + ".chapters.txt"))
         files.append(name + ".chapters.txt")
-    notes = disclosure_notes(d, job)
+    edl = read_json(od / "edl.json") or {}
+    try:
+        plan = read_json(plan_path(d, target)) or {}
+    except NvcError:
+        plan = {}
+    notes = disclosure_notes(d, job, edl, plan)
     (fd / (name + ".notes.md")).write_text(notes, encoding="utf-8")
     files.append(name + ".notes.md")
     if SOUND.exists() and (d / "audio" / target).exists():
@@ -1600,9 +1605,68 @@ def credit_roots(d, target):
     return roots
 
 
-def disclosure_notes(d, job):
+def used_sources(edl):
+    """The source ids a compiled edit shows: clip placements, overlays, and the pictures in vox beats and scenes."""
+    used = set()
+    for c in edl.get("clips") or []:
+        for key in ("cam", "screen", "broll"):
+            if isinstance(c.get(key), dict) and c[key].get("source"):
+                used.add(c[key]["source"])
+    for o in edl.get("overlays") or []:
+        p = o.get("props") or {}
+        if p.get("source"):
+            used.add(p["source"])
+        for el in p.get("elements") or []:
+            if isinstance(el, dict) and el.get("source"):
+                used.add(el["source"])
+        for ref in [p.get("left"), p.get("right")] + list(p.get("items") or []):
+            if isinstance(ref, dict) and ref.get("source"):
+                used.add(ref["source"])
+    return used
+
+
+PIXABAY_FILE = re.compile(r"pixabay-(\d+)")
+
+
+def stock_used(job, edl):
+    """The stock records of the files the edit shows, following cut-outs and keyed clips back to their stock file.
+    Without an edit (an older job) every stock pick counts."""
+    stock = job.get("stock") or {}
+    if not edl:
+        return stock
+    ids = set()
+    for sid in used_sources(edl):
+        src = (job.get("sources") or {}).get(sid) or {}
+        derived = src.get("cutout") or src.get("keyed") or {}
+        if derived.get("stock_id"):
+            ids.add(str(derived["stock_id"]))
+        for text in (src.get("original"), derived.get("from"), src.get("link")):
+            m = PIXABAY_FILE.search(str(text or ""))
+            if m:
+                ids.add(m.group(1))
+        origin = (job.get("sources") or {}).get(derived.get("from")) if derived.get("from") else None
+        if origin:
+            m = PIXABAY_FILE.search(str(origin.get("original") or ""))
+            if m:
+                ids.add(m.group(1))
+    return {k: v for k, v in stock.items() if str(k) in ids}
+
+
+def facts_lines(plan):
+    """Every fact the plan gave for a number or a page on screen, with its source: the record a client checks."""
+    out = []
+    for ov in plan.get("overlays") or []:
+        for f in ov.get("facts") or []:
+            if not isinstance(f, dict) or not str(f.get("text") or "").strip():
+                continue
+            where = f.get("url") or f.get("source") or f.get("origin")
+            out.append("- %s (%s)" % (str(f["text"]).strip(), where))
+    return out
+
+
+def disclosure_notes(d, job, edl=None, plan=None):
     lines = ["# Notes for the upload", ""]
-    voice = [s for s in job["sources"].values() if s["kind"] == "voice"]
+    voice = [s for s in job["sources"].values() if s.get("kind") == "voice"]
     audio = sidecars(d / "audio")
     tracks = [j for j in audio if j.get("schema") == "nexa-sound/track-1"]
     lyria = any((j.get("provider") or {}).get("api") != "elevenlabs" for j in tracks)
@@ -1621,7 +1685,7 @@ def disclosure_notes(d, job):
         lines.append("- ElevenLabs music or sound carries ElevenLabs' inaudible watermark and is not exclusive: never "
                      "register it with Content ID. Eleven Music on self-serve plans covers online video, not film, "
                      "TV, radio or games; see CREDITS.txt for the plan it was made on.")
-    stock = job.get("stock") or {}
+    stock = stock_used(job, edl or {})
     if stock:
         lines.append("- Stock from Pixabay (Pixabay Content License; no credit needed): %s. Keep these records: if "
                      "a claim ever comes up, the file is taken out of the video." % "; ".join(
@@ -1629,6 +1693,14 @@ def disclosure_notes(d, job):
         if any(v.get("ai_generated") for v in stock.values()):
             lines.append("- Some stock was marked AI-made on Pixabay: disclose it where the platform asks for "
                          "realistic AI imagery.")
+    cut = [s for s in (job.get("sources") or {}).values() if s.get("cutout") and s.get("id") in used_sources(edl or {})]
+    if cut:
+        lines.append("- Cut-outs were made on this Mac with Apple Vision (a mask of the subject, then halftone and a "
+                     "marker stroke): an edit of the stock picture, nothing generated.")
+    facts = facts_lines(plan or {})
+    if facts:
+        lines += ["", "## Facts on screen and their sources", ""] + facts
+    lines.append("")
     lines.append("- Keep the original recordings and the job folder: they are the proof of what was filmed.")
     return "\n".join(lines) + "\n"
 
@@ -1960,6 +2032,8 @@ def cmd_cutout(args):
             cmd += ["--offset", args.offset]
         if args.no_lift:
             cmd.append("--no-lift")
+        if args.largest:
+            cmd.append("--largest")
         r = run(cmd, timeout=600)
         if r.returncode:
             raise NvcError("cutout %s: %s" % (path.name, (r.stderr or r.stdout).strip()[-400:]))
@@ -2313,6 +2387,7 @@ def build_parser():
     s.add_argument("--offset", help="the stroke's offset DX,DY in px, y down (default up and to the left)")
     s.add_argument("--shadow", default="soft", choices=("soft", "none"))
     s.add_argument("--no-lift", action="store_true", help="the picture is a cut-out already (has transparency)")
+    s.add_argument("--largest", action="store_true", help="keep only the biggest subject (one of two trucks)")
     s.add_argument("--id")
 
     s = sub.add_parser("key", help="make clips shot on black or green transparent for Vox beats")

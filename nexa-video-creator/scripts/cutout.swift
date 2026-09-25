@@ -1,10 +1,11 @@
 // Cut a subject out of a photo and style it for a Vox-style collage (Apple frameworks only, nothing downloaded).
 //
 //     cutout IN OUT [--style auto|color|bw|halftone] [--stroke auto|HEX|none] [--stroke-width PX] [--offset DX,DY]
-//            [--shadow soft|none] [--dot PX] [--contrast X] [--max PX] [--no-lift]
+//            [--shadow soft|none] [--dot PX] [--contrast X] [--max PX] [--largest] [--no-lift]
 //
 // The subject is lifted with Vision's foreground-instance mask (macOS 14 or newer) and cropped to it; a picture that
-// already has transparency is used as it is (--no-lift forces that). Styles: colour kept (buildings, objects), black
+// already has transparency is used as it is (--no-lift forces that). --largest keeps only the biggest of the subjects
+// Vision finds (one truck of two parked side by side). Styles: colour kept (buildings, objects), black
 // and white, or black and white with a halftone dot texture (people, like newsprint). "auto" looks for people with
 // Vision's human detector: a person becomes halftone with the marker stroke, anything else stays in colour. The
 // marker stroke is the subject's silhouette grown and moved up and to the left, in a flat colour behind it; its width
@@ -38,6 +39,7 @@ var dot: Double = 0                 // 0: from the subject's size
 var contrast: Double = 1.2
 var maxSide: Double = 2000
 var lift = true
+var largestOnly = false
 var i = 0
 while i < args.count {
     let a = args[i]
@@ -58,6 +60,7 @@ while i < args.count {
     case "--contrast": contrast = Double(value()) ?? contrast
     case "--max": maxSide = Double(value()) ?? maxSide
     case "--no-lift": lift = false
+    case "--largest": largestOnly = true
     default: fail("unknown option \(a)")
     }
     i += 1
@@ -94,6 +97,7 @@ func peopleIn(_ image: CIImage) -> Int {
 
 var subject = source
 var lifted = false
+var instances = 0
 if lift && !hasTransparency(source) {
     if #available(macOS 14.0, *) {
         let request = VNGenerateForegroundInstanceMaskRequest()
@@ -106,8 +110,23 @@ if lift && !hasTransparency(source) {
         guard let result = request.results?.first, !result.allInstances.isEmpty else {
             fail("no subject found in the picture: use a photo with a clear subject, or pass a cutout with --no-lift")
         }
+        instances = result.allInstances.count
+        var keep = result.allInstances
+        if largestOnly && result.allInstances.count > 1 {
+            // the instance whose own cut-out covers the most pixels
+            var best = -1.0
+            for inst in result.allInstances {
+                guard let buf = try? result.generateMaskedImage(ofInstances: IndexSet(integer: inst), from: handler,
+                                                                croppedToInstancesExtent: true) else { continue }
+                let area = Double(CVPixelBufferGetWidth(buf) * CVPixelBufferGetHeight(buf))
+                if area > best {
+                    best = area
+                    keep = IndexSet(integer: inst)
+                }
+            }
+        }
         do {
-            let buffer = try result.generateMaskedImage(ofInstances: result.allInstances, from: handler,
+            let buffer = try result.generateMaskedImage(ofInstances: keep, from: handler,
                                                         croppedToInstancesExtent: true)
             subject = CIImage(cvPixelBuffer: buffer)
             lifted = true
@@ -134,7 +153,8 @@ let extent = CGRect(x: 0, y: 0, width: subject.extent.width.rounded(.down), heig
 subject = subject.cropped(to: extent)
 let side = max(extent.width, extent.height)
 
-let people = style == "auto" || strokeHex == "auto" ? peopleIn(source) : 0
+// always looked for: the job records it, and a recognisable stock person gets the licence note
+let people = peopleIn(source)
 if style == "auto" { style = people > 0 ? "halftone" : "color" }
 if strokeHex == "auto" { strokeHex = style == "halftone" ? "#E04329" : "none" }
 let strokeWidth = strokeWidthArg ?? max(4, (side * 0.014).rounded())
@@ -252,7 +272,7 @@ do {
     fail("cannot write \(outPath): \(error.localizedDescription)")
 }
 let json: [String: Any] = ["ok": true, "file": outPath, "width": Int(canvas.width), "height": Int(canvas.height),
-                           "lifted": lifted, "style": style, "stroke": strokeHex, "people": people,
+                           "lifted": lifted, "instances": instances, "style": style, "stroke": strokeHex, "people": people,
                            "shadow": shadow, "pad": Int(pad)]
 let data = try! JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
 print(String(data: data, encoding: .utf8)!)

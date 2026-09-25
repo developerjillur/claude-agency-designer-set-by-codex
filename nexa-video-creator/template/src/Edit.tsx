@@ -426,7 +426,7 @@ export const Edit: React.FC<Edl> = (edl) => {
                   <PaperGrid theme={edl.theme} />
                 </Sequence>
               ) : null}
-              <Sequence from={o.from} durationInFrames={o.durationInFrames + Number(o.props.tail || 0)} premountFor={premount} name={`${o.id} vox`}>
+              <Sequence from={o.from} durationInFrames={o.durationInFrames + Math.max(Number(o.props.tail || 0), holdUnder(full, o))} premountFor={premount} name={`${o.id} vox`}>
                 <VoxBeat edl={edl} overlay={o} />
               </Sequence>
               {run && run.last === o.id ? (

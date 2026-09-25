@@ -548,8 +548,8 @@ VOX_SENTENCES = ["Oil prices jumped to 116 dollars a barrel",
                  "Empires end with a bill they cannot pay"]
 
 
-class Vox(unittest.TestCase):
-    """Vox-style beats: elements timed to words, placed by slots, checked like an editor would."""
+class VoxBase(unittest.TestCase):
+    """Three sentences of narration and a job with cut-outs and a keyed clip."""
 
     def setUp(self):
         spec, t = [], 0.3
@@ -592,6 +592,11 @@ class Vox(unittest.TestCase):
     def frame_of(self, r, wid):
         m = next(x for x in r["mapped_words"] if x["id"] == wid)
         return int(round(m["start"] * r["edl"]["fps"]))
+
+
+
+class Vox(VoxBase):
+    """Vox-style beats: elements timed to words, placed by slots, checked like an editor would."""
 
     def test_times_places_sounds_and_the_look(self):
         r = compile_(self.plan([
@@ -664,6 +669,11 @@ class Vox(unittest.TestCase):
         self.assertIn("is not spoken inside this beat", errors)
         self.assertIn("mark \"whole economy\" is not in the headline", errors)
         self.assertIn("never put words in a real outlet's mouth", review)
+        # a page the planner marks as an illustration (a made-up masthead) needs no confirmation
+        r2 = compile_(self.plan([dict(self.g(1), type="vox", elements=[
+            {"kind": "newspaper", "masthead": "The Paper", "headline": "Debt beats the economy", "illustrative": True,
+             "at": "start"}])]), self.words, self.job)
+        self.assertFalse(any("outlet" in x for x in r2["report"]["review"]), r2["report"]["review"])
         self.assertIn("the chart plots 3 values", review)
         self.assertIn("shows 300", review)
 
@@ -699,6 +709,78 @@ class Vox(unittest.TestCase):
         self.assertEqual(els["man"]["exit"], "drop")
         # leaving mid-beat goes off by the nearest side, not through the other pictures
         self.assertEqual(els["gone"]["exit"], "slideLeft")
+
+
+class VoxReview(VoxBase):
+    """What an independent review of the first version found."""
+
+    def test_each_move_and_mark_keeps_its_own_lead(self):
+        first, last = self.spans[1]
+        r = compile_(self.plan([dict(self.g(1), type="vox", elements=[
+            {"id": "man", "kind": "cutout", "source": "man", "at": "start",
+             "moves": [{"at": "w%04d" % (first + 1), "x": 0.3}, {"at": "w%04d+0.0" % (first + 4), "x": 0.6}]},
+            {"id": "page", "kind": "newspaper", "masthead": "The Paper", "headline": "Debt beats the whole economy",
+             "at": "start", "marks": [{"text": "Debt", "at": "w%04d" % (first + 2)},
+                                     {"text": "whole economy", "at": "w%04d+0.0" % (first + 7)}]}])]),
+            self.words, self.job)
+        o = r["edl"]["overlays"][0]
+        els = {e["id"]: e for e in o["props"]["elements"]}
+        f = lambda i: self.frame_of(r, "w%04d" % i) - o["from"]
+        self.assertEqual([m["at"] for m in els["man"]["moves"]], [f(first + 1) - 12, f(first + 4)])
+        self.assertEqual([m["at"] for m in els["page"]["marks"]], [f(first + 2) - 4, f(first + 7)])
+
+    def test_an_unsynced_typewriter_finishes_inside_its_beat(self):
+        r = compile_(self.plan([dict(self.g(0), type="vox", elements=[
+            {"id": "type", "kind": "typewriter", "at": "start",
+             "text": "These words are not the ones being said at all here"}])]), self.words, self.job)
+        o = r["edl"]["overlays"][0]
+        times = o["props"]["elements"][0]["times"]
+        self.assertEqual(len(times), 11)
+        self.assertTrue(all(0 <= t < o["durationInFrames"] for t in times), times)
+        self.assertEqual(times, sorted(times))
+
+    def test_captions_give_way_only_while_the_typed_line_shows(self):
+        first, last = self.spans[2]
+        r = compile_(self.plan([dict(self.g(2), type="vox", elements=[
+            {"id": "pic", "kind": "cutout", "source": "ship", "at": "start"},
+            {"id": "type", "kind": "typewriter", "text": "bill they cannot pay", "at": "w%04d" % (first + 4)}])]),
+            self.words, self.job)
+        p = r["edl"]["overlays"][0]["props"]
+        self.assertTrue(p["hideCaptions"])
+        self.assertGreater(p["hideCaptionsFrom"], 0)
+        self.assertEqual(p["hideCaptionsFrom"], p["elements"][1]["at"])
+
+    def test_the_call_out_and_the_years_are_checked(self):
+        r = compile_(self.plan([dict(self.g(1), type="vox", facts=[{"origin": "web", "text": ""}], elements=[
+            {"kind": "chart", "at": "start", "series": [{"values": [1, 2, 3]}], "xValues": [1990, 1980, 2000],
+             "callout": {"text": "x", "series": 2, "index": 7}}])]), self.words, self.job)
+        errors = "\n".join(r["report"]["errors"])
+        self.assertIn("xValues must be one rising number per value", errors)
+        self.assertIn("callout.series must be the index of a line", errors)
+
+
+class DeliveryNotes(unittest.TestCase):
+    """The upload notes credit only the stock the edit shows, cut-outs traced back to their stock file."""
+
+    def test_only_used_stock_and_the_facts(self):
+        sys.path.insert(0, str(SCRIPTS))
+        import nvc
+        job = {"stock": {"111": {"page_url": "https://pixabay.com/photos/a-111/", "user": "a"},
+                         "222": {"page_url": "https://pixabay.com/photos/b-222/", "user": "b"},
+                         "333": {"page_url": "https://pixabay.com/videos/id-333/", "user": "c"}},
+               "sources": {"ship-cut": {"id": "ship-cut", "kind": "cutout", "original": "/j/media/cutouts/ship-cut.png",
+                                        "cutout": {"from": "ship", "stock_id": 111}},
+                           "ship": {"id": "ship", "original": "/j/media/stock/pixabay-111.jpg"},
+                           "unused": {"id": "unused", "original": "/j/media/stock/pixabay-222.jpg"},
+                           "sea": {"id": "sea", "original": "/j/media/stock/pixabay-333.mp4"}}}
+        edl = {"clips": [], "overlays": [{"type": "vox", "props": {"elements": [
+            {"kind": "cutout", "source": "ship-cut"}, {"kind": "clip", "source": "sea"}]}}]}
+        self.assertEqual(sorted(nvc.stock_used(job, edl)), ["111", "333"])
+        plan = {"overlays": [{"facts": [{"origin": "web", "text": "58 containers", "url": "https://x.example/ideal-x"}]}]}
+        notes = nvc.disclosure_notes(Path(tempfile.mkdtemp()), job, edl, plan)
+        self.assertIn("pixabay.com/photos/a-111", notes)
+        self.assertNotIn("b-222", notes)
+        self.assertIn("58 containers (https://x.example/ideal-x)", notes)
 
 
 class StockVerdict(unittest.TestCase):

@@ -224,7 +224,15 @@ const Cutout: React.FC<{ edl: Edl; el: VoxElement; W: number; u: number }> = ({ 
       ) : null}
       <Img
         src={mediaSrc(edl.base, src.src)}
-        style={{ position: "absolute", inset: 0, width: w, height: h, filter: shadowOf(el.shadow, u), transform: el.flip ? "scaleX(-1)" : undefined }}
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: w,
+          height: h,
+          // bw: an archival look for a colour cut-out (the past, before the change the story is about)
+          filter: [el.bw ? "grayscale(1) contrast(1.12) brightness(1.02)" : "", shadowOf(el.shadow, u) || ""].join(" ").trim() || undefined,
+          transform: el.flip ? "scaleX(-1)" : undefined,
+        }}
       />
     </div>
   );
@@ -393,6 +401,10 @@ const Credit: React.FC<{ t: Theme; el: VoxElement; u: number }> = ({ t, el, u })
         textTransform: bn ? "none" : "uppercase",
         color: c.soft,
         whiteSpace: "nowrap",
+        // a paper backing keeps it readable when a picture sits behind it
+        backgroundColor: `${c.paper}E6`,
+        padding: `${4 * u}px ${10 * u}px`,
+        borderRadius: 4 * u,
       }}
     >
       {text}
@@ -735,13 +747,15 @@ const niceScale = (lo: number, hi: number): { step: number; top: number } => {
 };
 
 const tickLabel = (v: number, el: Props): string => {
-  const s = Math.abs(v) >= 100 || Number.isInteger(v) ? String(Math.round(v)) : v.toFixed(1);
+  const whole = Math.abs(v) >= 100 || Number.isInteger(v);
+  // thousands grouped (25,000), the way a chart prints them
+  const s = whole ? Math.round(v).toLocaleString("en-US") : v.toFixed(1);
   return `${el.yPrefix ?? ""}${s}${el.ySuffix ?? ""}`;
 };
 
 // A line chart on a cream card: title, legend, axes, the lines drawn left to right, dots on the main line, a pulsing
 // call-out on one point when it is said.
-const ChartCard: React.FC<{ t: Theme; el: VoxElement; W: number; u: number; frame: number }> = ({ t, el, W, u, frame }) => {
+const ChartCard: React.FC<{ t: Theme; el: VoxElement; W: number; u: number; frame: number; fps: number }> = ({ t, el, W, u, frame, fps }) => {
   const c = voxColors(t);
   const w = (el.w ?? 0.54) * W;
   const h = w * (el.aspect ?? 0.58);
@@ -755,7 +769,10 @@ const ChartCard: React.FC<{ t: Theme; el: VoxElement; W: number; u: number; fram
   const pad = { l: 86 * k, r: 40 * k, t: 116 * k, b: 72 * k };
   const pw = w - pad.l - pad.r;
   const ph = h - pad.t - pad.b;
-  const X = (i: number) => pad.l + (i / (n - 1)) * pw;
+  // x by the given values when the steps are uneven (years), else evenly spaced
+  const xv: number[] | null = Array.isArray(el.xValues) && el.xValues.length === n ? el.xValues.map(Number) : null;
+  const X = (i: number) =>
+    xv ? pad.l + ((xv[i] - xv[0]) / Math.max(1e-9, xv[n - 1] - xv[0])) * pw : pad.l + (i / (n - 1)) * pw;
   const Y = (v: number) => pad.t + ph - ((v - lo) / (top - lo)) * ph;
   const drawFrom = el.drawAt ?? el.at + 8;
   const drawTo = el.drawEnd ?? drawFrom + 50;
@@ -764,12 +781,13 @@ const ChartCard: React.FC<{ t: Theme; el: VoxElement; W: number; u: number; fram
   const title = String(el.title || "");
   const ticks = Array.from({ length: Math.round((top - lo) / tick) }, (_, i) => lo + tick * (i + 1));
   const call = el.callout as { text?: string[] | string; at?: number; index?: number; series?: number } | undefined;
-  const cs = call ? series[call.series ?? 0] : undefined;
-  const ci = call && cs ? Math.min(cs.values.length - 1, call.index ?? cs.values.length - 1) : 0;
+  const cs = call ? series[Math.max(0, Math.min(series.length - 1, call.series ?? 0))] : undefined;
+  const ci = call && cs ? Math.max(0, Math.min(cs.values.length - 1, call.index ?? cs.values.length - 1)) : 0;
   // the call-out comes once the line has reached its point
-  const callAt = call && call.at !== undefined ? Math.max(call.at, Math.round(drawFrom + (drawTo - drawFrom) * (ci / Math.max(1, n - 1)))) : undefined;
-  const callP = callAt !== undefined ? spring({ frame: frame - callAt, fps: 30, config: { damping: 12, stiffness: 160 } }) : 0;
-  const pulse = callAt !== undefined && frame >= callAt ? ((frame - callAt) % 36) / 36 : 0;
+  const callAt = call && call.at !== undefined ? Math.max(call.at, Math.round(drawFrom + (drawTo - drawFrom) * ((X(ci) - pad.l) / Math.max(1, pw)))) : undefined;
+  const callP = callAt !== undefined ? spring({ frame: frame - callAt, fps, config: { damping: 12, stiffness: 160 } }) : 0;
+  const beat = Math.max(1, Math.round(1.2 * fps));
+  const pulse = callAt !== undefined && frame >= callAt ? ((frame - callAt) % beat) / beat : 0;
   const label: React.CSSProperties = { fontFamily: font("Inter"), fontWeight: 700, fill: "#7A7770" };
   const bn = isBengali(title);
   const callLines = call ? (Array.isArray(call.text) ? call.text : [String(call.text || "")]).filter(Boolean) : [];
@@ -828,8 +846,8 @@ const ChartCard: React.FC<{ t: Theme; el: VoxElement; W: number; u: number; fram
                 />
                 {si === 0
                   ? s.values.map((v, i) => {
-                      const reach = drawFrom + (drawTo - drawFrom) * (i / Math.max(1, n - 1));
-                      const pop = spring({ frame: frame - reach, fps: 30, config: { damping: 19, stiffness: 280 } });
+                      const reach = drawFrom + (drawTo - drawFrom) * ((X(i) - pad.l) / Math.max(1, pw));
+                      const pop = spring({ frame: frame - reach, fps, config: { damping: 19, stiffness: 280 } });
                       return pop > 0.01 ? <circle key={i} cx={X(i)} cy={Y(v)} r={7 * k * pop} fill="#FFFFFF" stroke={s.color || colors[0]} strokeWidth={3.5 * k} /> : null;
                     })
                   : null}
@@ -1017,16 +1035,19 @@ export const VoxBeat: React.FC<{ edl: Edl; overlay: Overlay }> = ({ edl, overlay
         if (!m.visible) return null;
         let x = place.x + m.dx;
         let y = place.y + m.dy + f.y;
-        if (el.follow && byId[el.follow]) {
-          // stays with what it describes (a price tag over a moving ship)
-          const o = where(byId[el.follow]);
-          x = o.place.x + o.m.dx + (el.dx ?? 0) * W;
-          y = o.place.y + o.m.dy + o.f.y + (el.dy ?? 0) * H;
-        }
         // the push: around the frame's centre, more for nearer layers
-        const k = 1 + pushTo * pushP * (LAYER_PUSH[el.layer || "mid"] ?? 0.8);
+        let k = 1 + pushTo * pushP * (LAYER_PUSH[el.layer || "mid"] ?? 0.8);
         x = W / 2 + (x - W / 2) * k;
         y = H / 2 + (y - H / 2) * k;
+        const target = el.follow ? byId[el.follow] : undefined;
+        if (target) {
+          // stays with what it describes (a price tag over a moving ship): the target's pushed place, plus the offset
+          const o = where(target);
+          const kt = 1 + pushTo * pushP * (LAYER_PUSH[target.layer || "mid"] ?? 0.8);
+          x = W / 2 + (o.place.x + o.m.dx - W / 2) * kt + (el.dx ?? 0) * W;
+          y = H / 2 + (o.place.y + o.m.dy + o.f.y - H / 2) * kt + (el.dy ?? 0) * H + f.y;
+          k = kt;
+        }
         const [ax, ay] = ANCHOR[el.anchor || "center"] || ANCHOR.center;
         let body: React.ReactNode = null;
         switch (el.kind) {
@@ -1061,7 +1082,7 @@ export const VoxBeat: React.FC<{ edl: Edl; overlay: Overlay }> = ({ edl, overlay
             body = <Newspaper edl={edl} t={t} el={el} W={W} u={u} frame={frame} />;
             break;
           case "chart":
-            body = <ChartCard t={t} el={el} W={W} u={u} frame={frame} />;
+            body = <ChartCard t={t} el={el} W={W} u={u} frame={frame} fps={fps} />;
             break;
           case "typewriter":
             body = <Typewriter t={t} el={el} u={u} frame={frame} fps={fps} />;

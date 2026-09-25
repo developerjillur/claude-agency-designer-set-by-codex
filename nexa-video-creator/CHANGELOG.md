@@ -4,6 +4,32 @@ The version is `SKILL_VERSION` in `scripts/nvc.py`. Run the offline tests after 
 `python3 -m unittest discover -s ~/.claude/skills/nexa-video-creator/tests` (and with `NVC_RENDER_TESTS=1` once the
 renderer is set up).
 
+## 2026.09.25.8 · review fixes, and a real Vox explainer made end to end
+
+From an independent review of 2026.09.25.7:
+- A vox beat now stays under a scene that slides, pops or fades in after it (the paper no longer flashes at a
+  vox-to-scene cut).
+- A typewriter whose words are not the spoken words is paced to finish inside its beat (it could stop mid-line).
+- Each move and each mark keeps its own lead: a bare word id lands just before its word, an offset lands exactly
+  (one bare id used to shift the whole list).
+- Captions give way only while the typed line shows (`hideCaptionsFrom`, `hideCaptionsTo`), not for the whole beat.
+- A chart's `callout.series` and `callout.index` and its new `xValues` are checked; the renderer clamps them too.
+- A price tag riding on a picture follows the picture's own push, so it no longer drifts off it as the beat pushes
+  in; the chart's springs and pulse use the real frame rate; a drop exit never starts before its element.
+
+From making "The box that shrank the world" (59 s, 8 beats, every number sourced) with the skill itself:
+- `xValues` on a chart: real x positions for uneven steps (1972, 1988, 1996, 2006...), drawn in time order.
+- `bw` on a cut-out: the archival look for "the past" in a colour picture.
+- `nvc.py cutout --largest` keeps only the biggest subject Vision finds (when it finds them apart); the JSON says how
+  many it found. The person check now runs for every style (the stock licence note depends on it).
+- The source line sits on a paper backing, readable over any picture; chart ticks group thousands (25,000).
+- A newspaper the planner marks `"illustrative": true` (a made-up masthead) needs no confirmation; a real paper's
+  headline still needs its source.
+- The upload notes credit only the stock the edit shows (cut-outs and keyed clips traced back to their file) and list
+  every fact on screen with its source, the record a client checks.
+- Measured: 7 stock pictures cut out in about 6 s, compile under 1 s, render 46 s for 59 s (0.79 s a second), mix
+  -13.9 LUFS and -2.2 dBTP, QA clean.
+
 ## 2026.09.25.7 · Vox-style explainer beats
 
 Built from a frame-by-frame study of a Claude Code + Remotion Vox-style explainer (MoSidd, 0:05 to 0:52: every

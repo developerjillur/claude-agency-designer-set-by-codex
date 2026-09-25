@@ -250,8 +250,8 @@ def prepare(ov, props, span, ctx, rep, where):
         if isinstance(el.get("marks"), list):
             t["marks"] = [resolve_time(m.get("at"), ctx, span, rep, w) if isinstance(m, dict) else None
                           for m in el["marks"]]
-            if any(isinstance(m, dict) and BARE.match(str(m.get("at"))) for m in el["marks"]):
-                bare.add("marks")
+            # each mark keeps its own lead: a bare word id lands just before its word, an offset lands exactly
+            t["marks_bare"] = [isinstance(m, dict) and bool(BARE.match(str(m.get("at")))) for m in el["marks"]]
         if isinstance(el.get("moves"), list):
             t["moves"] = []
             moves = []
@@ -269,8 +269,7 @@ def prepare(ov, props, span, ctx, rep, where):
                     m.setdefault("y", y)
                 moves.append(m)
                 t["moves"].append(resolve_time(m["at"], ctx, span, rep, w))
-                if BARE.match(str(m["at"])):
-                    bare.add("moves")
+                t.setdefault("moves_bare", []).append(bool(BARE.match(str(m["at"]))))
             el["moves"] = moves
         if kind == "typewriter":
             t["times"] = _typewriter_times(el, ctx, span, t.get("at"))
@@ -360,8 +359,13 @@ def _content_ok(el, kind, ctx, rep, w, sourced):
             want = [_norm(x) for x in str((m or {}).get("text") or "").split()]
             if not want or not any(words[i:i + len(want)] == want for i in range(len(words))):
                 rep.error(w, "mark \"%s\" is not in the headline" % (m or {}).get("text"))
-        rep.ask(w, "a newspaper page: its masthead \"%s\" must be made up, or the headline must be quoted from that "
-                   "paper with its source in facts; never put words in a real outlet's mouth" % el.get("masthead"))
+        if el.get("illustrative") is True:
+            # the planner says so: a made-up masthead, the page an illustration of the story
+            rep.decisions.append({"kind": "vox_illustrative_page", "ref": w, "masthead": el.get("masthead")})
+        elif not sourced:
+            rep.ask(w, "a newspaper page: say \"illustrative\": true when the masthead \"%s\" is made up, or quote a "
+                       "real headline with its source in facts; never put words in a real outlet's mouth"
+                    % el.get("masthead"))
     if kind == "chart":
         series = el.get("series")
         good = isinstance(series, list) and 1 <= len(series) <= 3
@@ -384,6 +388,28 @@ def _content_ok(el, kind, ctx, rep, w, sourced):
         xs = el.get("xLabels")
         if xs is not None and (not isinstance(xs, list) or len(xs) != max(len(s["values"]) for s in clean)):
             rep.warn(w, "xLabels should have one label per value")
+        xv = el.get("xValues")
+        if xv is not None:
+            try:
+                xv = [float(v) for v in xv]
+            except (TypeError, ValueError):
+                xv = None
+            if not xv or len(xv) != max(len(s["values"]) for s in clean) or any(b <= a for a, b in zip(xv, xv[1:])):
+                rep.error(w, "xValues must be one rising number per value (the years, for uneven steps)")
+                el.pop("xValues", None)
+            else:
+                el["xValues"] = xv
+        call = el.get("callout")
+        if isinstance(call, dict):
+            si = call.get("series", 0)
+            if not isinstance(si, int) or not 0 <= si < len(clean):
+                rep.error(w, "callout.series must be the index of a line (0 for the first)")
+                call.pop("series", None)
+                si = 0
+            pi = call.get("index")
+            if pi is not None and (not isinstance(pi, int) or not 0 <= pi < len(clean[si]["values"])):
+                rep.error(w, "callout.index must be the index of a value on that line (0 for the first)")
+                call.pop("index", None)
         if not sourced:
             rep.ask(w, "the chart plots %d values; confirm where they come from (facts with origin brief, client, web "
                        "or formula on this beat)" % sum(len(s["values"]) for s in clean))
@@ -516,7 +542,7 @@ def bake(o, joined_next, fps, ctx, rep, lang):
             el["out"] = dur
             el.setdefault("exit", beat_exit or "cut")
         elif o.get("exit") == "drop":
-            el["out"] = dur - VOX_EXIT          # everything falls away, then the cut
+            el["out"] = max(at + 1, dur - VOX_EXIT)     # everything falls away, then the cut
             el.setdefault("exit", "drop")
         else:
             el["out"] = None                    # stays to the cut (or under a light leak)
@@ -526,15 +552,17 @@ def bake(o, joined_next, fps, ctx, rep, lang):
                 el["callout"]["at"] = fr(t["callout"], lead=LEAD["callout"] if "callout" in bare else 0)
         if isinstance(el.get("marks"), list):
             times = t.get("marks") or [None] * len(el["marks"])
-            el["marks"] = [dict(m, at=fr(ts, lead=LEAD["marks"] if "marks" in bare else 0) if ts is not None
-                                else at + 12) for m, ts in zip(el["marks"], times) if isinstance(m, dict)]
+            leads = t.get("marks_bare") or [False] * len(el["marks"])
+            el["marks"] = [dict(m, at=fr(ts, lead=LEAD["marks"] if b else 0) if ts is not None else at + 12)
+                           for m, ts, b in zip(el["marks"], times, leads) if isinstance(m, dict)]
         if isinstance(el.get("moves"), list):
             moves = []
-            for m, ts in zip(el["moves"], t.get("moves") or []):
+            leads = t.get("moves_bare") or [False] * len(el["moves"])
+            for m, ts, b in zip(el["moves"], t.get("moves") or [], leads):
                 if ts is None:
                     continue
                 mv = {k: m[k] for k in ("x", "y", "scale", "rotate", "frames") if k in m}
-                mv["at"] = fr(ts, lead=LEAD["moves"] if "moves" in bare else 0)
+                mv["at"] = fr(ts, lead=LEAD["moves"] if b else 0)
                 moves.append(mv)
             el["moves"] = sorted(moves, key=lambda m: m["at"])
         if el["kind"] == "typewriter":
@@ -544,8 +572,10 @@ def bake(o, joined_next, fps, ctx, rep, lang):
                 el["times"] = [fr(x) for x in times]
                 el["at"] = el["times"][0]
             else:
-                step = max(4, int(round(0.28 * fps)))
-                el["times"] = [el["at"] + i * step for i in range(len(words))]
+                # not the spoken words: paced evenly, never slower than it can finish inside the beat
+                room = max(1, (dur - 1 - el["at"]) // max(1, len(words) - 1)) if len(words) > 1 else 1
+                step = max(1, min(int(round(0.28 * fps)), room))
+                el["times"] = [min(dur - 1, el["at"] + i * step) for i in range(len(words))]
         if el["kind"] == "tag" and el.get("land") is None:
             el["land"] = min(dur, el["at"] + int(round(1.5 * fps)))
         if el["kind"] == "chart":
@@ -570,9 +600,12 @@ def bake(o, joined_next, fps, ctx, rep, lang):
     _check_rhythm(o, baked, ctx, rep, dur, fps)
     p["elements"] = baked
     p["tail"] = VOX_EXIT if joined_next and any(e.get("out") == dur and e.get("exit") != "cut" for e in baked) else 0
-    if any(e["kind"] == "typewriter" for e in baked) and "hideCaptions" not in p:
-        # the typed line is on screen already: captions would say it twice
+    typed = [e for e in baked if e["kind"] == "typewriter"]
+    if typed and "hideCaptions" not in p:
+        # the typed line is on screen already: captions would say it twice (only while it shows)
         p["hideCaptions"] = True
+        p["hideCaptionsFrom"] = min(e["at"] for e in typed)
+        p["hideCaptionsTo"] = max((e["out"] if e.get("out") is not None else dur) for e in typed)
     cues.sort(key=lambda c: c["at"])
     kept = []
     gap = max(3, int(round(0.2 * fps)))
@@ -694,11 +727,17 @@ def _nudge(b, safe):
 
 
 def _follow_points(target, fps, dur, W, H):
-    """Where a followed element's point is at the start and the end of its drift (share of the frame)."""
+    """Where a followed element's point goes (share of the frame): its place, every move, and the end of its
+    drift from each of them."""
     x, y = float(target["x"]), float(target["y"])
     d = target.get("drift") or {}
     secs = max(0.0, (dur - target["at"]) / float(fps))
-    return [(x, y), (x + float(d.get("x") or 0) * secs, y + float(d.get("y") or 0) * secs)]
+    dx, dy = float(d.get("x") or 0) * secs, float(d.get("y") or 0) * secs
+    pts = [(x, y)]
+    for m in target.get("moves") or []:
+        x, y = float(m.get("x", x)), float(m.get("y", y))
+        pts.append((x, y))
+    return pts + [(px + dx, py + dy) for px, py in pts]
 
 
 def _check_layout(o, els, ctx, rep, dur):

@@ -39,8 +39,10 @@ page is the recipe. The research behind it (sources, measurements, the reference
    Portraits and objects with a clear subject cut out best. Stock people never go in political, health, dating,
    drug or adult contexts (Pixabay has no model releases), and no visible logos.
 2. Cut them out: `nvc.py cutout JOB tanker capitol man1`. People become halftone with the marker stroke, anything
-   else keeps its colour (`--style halftone|bw|color`, `--stroke none`). Apple Vision lifts the subject on this Mac;
-   a soft shadow is baked in so the render stays fast. A stock picture's licence travels with its cut-out.
+   else keeps its colour (`--style halftone|bw|color`, `--stroke none`, `--largest` for one subject of several).
+   Apple Vision lifts the subject on this Mac; a soft shadow is baked in so the render stays fast. A stock picture's
+   licence travels with its cut-out. Look at every cut-out at full size before using it: text on a truck, a phone
+   number, a logo or a plate must not show (crop the source, or pick another picture).
 3. Clips shot on black (fire, smoke, sparks, light) or a green screen: `nvc.py key JOB fire --start 2 --seconds 8`.
    The result is a transparent WebM that lies over the paper as it is (a screen blend washes out on light paper).
    A clip that should fill a band (the sea under a ship) needs no key: use it as a `clip` with `slot: floor` and a
@@ -58,9 +60,10 @@ picture, what follows on which words, and the facts for any number. Then write o
 | The line says | The beat |
 |---|---|
 | who and where ("The US and Iran are signing a deal") | a colour foreground band (`layer: fore`, stage) with halftone people rising behind it (`stage-left`, `stage-right`), one on each name |
-| a claim from the press | a `newspaper` with a made-up masthead, the key words `marks`ed as they are said |
+| the past ("seventy years ago") | the same picture in black and white (`bw` on a cut-out), then what changed in colour |
+| a claim from the press | a `newspaper` with a made-up masthead (`"illustrative": true`), the key words `marks`ed as they are said |
 | a price or a quantity ("oil at $116 a barrel") | the thing itself (a ship on a `floor` clip of sea, drifting) and a `tag` that counts from a start value and lands on the spoken number, riding on it with `follow` |
-| a trend | a `chart` card that draws while the trend is described, a `callout` on the point that is named; later `moves` shrink it aside for the next picture |
+| a trend | a `chart` card that draws while the trend is described (`xValues` for uneven years), a `callout` on the point that is named; later `moves` shrink it aside for the next picture |
 | a big number | a `headline` with `count` that lands on the number's word, next to the object it measures |
 | a comparison | two cut-outs or labels on `left` and `right`, a `scribble` circle or underline on the one that wins |
 | a conversation or a stance | halftone people with `bubble`s, key words in the marker colour |
