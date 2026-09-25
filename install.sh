@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Install the eight skills for Claude Code: link them into ~/.claude/skills (so `git pull` updates them), set up each
-# skill's Python environment, and check the machine. Nothing is deleted or overwritten: an existing folder with the
+# Install the twenty skills and two agents for Claude Code: link them into ~/.claude/skills and ~/.claude/agents (so
+# `git pull` updates them), set up each skill's Python environment, and check the machine. Nothing is deleted or overwritten: an existing folder with the
 # same name stops the install.
 #
 #   ./install.sh            link the skills (recommended)
@@ -28,7 +28,9 @@ if sys.version_info < (3, 9):
 PY
 
 mkdir -p "$dest"
-for skill in codex-imagegen codex-design natural-copy agy-watch-video remotion-broll nexa-video-creator nexa-sound nexa-speech; do
+for skill in codex-imagegen codex-design natural-copy agy-watch-video remotion-broll nexa-video-creator nexa-sound nexa-speech \
+    nexa-remotion nexa-remotion-motion nexa-remotion-type nexa-remotion-design nexa-remotion-graphics nexa-remotion-ui \
+    nexa-remotion-maps nexa-remotion-3d nexa-remotion-fx nexa-remotion-edit nexa-remotion-render nexa-remotion-styles; do
   target="$dest/$skill"
   if [ -L "$target" ]; then
     if [ "$(cd "$target" && pwd -P)" = "$(cd "$here/$skill" && pwd -P)" ]; then
@@ -51,6 +53,29 @@ for skill in codex-imagegen codex-design natural-copy agy-watch-video remotion-b
   fi
 done
 
+# the Remotion agents: the same rule as the skills (link, never overwrite what is there)
+agents="${CLAUDE_AGENTS_DIR:-$HOME/.claude/agents}"
+mkdir -p "$agents"
+for agent in "$here"/nexa-remotion/agents/*.md; do
+  name="$(basename "$agent")"
+  target="$agents/$name"
+  if [ -L "$target" ] && [ "$(readlink "$target")" = "$agent" ]; then
+    echo "ok      agent ${name%.md} already linked"
+    continue
+  fi
+  if [ -e "$target" ] || [ -L "$target" ]; then
+    echo "stop    $target already exists; move it away yourself, then run again" >&2
+    exit 1
+  fi
+  if [ "$mode" = link ]; then
+    ln -s "$agent" "$target"
+    echo "linked  agent ${name%.md}"
+  else
+    cp "$agent" "$target"
+    echo "copied  agent ${name%.md}"
+  fi
+done
+
 echo "setting up Python environments (Pillow, segno, pypdf, uharfbuzz, fontTools)"
 # each doctor builds its skill's environment first, then reports what is still missing on this machine (the Codex CLI,
 # Chrome); a missing tool is a note here, not a failed install
@@ -63,6 +88,9 @@ python3 "$dest/agy-watch-video/scripts/watch_video.py" doctor --setup || \
 
 python3 "$dest/nexa-video-creator/scripts/nvc.py" doctor --setup || \
   echo "note    nexa-video-creator is set up; its doctor lists what is still missing above (the renderer: nvc.py doctor --setup --link-modules PATH or --npm)"
+
+python3 "$dest/nexa-remotion/scripts/nrk.py" doctor || \
+  echo "note    nexa-remotion needs its Remotion modules once: nrk.py setup (installs them) or nrk.py doctor --link-modules PATH"
 
 echo "checking the machine"
 python3 "$dest/codex-design/scripts/design.py" doctor || true
@@ -90,5 +118,6 @@ if [ "$run_tests" = 1 ]; then
   python3 -m unittest discover -s "$dest/nexa-video-creator/tests"
   python3 -m unittest discover -s "$dest/nexa-sound/tests"
   python3 -m unittest discover -s "$dest/nexa-speech/tests"
+  python3 -m unittest discover -s "$dest/nexa-remotion/tests"
 fi
 echo "done: restart Claude Code so it picks up the skills"

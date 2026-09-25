@@ -1,10 +1,11 @@
 # claude-agency-designer-set-by-codex
 
-Eight Claude Code skills that work as a small design and video agency: they design finished graphics at each
-platform's exact size with real typography, write copy that sounds like the audience instead of a machine, make and
-check the images with the Codex CLI on a ChatGPT plan, edit real footage into finished videos for every platform with
-Remotion, voice scripts with Gemini text-to-speech, score them with Google Lyria, animate explainer B-roll from a ready
-kit, and watch, transcribe and check videos with Gemini through the Antigravity CLI.
+Twenty Claude Code skills and two agents that work as a small design and video agency: they design finished graphics
+at each platform's exact size with real typography, write copy that sounds like the audience instead of a machine,
+make and check the images with the Codex CLI on a ChatGPT plan, edit real footage into finished videos for every
+platform with Remotion, make any motion graphics video in code with a Remotion skill family (a director, eleven craft
+skills and a tested component kit), voice scripts with Gemini text-to-speech, score them with Google Lyria, animate
+explainer B-roll from a ready kit, and watch, transcribe and check videos with Gemini through the Antigravity CLI.
 
 | Skill | What it does |
 |---|---|
@@ -16,6 +17,8 @@ kit, and watch, transcribe and check videos with Gemini through the Antigravity 
 | [`nexa-sound`](nexa-sound/SKILL.md) | Music, sound effects and the final mix: Google Lyria scores (cheap drafts, structured finals, exact-length beds), a built-in synthesiser for effects the skill owns outright, music fitted to the edit on whole bars with hits on cuts, dialogue clean-up, ducking under speech with a gain envelope, mastering to each platform's loudness, measured QC and licence notes for clients. |
 | [`nexa-speech`](nexa-speech/SKILL.md) | Human-sounding voice-overs and character voices with Gemini text-to-speech, one consistent voice from the first line to the last: voice profiles, Bangla and English number handling, chunking, a cache so no line is paid for twice, measured QA of every take, a mastered 48 kHz track with sentence and word timings and subtitles, and scenes fitted to a length. |
 | [`codex-imagegen`](codex-imagegen/SKILL.md) | Generates and edits the images a project needs through the logged-in Codex CLI: photos, illustrations, cutouts, logo concepts, favicons, OG cards and web exports, in parallel with a style lock, each one judged independently. Photos look like unretouched camera photos, and place and people come from the client, never the requester. |
+| [`nexa-remotion`](nexa-remotion/SKILL.md) | The director of a Remotion skill family that makes any video in code like a motion design studio: explainers, product launches, app demos, kinetic type, data and map stories, social shorts with captions, ads, trailers, lyric videos, audiograms, logo stings and 3D product shots, in 20 ready themes and 27 named looks. It plans the treatment and a storyboard timed to the voice or the beat, builds from a tested kit for Remotion 4.0.528 (about 600 components across motion, type, design, charts and diagrams, interfaces and devices, maps, 3D, effects and transitions, editing and sound), checks stills and renders, measures the file and hands the review to an independent critic agent. Built on a full read of the Remotion docs, source, templates, examples and community (`nexa-remotion/references/kb/`). |
+| `nexa-remotion-motion`, `-type`, `-design`, `-graphics`, `-ui`, `-maps`, `-3d`, `-fx`, `-edit`, `-render`, `-styles` | The craft skills the director calls: timing, springs and camera; kinetic text and captions (Bangla included); grounds, texture, layout and colour; charts, diagrams and icons; interfaces, devices, lower thirds and logo reveals; maps, routes and globes; 3D; effects, looks, keying and transitions; footage and sound; render settings and the cloud; a catalogue of looks. Each has its kit module with a README and a demo per component. |
 
 ## Fast for everyday work, strict for client finals
 
@@ -35,6 +38,7 @@ that:
 - Any image to generate or edit: `codex-imagegen`. Any video or audio: `agy-watch-video`.
 - Animated explainer B-roll or motion graphics: `remotion-broll`.
 - Editing or making a video from footage, a voice-over or assets: `nexa-video-creator`.
+- Any video, motion graphics or animation made in code with Remotion: `nexa-remotion` first.
 - Music, sound effects, voice clean-up or a mix: `nexa-sound`. A voice-over or character voice: `nexa-speech`.
 ```
 
@@ -141,11 +145,15 @@ python3 -m unittest discover -s ~/.claude/skills/remotion-broll/tests
 python3 -m unittest discover -s ~/.claude/skills/nexa-video-creator/tests
 python3 -m unittest discover -s ~/.claude/skills/nexa-sound/tests
 python3 -m unittest discover -s ~/.claude/skills/nexa-speech/tests
+python3 -m unittest discover -s ~/.claude/skills/nexa-remotion/tests
 CODEX_DESIGN_PATTERNS=1 python3 -m unittest discover -s ~/.claude/skills/codex-design/tests -p "test_patterns.py"
 ```
 
 The video skill also checks itself against synthetic clips with known answers: `watch_video.py selftest` (seconds, no
 model) and `watch_video.py selftest --live` (about 20 real calls; run it after installing or updating agy).
+
+The Remotion kit checks itself by typechecking every module and rendering every demo to a labelled contact sheet:
+`python3 ~/.claude/skills/nexa-remotion/scripts/nrk.py demos` (the whole kit, a few minutes) or `--module NAME`.
 
 The last one renders the whole pattern library (26 patterns on their presets) and fails on any error or warning.
 
@@ -164,6 +172,10 @@ nexa-video-creator/ the editor: scripts/nvc.py (pipeline), nvc_plan.py (plan che
                   Remotion renderer), references/ (plan, cli, editing rules, engines), tests/
 nexa-sound/       music, effects and mix: scripts/sound.py, sfx_synth.py, beats.py, references/, tests/
 nexa-speech/      voice-overs: scripts/speech.py, voices and presets, references/, tests/
+nexa-remotion/    the Remotion director: scripts/nrk.py, kit/ (the component library: src/kit/<module>/ with a
+                  README each, src/demos/, generated demo media in public/), agents/ (director and reviewer),
+                  references/ (process, quality, platforms, core, prompting, kb/ research), evals/, tests/
+nexa-remotion-*/  the eleven craft skills: SKILL.md and references/ each
 ```
 
 ## Notes
@@ -189,6 +201,9 @@ nexa-speech/      voice-overs: scripts/speech.py, voices and presets, references
   music is not exclusive, so it is never registered with Content ID.
 - Remotion is free for individuals and companies of up to 3 people; above that, code that renders counts as an
   automation under Remotion's company licence.
+- `nexa-remotion/references/kb/` holds research notes written in our own words from the Remotion docs, source,
+  templates and examples (with version tags for 4.0.528); no official text or code is copied. The kit's demo media
+  (clips, photos, sounds, a GLB model) were made locally with ffmpeg and code.
 
 ## License
 

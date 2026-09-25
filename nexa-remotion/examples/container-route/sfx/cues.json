@@ -1,0 +1,15 @@
+[
+ {"t": 0.8, "name": "whoosh-short", "gain_db": -22},
+ {"t": 7.6, "name": "pop", "gain_db": -20},
+ {"t": 9.4, "name": "pop", "gain_db": -20},
+ {"t": 10.9, "name": "pop", "gain_db": -18},
+ {"t": 13.9, "name": "whoosh", "gain_db": -18},
+ {"t": 19.6, "name": "swipe", "gain_db": -19},
+ {"t": 19.75, "name": "pop", "gain_db": -21},
+ {"t": 21.6, "name": "whoosh", "gain_db": -19},
+ {"t": 25.0, "name": "pop", "gain_db": -21},
+ {"t": 26.4, "name": "whoosh", "gain_db": -20},
+ {"t": 28.8, "name": "pop", "gain_db": -19},
+ {"t": 29.0, "name": "ding", "gain_db": -19},
+ {"t": 30.6, "name": "chime", "gain_db": -18}
+]

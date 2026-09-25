@@ -1,0 +1,78 @@
+{
+ "schema": "nexa-remotion-evals/1",
+ "how": "Give each brief to the remotion-director agent in a fresh session (one project folder per scenario). Then give only the rendered file, the platform and the audience to the remotion-reviewer agent. A scenario passes when every 'done_when' item is true on the file, nrk.py qa passes, and the reviewer reports no high or medium finding.",
+ "scenarios": [
+  {
+   "id": "saas-launch-16x9",
+   "brief": "A 30 second launch video for Ledgerly, an invoicing app for freelancers (a made-up product). Features: invoices from a photo of a receipt, reminders that send themselves, payments in 3 currencies. Dark, modern, calm confidence. No voice-over; music bed. YouTube 1920x1080.",
+   "skills": ["nexa-remotion", "nexa-remotion-ui", "nexa-remotion-motion", "nexa-remotion-styles"],
+   "done_when": ["product name readable by 3 s", "each feature shown as an action in the UI, not a bullet list", "cursor clicks land on controls", "one call to action at the end, held at least 1.5 s", "nothing half-visible on the last frame", "music at -14 LUFS integrated, true peak at most -1 dBTP"]
+  },
+  {
+   "id": "saas-launch-9x16",
+   "brief": "The same Ledgerly launch as a 20 second vertical short for Reels and TikTok, with burned captions of a short voice-over.",
+   "skills": ["nexa-remotion", "nexa-remotion-type", "nexa-remotion-ui"],
+   "done_when": ["hook composed on frame 0", "captions 2 to 4 words a page, inside the Reels safe area", "UI restacked for 9:16, not cropped", "voice over music, captions match the speech"]
+  },
+  {
+   "id": "kinetic-type-promo",
+   "brief": "A 15 second kinetic typography promo for a design conference, 'Form & Function 2026', 12 to 14 June, in Lisbon. Loud, fast, black and acid yellow.",
+   "skills": ["nexa-remotion", "nexa-remotion-type", "nexa-remotion-motion"],
+   "done_when": ["words reveal by word or line behind masks, not letter by letter", "each line holds long enough to read", "dates and city exactly as given", "cuts on a steady rhythm, one broken on purpose"]
+  },
+  {
+   "id": "data-story",
+   "brief": "A 45 second data story: global smartphone shipments 2019 to 2025 (use clearly labelled example figures and say they are examples). Journalistic, white, serif headlines. Voice-over in English.",
+   "skills": ["nexa-remotion", "nexa-remotion-graphics", "nexa-remotion-type"],
+   "done_when": ["the line chart draws while the trend is described", "the highlighted point's callout lands on its word", "every number on screen said or labelled as an example", "bars start at zero", "tabular numbers on counters"]
+  },
+  {
+   "id": "route-map",
+   "brief": "A 20 second map animation of a shipment from Chittagong to Rotterdam via the Suez Canal, for a logistics company's LinkedIn post (1080x1350).",
+   "skills": ["nexa-remotion", "nexa-remotion-maps"],
+   "done_when": ["the route draws in order through the canal", "city pins with labels inside the safe area", "the camera zooms smoothly without blurry map edges", "the vessel marker turns along the path"]
+  },
+  {
+   "id": "lower-third-alpha",
+   "brief": "A lower third for a YouTube interview: name 'Nadia Rahman', role 'Head of Product, Example Co'. Deliver as a transparent ProRes 4444 overlay, 6 seconds.",
+   "skills": ["nexa-remotion-ui", "nexa-remotion-render"],
+   "done_when": ["the file is ProRes 4444 with yuva444p10le", "the background is transparent", "entrance and exit both complete inside 6 s", "text inside the YouTube safe area"]
+  },
+  {
+   "id": "logo-sting",
+   "brief": "A 5 second logo sting for 'Northwind Studio' (draw a simple geometric mark yourself). Premium, calm.",
+   "skills": ["nexa-remotion-ui", "nexa-remotion-motion", "nexa-remotion-fx"],
+   "done_when": ["mark in 0 to 0.8 s, wordmark by 1.8 s, tagline by 3.5 s", "a breath before the exit", "no confetti, no glow on everything", "one sound hit on the mark landing"]
+  },
+  {
+   "id": "bangla-explainer",
+   "brief": "A 40 second Bangla explainer for Bangladeshi small shop owners about keeping a daily sales record on a phone. Friendly, bright, illustrated. Bangla voice-over and Bangla on-screen words.",
+   "skills": ["nexa-remotion", "nexa-remotion-type", "nexa-remotion-design", "nexa-speech"],
+   "done_when": ["Bangla shaped correctly everywhere (conjuncts and vowel signs intact)", "Bengali digits in Bangla copy", "copy passes natural-copy lint for BD", "voice and on-screen words in sync"]
+  },
+  {
+   "id": "trailer",
+   "brief": "A 25 second teaser for a documentary series about river life (use generated or code-drawn imagery only). Cinematic, slow, black and gold.",
+   "skills": ["nexa-remotion", "nexa-remotion-fx", "nexa-remotion-type", "nexa-remotion-styles"],
+   "done_when": ["letterboxed, spaced serif capitals", "slow fades and light leaks between shots, not every cut", "grain re-seeded at about 12 Hz, not per frame", "title card held at least 2 s"]
+  },
+  {
+   "id": "audiogram",
+   "brief": "A 30 second podcast audiogram (1080x1920) from a clip of the user's podcast with a waveform, the episode title and live captions.",
+   "skills": ["nexa-remotion-edit", "nexa-remotion-type"],
+   "done_when": ["the waveform moves with the voice", "captions follow the speech word by word", "audio at -16 LUFS for podcast use", "title inside the safe area"]
+  },
+  {
+   "id": "product-3d",
+   "brief": "An 8 second 3D hero shot of a smartwatch-like device (build it from primitives) turning slowly under studio light, with the product name.",
+   "skills": ["nexa-remotion-3d", "nexa-remotion-type"],
+   "done_when": ["no blank frames (rendered with --gl=angle)", "the turn eases in and out", "the name reads over a calm area of the frame"]
+  },
+  {
+   "id": "vox-collage",
+   "brief": "A 30 second Vox-style explainer beat on how container shipping made goods cheap, with cut-out photos, a price counter and a chart, from narration the user provides.",
+   "skills": ["nexa-video-creator", "nexa-remotion-motion", "nexa-remotion-graphics"],
+   "done_when": ["one locked paper ground", "each element lands 2 to 4 frames before its word", "every number said or sourced", "halftone people with the marker stroke"]
+  }
+ ]
+}
