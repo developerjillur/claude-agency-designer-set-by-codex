@@ -4,6 +4,52 @@ The version is `SKILL_VERSION` in `scripts/nvc.py`. Run the offline tests after 
 `python3 -m unittest discover -s ~/.claude/skills/nexa-video-creator/tests` (and with `NVC_RENDER_TESTS=1` once the
 renderer is set up).
 
+## 2026.09.25.7 · Vox-style explainer beats
+
+Built from a frame-by-frame study of a Claude Code + Remotion Vox-style explainer (MoSidd, 0:05 to 0:52: every
+colour, grid and grain measured on the frames, the narration transcribed, the scene windows timed) and three research
+reports on the Vox visual language, the creator's workflow and the Remotion toolkit (`references/research/vox-*.md`).
+`references/vox.md` is the recipe.
+
+- **`vox` overlays** (`template/src/vox.tsx`, `scripts/nvc_vox.py`): one composition per beat on a locked paper
+  ground (warm grey #D9D7D1, a light grid, printed grain measured to the reference's luma spread, a soft vignette),
+  so hard cuts between beats read as one continuous shot. Thirteen element kinds: cut-outs, clips, photo cards,
+  headlines (highlight, highlighter marks, count-ups), labels, a source credit, icons, counting price tags that ride
+  on a moving picture, comic speech bubbles, a tilted newspaper with words highlighted as they are said, a cream chart
+  card that draws itself with dots popping and a pulsing call-out, a typewriter that types each word on its spoken
+  frame, hand-drawn marker circles, underlines and arrows.
+- **Timed to the words, placed by slots.** Every time is a word id (the entrance lands 2 to 4 frames before the word,
+  a counter 2 frames before its number, a highlight starts with its word), baked after every trim. Slots place
+  elements for the frame's shape (vertical keeps text in the top half); cut-outs are sized by height and layer (a
+  colour foreground band hides the halftone people behind it) and stand under the bottom edge so cut bottoms never
+  show. Entrances ease out (rise, pop, slides, wipe, fade), elements float, each beat pushes in with parallax,
+  `drift` sails a picture across, `moves` rearrange a beat, an element leaving mid-beat slides off by its nearest
+  side, and beats cut (default) or play their pictures out under the next beat (drop, fade, slide, pop). Optional
+  graphics on twos (`step: 2`). A light leak washes over a cut (`leak`, also as a clip transition). A thick
+  progress bar along the bottom (`"progress_bar": "bottom"`).
+- **An editor's checks.** Words outside the beat, unknown kinds, missing pictures, marks not in the headline are
+  errors; text that pokes out of the safe area is moved in (and recorded), text over text, too little time to read,
+  a full spoken sentence on screen, more than 5 s with nothing new and more than 7 things at once are warnings; every
+  newspaper (a made-up masthead, or a quoted headline with its source) and every chart's values go to the review
+  list, and shown numbers go through the said-or-sourced check.
+- **Sound on the main motion only:** a flick for a rise, a pop, a ding when a counter lands, an impact when a big
+  number lands, a swipe for a highlight, a key for every typed word, 4 to 5 dB under nexa-sound's own levels.
+- **`nvc.py cutout`** (`scripts/cutout.swift`, Apple Vision and Core Image on this Mac): lifts the subject, and with
+  `--style auto` makes people black and white halftone with the red-orange marker stroke (#E04329, offset up and to
+  the left, sized to the subject) and keeps objects in colour; bakes a soft shadow so the render needs no CSS
+  filter; caps the size at 2000 px. A stock picture's licence travels with its cut-out, and a recognisable stock
+  person is flagged (Pixabay allows no political use of people).
+- **`nvc.py key`**: fire, smoke or sparks shot on black (the brightness becomes the alpha, the colour
+  un-premultiplied, so flames stay vivid on light paper where a screen blend washes out) or a green screen, as a
+  transparent VP9 WebM.
+- **`nvc.py brief JOB --style vox`** adds the look, the rules, the job's cut-outs and keyed clips, the element kinds
+  and a storyboard of the narration as beats of 3 to 9 s with word ids, so a plan needs no guesswork.
+- The Vox theme (orange accent, marker, highlighter, cream cards, Montserrat, grain) comes with vox beats unless the
+  job or plan sets its own; a faceless edit gets the grid paper between beats. New fonts: Merriweather, Bangers,
+  Special Elite. A `VoxSample` composition renders without media.
+- Tested on the reference's own narration (43 s, 7 beats, 8 cut-outs, a keyed fire, 34 cues): compile under 1 s,
+  render 34 s. 47 offline tests (4 new).
+
 ## 2026.09.25.6 · review fixes for the scenes
 
 From an independent review of 2026.09.25.5:

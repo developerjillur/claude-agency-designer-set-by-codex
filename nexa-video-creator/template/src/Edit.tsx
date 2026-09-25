@@ -1,13 +1,15 @@
-// The edit: A-roll clips in their layouts, designed full-frame scenes, overlays, captions and the premixed sound, all
-// read from the EDL. Every video is muted: the sound is one mixed file (nexa-sound), cut sample-accurately on the same
-// frame grid. Layers from the bottom: clips, full scenes, the presenter's round picture over a scene, the other
-// overlays, captions, colour sweeps over cuts, the progress bar.
+// The edit: A-roll clips in their layouts, designed full-frame scenes, Vox-style beats, overlays, captions and the
+// premixed sound, all read from the EDL. Every video is muted: the sound is one mixed file (nexa-sound), cut
+// sample-accurately on the same frame grid. Layers from the bottom: clips, full scenes and Vox beats (each run of beats
+// on one locked paper ground, grain over it), the presenter's round picture over a scene, the other overlays,
+// captions, colour sweeps and light leaks over cuts, the progress bar.
 import React from "react";
 import { AbsoluteFill, Easing, Img, OffthreadVideo, Sequence, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { Audio, Video } from "@remotion/media";
 import { Captions } from "./captions";
 import { LayerMarks, OverlayView, isLayerOverlay } from "./overlays";
 import { BarSweep, Paper, SCENE_TYPES, SceneView, scenePip } from "./scenes";
+import { Grain, LightLeak, PaperGrid, VoxBeat } from "./vox";
 import {
   Clip,
   Edl,
@@ -32,12 +34,16 @@ import {
 
 const IMAGE = /\.(png|jpe?g|webp|gif|bmp)$/i;
 const SWEEP_FRAMES = 16;
+const LEAK_FRAMES = 20;
 
 // A full-frame overlay: a designed scene, a quote, or a full-frame insert. Drawn under the other overlays.
 export const isFull = (o: Overlay): boolean =>
   o.slot
     ? o.slot === "full"
-    : SCENE_TYPES.has(o.type) || o.type === "quote" || (["broll", "image", "segment"].includes(o.type) && (o.props.fit || "full") === "full");
+    : SCENE_TYPES.has(o.type) ||
+      o.type === "vox" ||
+      o.type === "quote" ||
+      (["broll", "image", "segment"].includes(o.type) && (o.props.fit || "full") === "full");
 
 // One source drawn into a w x h box, with its zoom and its layer marks (callouts, redactions) in source coordinates.
 const Layer: React.FC<{
@@ -85,6 +91,7 @@ const Backdrop: React.FC<{ edl: Edl }> = ({ edl }) => {
   const frame = useCurrentFrame();
   const kind = edl.theme.backdrop || "pools";
   if (kind === "paper") return <Paper theme={edl.theme} />;
+  if (kind === "grid") return <PaperGrid theme={edl.theme} />;
   if (kind === "dusk") {
     const c = paletteOf(edl.theme)[1];
     return <AbsoluteFill style={{ background: `radial-gradient(ellipse at 50% 58%, ${mix(c, "#000000", 0.6)} 0%, ${mix(c, "#000000", 0.83)} 55%, #0B070B 100%)` }} />;
@@ -201,7 +208,7 @@ const TransitionIn: React.FC<{ clip: Clip; children: React.ReactNode }> = ({ cli
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const t = clip.transitionIn;
-  if (!t || t.type === "cut" || t.type === "sweep" || t.frames <= 0) return <>{children}</>;
+  if (!t || t.type === "cut" || t.type === "sweep" || t.type === "leak" || t.frames <= 0) return <>{children}</>;
   const p = interpolate(frame, [0, t.frames], [0, 1], { ...clampOpts, easing: easeOut });
   if (t.type === "slide") {
     // over the previous clip, which stays underneath for these frames
@@ -342,24 +349,44 @@ const scenePips = (edl: Edl) => {
   return out;
 };
 
-// Frames where a sweep hides a cut: into a clip, or into or out of an overlay that asks for one.
-const sweeps = (edl: Edl): number[] => {
+// Frames where a sweep (or a light leak) hides a cut: into a clip, or into or out of an overlay that asks for one.
+const cutsWith = (edl: Edl, kind: string): number[] => {
   const at = new Set<number>();
-  for (const c of edl.clips) if (c.transitionIn?.type === "sweep" && c.from > 0) at.add(c.from);
+  for (const c of edl.clips) if (c.transitionIn?.type === kind && c.from > 0) at.add(c.from);
   for (const o of edl.overlays) {
-    if (o.enter === "sweep") at.add(o.from);
-    if (o.exit === "sweep") at.add(o.from + o.durationInFrames);
+    if (o.enter === kind) at.add(o.from);
+    if (o.exit === kind) at.add(o.from + o.durationInFrames);
   }
   return [...at].filter((f) => f > 0 && f < edl.durationInFrames).sort((a, b) => a - b);
+};
+
+// Vox beats back to back share one ground: where each run of them starts and ends (with the last beat's tail).
+const voxRuns = (full: Overlay[]) => {
+  const runs: { first: string; last: string; from: number; to: number }[] = [];
+  for (const o of full) {
+    if (o.type !== "vox") continue;
+    const end = o.from + o.durationInFrames + Number(o.props.tail || 0);
+    const cur = runs[runs.length - 1];
+    if (cur && o.from - cur.to <= 1 + Number(full.find((x) => x.id === cur.last)?.props.tail || 0)) {
+      cur.last = o.id;
+      cur.to = Math.max(cur.to, end);
+    } else {
+      runs.push({ first: o.id, last: o.id, from: o.from, to: end });
+    }
+  }
+  return runs;
 };
 
 const Progress: React.FC<{ edl: Edl }> = ({ edl }) => {
   const frame = useCurrentFrame();
   const { width, height } = useVideoConfig();
   const u = unit(width, height);
-  return (
-    <div style={{ position: "absolute", left: 0, top: 0, height: Math.max(4, Math.round(6 * u)), width: `${(100 * frame) / edl.durationInFrames}%`, backgroundColor: edl.theme.accent }} />
-  );
+  const w = `${(100 * frame) / Math.max(1, edl.durationInFrames - 1)}%`;
+  if (edl.progress === "bottom") {
+    // the explainer's own bar: thick, along the bottom edge
+    return <div style={{ position: "absolute", left: 0, bottom: 0, height: Math.max(8, Math.round(38 * u)), width: w, backgroundColor: edl.theme.accent }} />;
+  }
+  return <div style={{ position: "absolute", left: 0, top: 0, height: Math.max(4, Math.round(6 * u)), width: w, backgroundColor: edl.theme.accent }} />;
 };
 
 // A full scene stays under the next one while that one slides, pops or fades in over it.
@@ -373,6 +400,8 @@ export const Edit: React.FC<Edl> = (edl) => {
   const full = edl.overlays.filter((o) => !isLayerOverlay(o) && isFull(o)).sort((a, b) => a.from - b.from);
   const rest = edl.overlays.filter((o) => !isLayerOverlay(o) && !isFull(o));
   const half = SWEEP_FRAMES / 2;
+  const runs = voxRuns(full);
+  const premount = Math.round(edl.fps);
   return (
     <AbsoluteFill style={{ backgroundColor: edl.theme.bg }}>
       {edl.clips.map((clip, i) => {
@@ -385,11 +414,35 @@ export const Edit: React.FC<Edl> = (edl) => {
           </Sequence>
         );
       })}
-      {full.map((o) => (
-        <Sequence key={o.id} from={o.from} durationInFrames={o.durationInFrames + holdUnder(full, o)} premountFor={Math.round(edl.fps)} name={`${o.id} ${o.type}`}>
-          {SCENE_TYPES.has(o.type) ? <SceneView edl={edl} overlay={o} /> : <OverlayView edl={edl} overlay={o} />}
-        </Sequence>
-      ))}
+      {full.map((o) => {
+        if (o.type === "vox") {
+          // a run of beats: the ground once under all of them, each beat running on under the next while its
+          // elements leave, the grain once over all of them
+          const run = runs.find((r) => r.first === o.id || r.last === o.id);
+          return (
+            <React.Fragment key={o.id}>
+              {run && run.first === o.id ? (
+                <Sequence from={run.from} durationInFrames={run.to - run.from} premountFor={premount} name={`ground ${o.id}`}>
+                  <PaperGrid theme={edl.theme} />
+                </Sequence>
+              ) : null}
+              <Sequence from={o.from} durationInFrames={o.durationInFrames + Number(o.props.tail || 0)} premountFor={premount} name={`${o.id} vox`}>
+                <VoxBeat edl={edl} overlay={o} />
+              </Sequence>
+              {run && run.last === o.id ? (
+                <Sequence from={run.from} durationInFrames={run.to - run.from} premountFor={premount} name={`grain ${o.id}`}>
+                  <Grain opacity={Number(edl.theme.grain ?? 0.16)} />
+                </Sequence>
+              ) : null}
+            </React.Fragment>
+          );
+        }
+        return (
+          <Sequence key={o.id} from={o.from} durationInFrames={o.durationInFrames + holdUnder(full, o)} premountFor={premount} name={`${o.id} ${o.type}`}>
+            {SCENE_TYPES.has(o.type) ? <SceneView edl={edl} overlay={o} /> : <OverlayView edl={edl} overlay={o} />}
+          </Sequence>
+        );
+      })}
       {scenePips(edl).map((p) => (
         <Sequence key={p.key} from={p.from} durationInFrames={p.dur} premountFor={Math.round(edl.fps)} name={`pip ${p.key}`}>
           <RoundPip edl={edl} clip={p.clip} place={p.place} seqFrom={p.from} animateIn={p.animateIn} exitAt={p.exitAt} sizePx={p.size} corner={p.corner} />
@@ -401,9 +454,14 @@ export const Edit: React.FC<Edl> = (edl) => {
         </Sequence>
       ))}
       {edl.captions.burn ? <Captions edl={edl} /> : null}
-      {sweeps(edl).map((f) => (
+      {cutsWith(edl, "sweep").map((f) => (
         <Sequence key={`sweep-${f}`} from={Math.max(0, f - half)} durationInFrames={SWEEP_FRAMES} name={`sweep ${f}`}>
           <BarSweep theme={edl.theme} />
+        </Sequence>
+      ))}
+      {cutsWith(edl, "leak").map((f) => (
+        <Sequence key={`leak-${f}`} from={Math.max(0, f - LEAK_FRAMES / 2)} durationInFrames={LEAK_FRAMES} name={`leak ${f}`}>
+          <LightLeak />
         </Sequence>
       ))}
       {edl.progress ? <Progress edl={edl} /> : null}

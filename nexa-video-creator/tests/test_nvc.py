@@ -543,6 +543,164 @@ class Scenes(unittest.TestCase):
         self.assertEqual(r["edl"]["theme"]["backdrop"], "pools")
 
 
+VOX_SENTENCES = ["Oil prices jumped to 116 dollars a barrel",
+                 "and the debt grew bigger than the whole economy",
+                 "Empires end with a bill they cannot pay"]
+
+
+class Vox(unittest.TestCase):
+    """Vox-style beats: elements timed to words, placed by slots, checked like an editor would."""
+
+    def setUp(self):
+        spec, t = [], 0.3
+        self.spans = []
+        for s in VOX_SENTENCES:
+            first = len(spec) + 1
+            for w in s.split():
+                d = 0.16 + 0.04 * len(w)
+                spec.append((w, round(t, 3), round(t + d, 3)))
+                t += d + 0.08
+            self.spans.append((first, len(spec)))
+            t += 0.4
+        self.words = make_words(spec)
+        self.job = {"id": "v", "dialogue": "vo", "fps": 30, "language": "en",
+                    "sources": {"vo": {"kind": "voice", "duration": t + 1.0, "audio": "media/audio/vo.wav"},
+                                "ship": {"kind": "cutout", "image": "media/cutouts/ship.png", "width": 1200,
+                                         "height": 500, "alpha": True},
+                                "man": {"kind": "cutout", "image": "media/cutouts/man.png", "width": 900,
+                                        "height": 1200, "alpha": True},
+                                "photo": {"kind": "image", "image": "media/originals/photo.jpg", "width": 1280,
+                                          "height": 853},
+                                "fire": {"kind": "broll", "proxy": "media/keyed/fire.webm", "width": 1280,
+                                         "height": 720, "alpha": True, "duration": 8.0}}}
+
+    def w(self, text, n=0):
+        """The id of a word by its text (the n-th match)."""
+        hits = [x["id"] for x in self.words if x["text"].strip(".,") == text]
+        return hits[n]
+
+    def g(self, i):
+        a, b = self.spans[i]
+        return {"words": ["w%04d" % a, "w%04d" % b], "quote": quote(self.words, a, b)}
+
+    def plan(self, overlays, **extra):
+        return dict({"schema": "nvc-plan/1", "title": "t", "language": "en",
+                     "segments": [{"words": ["w0001", "w%04d" % len(self.words)],
+                                   "quote": quote(self.words, 1, len(self.words)), "layout": "voiceOnly"}],
+                     "overlays": overlays}, **extra)
+
+    def frame_of(self, r, wid):
+        m = next(x for x in r["mapped_words"] if x["id"] == wid)
+        return int(round(m["start"] * r["edl"]["fps"]))
+
+    def test_times_places_sounds_and_the_look(self):
+        r = compile_(self.plan([
+            dict(self.g(0), type="vox", elements=[
+                {"id": "ship", "kind": "cutout", "source": "ship", "at": "start"},
+                {"id": "price", "kind": "tag", "value": "$116", "from": 25, "unit": "per barrel", "icon": "barrel",
+                 "at": self.w("jumped"), "land": self.w("116"), "follow": "ship", "dx": 0.2, "dy": -0.5}]),
+            dict(self.g(1), type="vox", elements=[
+                {"id": "man", "kind": "cutout", "source": "man", "slot": "stage-left", "at": self.w("debt")},
+                {"id": "big", "kind": "headline", "text": "Bigger than the economy", "at": self.w("bigger")}]),
+            dict(self.g(2), type="vox", elements=[
+                {"id": "type", "kind": "typewriter", "text": "Empires end with a bill they cannot pay",
+                 "at": self.w("Empires")},
+                {"id": "fire", "kind": "clip", "source": "fire", "x": 0.5, "y": 1.0, "anchor": "bottom", "w": 0.3,
+                 "at": self.w("bill")}])],
+            progress_bar="bottom"), self.words, self.job)
+        self.assertTrue(r["report"]["ok"], r["report"]["errors"])
+        edl = r["edl"]
+        vox = [o for o in edl["overlays"] if o["type"] == "vox"]
+        self.assertEqual(len(vox), 3)
+        a, b, c = vox
+        # beats in a row share the paper: no gap, a hard cut by default (no tail), elements vanish at the cut
+        self.assertEqual(a["from"] + a["durationInFrames"], b["from"])
+        self.assertEqual(a["props"]["tail"], 0)
+        self.assertTrue(all(e["exit"] == "cut" and e["out"] == a["durationInFrames"] for e in a["props"]["elements"]))
+        els = {e["id"]: e for o in vox for e in o["props"]["elements"]}
+        # a bare word id lands the entrance just before the word; a counter lands 2 frames before its number
+        self.assertEqual(a["from"] + els["price"]["at"], self.frame_of(r, self.w("jumped")) - 8)
+        self.assertEqual(a["from"] + els["price"]["land"], self.frame_of(r, self.w("116")) - 2)
+        self.assertEqual(b["from"] + els["man"]["at"], self.frame_of(r, self.w("debt")) - 13)
+        # slots: a grounded cut-out stands a little under the bottom edge, sized by its height
+        self.assertAlmostEqual(els["man"]["y"], 1.04)
+        self.assertEqual(els["man"]["anchor"], "bottom")
+        self.assertAlmostEqual(els["man"]["w"], round(0.8 * 1080 * (900 / 1200.0) / 1920, 3))
+        self.assertEqual(els["big"]["enter"], "wipe")
+        # the typewriter types each word as it is said, and the captions give way to it
+        first, last = self.spans[2]
+        self.assertEqual([c["from"] + t for t in els["type"]["times"]],
+                         [self.frame_of(r, "w%04d" % i) for i in range(first, last + 1)])
+        words = VOX_SENTENCES[2].split()
+        self.assertTrue(c["props"]["hideCaptions"])
+        # sounds: the counter's ding on its number, a key for every typed word, quieter than the presets
+        cues = [x for x in r["sfx"] if x["why"].startswith("vox")]
+        self.assertTrue(any(x["name"] == "ding" and abs(x["t"] * 30 - (a["from"] + els["price"]["land"])) < 1
+                            for x in cues))
+        self.assertEqual(sum(1 for x in cues if x["name"] == "key"), len(words))
+        self.assertTrue(all(x["gain_db"] is not None and x["gain_db"] <= -9 for x in cues))
+        # the Vox look on a faceless video, and the thick bar along the bottom
+        self.assertEqual(edl["theme"]["accent"], "#FF8900")
+        self.assertEqual(edl["theme"]["marker"], "#E04329")
+        self.assertEqual(edl["theme"]["backdrop"], "grid")
+        self.assertEqual(edl["progress"], "bottom")
+
+    def test_what_it_refuses_and_asks(self):
+        r = compile_(self.plan([
+            dict(self.g(0), type="vox", elements=[
+                {"kind": "hologram", "at": "start"},
+                {"kind": "cutout", "source": "nothere"},
+                {"kind": "label", "text": "It costs 300 dollars", "at": self.w("barrel")},
+                {"kind": "label", "text": "late", "at": self.w("Empires")}]),
+            dict(self.g(1), type="vox", elements=[
+                {"kind": "newspaper", "masthead": "The Paper", "headline": "Debt beats the economy",
+                 "marks": [{"text": "whole economy", "at": self.w("economy")}]},
+                {"kind": "chart", "series": [{"values": [1, 2, 3]}], "at": "start"}])]),
+            self.words, self.job)
+        errors = "\n".join(r["report"]["errors"])
+        review = "\n".join(r["report"]["review"])
+        self.assertIn("kind must be one of", errors)
+        self.assertIn("needs \"source\"", errors)
+        self.assertIn("is not spoken inside this beat", errors)
+        self.assertIn("mark \"whole economy\" is not in the headline", errors)
+        self.assertIn("never put words in a real outlet's mouth", review)
+        self.assertIn("the chart plots 3 values", review)
+        self.assertIn("shows 300", review)
+
+    def test_text_stays_in_the_safe_area_and_clear_of_other_text(self):
+        r = compile_(self.plan([
+            dict(self.g(0), type="vox", elements=[
+                {"id": "edge", "kind": "label", "text": "Far over on the right", "x": 0.99, "y": 0.5,
+                 "at": "start"},
+                {"id": "one", "kind": "label", "text": "First line here", "x": 0.4, "y": 0.3, "at": "start"},
+                {"id": "two", "kind": "label", "text": "Second line here", "x": 0.42, "y": 0.31, "at": "start"}])]),
+            self.words, self.job)
+        els = {e["id"]: e for e in r["edl"]["overlays"][0]["props"]["elements"]}
+        self.assertLess(els["edge"]["x"], 0.99)
+        self.assertTrue(any(d["kind"] == "vox_nudge" for d in r["report"]["decisions"]))
+        self.assertTrue(any("overlaps two" in w for w in r["report"]["warnings"]), r["report"]["warnings"])
+
+    def test_vertical_slots_and_exits(self):
+        r = compile_(self.plan([
+            dict(self.g(0), type="vox", exit="drop", elements=[
+                {"id": "man", "kind": "cutout", "source": "man", "at": "start"},
+                {"id": "head", "kind": "headline", "text": "Oil", "at": "start"},
+                {"id": "gone", "kind": "cutout", "source": "ship", "x": 0.3, "y": 0.4, "anchor": "center",
+                 "at": "start", "out": self.w("barrel")}]),
+            dict(self.g(1), type="vox", elements=[{"kind": "label", "text": "Debt", "at": "start"}])]),
+            self.words, self.job, target="shorts")
+        self.assertTrue(r["report"]["ok"], r["report"]["errors"])
+        a = r["edl"]["overlays"][0]
+        els = {e["id"]: e for e in a["props"]["elements"]}
+        self.assertAlmostEqual(els["head"]["y"], 0.18)                     # text in the top half of a short
+        self.assertAlmostEqual(els["man"]["w"], round(0.4 * 1920 * 0.75 / 1080, 3))
+        # a beat that hands over with a drop runs on under the next while its pictures fall away
+        self.assertEqual(a["props"]["tail"], 12)
+        self.assertEqual(els["man"]["exit"], "drop")
+        # leaving mid-beat goes off by the nearest side, not through the other pictures
+        self.assertEqual(els["gone"]["exit"], "slideLeft")
+
+
 class StockVerdict(unittest.TestCase):
     def c(self, **kw):
         base = {"subject": 4, "action": 4, "setting": 4, "people_market": None, "quality": 4, "framing": 4,

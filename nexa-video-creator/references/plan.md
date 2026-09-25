@@ -148,6 +148,70 @@ talk (`"pip": false` turns it off). Ground each scene on the sentence it shows, 
 - The palette, paper, key colour and backdrop come from the theme (below). A faceless edit gets the paper backdrop
   between scenes, a filmed one the dark light pools.
 
+### vox beats (the Vox explainer look)
+
+A `vox` overlay is one composition on a locked paper ground (warm grey, a faint grid, printed grain), grounded to
+the sentence or sentences it shows. Its `elements` come in on the words they show and may leave on others; beats in
+a row share the paper, so a cut between them swaps the pictures while the paper stays. The look, the rules and a
+beat-by-beat recipe are in `vox.md`; `nvc.py brief JOB --style vox` writes a storyboard of the narration as beats.
+
+```json
+{"type": "vox", "words": ["w0034", "w0047"], "quote": "Oil prices skyrocketed to $116 a barrel, pushing American inflation to a three-year high,",
+ "exit": "cut", "facts": [{"origin": "web", "text": "CPI-U, annual average change 2016-2024: 1.3 2.1 2.4 1.8 1.2 4.7 8.0 4.1 2.9",
+                            "url": "https://www.bls.gov/cpi/"}],
+ "elements": [
+   {"id": "sea", "kind": "clip", "source": "sea", "slot": "floor", "layer": "fore", "feather": {"top": 0.3}, "at": "start"},
+   {"id": "ship", "kind": "cutout", "source": "tanker-cut", "x": 0.36, "y": 0.86, "anchor": "bottom", "w": 0.62,
+    "enter": "slideRight", "drift": {"x": 0.008}, "at": "start", "out": "w0041"},
+   {"id": "price", "kind": "tag", "value": "$116", "from": 25, "unit": "per barrel", "icon": "barrel",
+    "at": "w0034", "land": "w0038", "follow": "ship", "dx": 0.3, "dy": -0.5},
+   {"id": "chart", "kind": "chart", "title": "U.S. inflation rate", "at": "w0042", "drawAt": "w0043", "drawEnd": "w0047",
+    "series": [{"name": "CPI", "values": [1.3, 2.1, 2.4, 1.8, 1.2, 4.7, 8.0, 4.1, 2.9]}],
+    "xLabels": ["2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024"], "yPrefix": "+", "ySuffix": "%",
+    "callout": {"text": ["2022 peak", "+8.0%"], "index": 6, "at": "w0046"}},
+   {"id": "src", "kind": "credit", "text": "Source: BLS", "at": "w0043"}]}
+```
+
+| Kind | Fields | What it is | Comes in |
+|---|---|---|---|
+| cutout | source, h? or w?, drift?{x,y}, shadow? (none, soft, ground), flip? | a cut-out picture (`nvc.py cutout`): halftone people with the marker stroke, colour objects | rise (grounded) or pop |
+| clip | source, w?, h?, feather?{top,bottom,left,right}, blend?, bw?, trimBefore? | a clip or picture in the collage: a band of sea (`slot: floor`), a keyed fire (`nvc.py key`) | fade |
+| card | source, caption?, bw? | a photo as a print with a white border and a typed caption | pop |
+| headline | text or lines, highlight?, mark?, markAt?, count?, land?, size?, color? | heavy caps; `highlight` words in the accent, `mark` words get a highlighter band at `markAt`, `count` counts the number up to `land` | wipe |
+| label | text, caps?, box?, size?, weight?, accent? | a small line: a place, a quantity, a caption | fade |
+| credit | text | the source line, bottom left, small caps | fade |
+| tag | value, from?, unit?, icon? (barrel, coin, dollar, taka, up, down, pin, warning, check, cross), land?, follow?, dx?, dy? | a number that counts from `from` and lands on `land` with a bump; `follow` rides on a moving element | pop |
+| bubble | text or lines, highlight?, tail? (right, down-right, down, down-left, left, up-left, up, up-right, or degrees) | a comic speech bubble, key words in the marker colour | pop |
+| newspaper | masthead, headline, marks?[{text, at}], deck?, byline?, section?, kicker?, corner?, left?[], right?[], body?, source?, photoCaption?, tilt? | a tilted page; each mark's words get the highlighter as they are said | rise |
+| chart | title, series[{name?, values[], color?}] (1 to 3), xLabels?, yPrefix?, ySuffix?, note?, drawAt?, drawEnd?, callout?{text[], at, index?, series?} | a cream card: gridlines, the lines drawn left to right, dots popping as the line reaches them, a pulsing call-out | rise |
+| typewriter | text or lines | typed word by word on the spoken frames, block cursor | none |
+| scribble | shape (circle, underline, arrow, cross, box), w?, h?, thick?, color? | a marker mark drawn on | none |
+| icon | icon, size?, color? | one of the tag icons on its own | pop |
+
+- Every element: `id` (for `follow`), `at` (in), `out?` (leaves, by its nearest side edge; without it, it stays to
+  the beat's end), `enter?` (rise, pop, slideLeft, slideRight, drop, wipe, fade, none), `exit?` (drop, fade, pop,
+  slideLeft, slideRight, rise, cut), `moves?[{at, x?, y?, slot?, scale?, rotate?, frames?}]`, `layer?` (back, mid,
+  fore, text), `slot?` or `x`/`y` (shares of the frame) with `anchor?`, `rotate?`, `scale?`, `float?` (false stops
+  the idle float), `sfx?` (a nexa-sound name, or false).
+- Times: a word id (`w0012`: the entrance lands just before the word), `w0012.end`, `w0012+0.3` or `w0012-0.2`
+  (exactly, no lead), seconds from the beat's start (`1.5`), `start`, `end`. A word outside the beat is an error.
+- Slots (landscape; vertical frames keep text in the top half and stand pictures on the bottom edge): center, left,
+  right, top, bottom, top-left, top-right, bottom-left, bottom-right, sky, stage, stage-left, stage-right, far-left,
+  far-right, floor. Defaults by kind: cut-outs on `stage`, clips on `floor`, headlines `top`, labels `bottom`, tags
+  `top-right`, bubbles `top-left`, the typewriter on the left, the credit bottom left.
+- Cut-outs are sized by height unless `w` is given: on the bottom edge 0.8 of the frame in `mid` (people), 0.5 to
+  0.62 in `fore` (a band wide enough to hide the people behind it), 0.9 in `back`; 0.46 floating. They stand a
+  little under the bottom edge so a cut-off bottom never shows.
+- The beat: `exit` cut (default: the pictures vanish at the cut, the next beat's rise in), drop, fade, slide or pop
+  (played under the next beat's first 12 frames), leak (warm light over the cut); `push` (0.035) is its slow push-in;
+  `step: 2` draws its motion on twos. `sfx: false` silences its cues.
+- The compiler moves a text that pokes out of the safe area back in (and records it), warns on text over text, on
+  too little time to read, on a full spoken sentence on screen (except the typewriter), on more than 5 s with
+  nothing new, and on more than 7 things at once; a newspaper and a chart always go to the review list.
+- A vox beat brings the Vox theme (paper, orange accent, marker, highlighter, cream cards, Montserrat) unless the
+  job or plan sets its own; a faceless edit gets the grid paper between beats. `"progress_bar": "bottom"` draws the
+  explainer's thick bar.
+
 ### captions, chapters, music, sound effects, theme
 
 ```json
@@ -235,6 +299,17 @@ middle is fine), stack layout for screen parts, word captions with one emphasis 
   {"type": "endCard", "words": ["w0092", "w0103"], "quote": "...", "props": {"text": "Start today"}}
 ]
 ```
+
+### Vox-style explainer (faceless, pictures on paper)
+
+1. Script with natural-copy (one idea per sentence, lines that point at what is shown); voice with nexa-speech;
+   `nvc.py add JOB vo_48k.wav --role voice`.
+2. `nvc.py brief JOB --style vox`: the storyboard of beats. For each beat pick the anchor picture and what follows
+   on which words; find the pictures with `nvc.py stock`, then `nvc.py cutout` (people halftone with the marker
+   stroke, objects in colour) and `nvc.py key` (fire, smoke on black).
+3. One `vox` overlay per beat, segments in `voiceOnly`, `"progress_bar": "bottom"`, facts on every number.
+4. `compile`, `stills` (look at every beat once its pictures have landed), `audio` (music low, the beat's soft
+   cues), `render`, `qa`, `deliver`.
 
 ### Ads (15 to 30 s)
 

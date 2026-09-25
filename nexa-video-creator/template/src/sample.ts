@@ -63,3 +63,64 @@ export const SAMPLE: Edl = {
   progress: true,
   speech: [[6, 90], [108, 177]],
 };
+
+// Two Vox beats with no media (words, a tag, a chart, a newspaper, a bubble, a typewriter), for the Studio and the
+// setup check.
+export const VOX_SAMPLE: Edl = {
+  ...SAMPLE,
+  job: "vox-sample",
+  title: "Vox sample",
+  durationInFrames: 300,
+  theme: {
+    ...SAMPLE.theme,
+    accent: "#FF8900", paper: "#D9D7D1", paperText: "#161616", highlight: "#F4B41A", marker: "#E04329",
+    cream: "#F9F5ED", grid: "rgba(250, 248, 242, 0.62)", display: "Montserrat", backdrop: "grid", grain: 0.16,
+  },
+  clips: [
+    {
+      id: "c001", from: 0, durationInFrames: 300, layout: "voiceOnly", masterIn: 0, masterOut: 10, segment: 0, beat: "hook",
+      punch: 1, pip: { corner: "br", shape: "circle", size: 0.17 }, cam: null, screen: null, broll: null,
+      transitionIn: { type: "cut", frames: 0 },
+    },
+  ],
+  overlays: [
+    {
+      id: "o001", type: "vox", slot: "full", from: 0, durationInFrames: 150, enter: "cut", exit: "cut",
+      props: {
+        push: 0.035, tail: 0,
+        elements: [
+          { id: "paper", kind: "newspaper", x: 0.36, y: 0.52, anchor: "center", w: 0.56, layer: "mid", enter: "rise", at: 0, out: 150, exit: "cut",
+            masthead: "The Daily Ledger", left: ["EST. 1921", "WORLD EDITION"], right: ["SAMPLE PAGE", "LATE EDITION"],
+            section: "Economy", kicker: "Analysis", corner: "Comment", headline: ["The price of a barrel", "keeps climbing"],
+            marks: [{ text: "keeps climbing", at: 40 }], deck: "A sample page with a made-up masthead.", byline: "By the sample desk" },
+          { id: "price", kind: "tag", x: 0.8, y: 0.3, anchor: "center", layer: "text", enter: "pop", at: 30, out: 150, exit: "cut",
+            value: "$116", from: 25, unit: "per barrel", icon: "barrel", size: 110, land: 75 },
+          { id: "ring", kind: "scribble", shape: "circle", x: 0.8, y: 0.3, anchor: "center", w: 0.2, h: 0.2, layer: "text", enter: "none", at: 80, out: 150, exit: "cut" },
+          { id: "ask", kind: "bubble", lines: ["Is it", "worth it?"], highlight: "worth", x: 0.8, y: 0.72, anchor: "center", tail: "down-left",
+            rotate: 5, size: 60, layer: "text", enter: "pop", at: 95, out: 150, exit: "cut" },
+        ],
+        cues: [],
+      },
+    },
+    {
+      id: "o002", type: "vox", slot: "full", from: 150, durationInFrames: 150, enter: "cut", exit: "cut",
+      props: {
+        push: 0.035, tail: 0,
+        elements: [
+          { id: "chart", kind: "chart", x: 0.5, y: 0.45, anchor: "center", w: 0.56, layer: "mid", enter: "rise", at: 0,
+            title: "Sample line", note: "made-up values", series: [{ name: "Price", values: [2, 3, 2.5, 4, 6, 5, 7] }, { name: "Trend", values: [2, 2.4, 2.8, 3.2, 3.6, 4, 4.4] }],
+            xLabels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], drawAt: 10, drawEnd: 60, callout: { text: ["Week high", "7"], at: 62 },
+            moves: [{ at: 80, y: 0.36, scale: 0.8 }] },
+          { id: "type", kind: "typewriter", x: 0.08, y: 0.84, anchor: "left", layer: "text", enter: "none", at: 90, size: 50,
+            lines: ["Prices end the week higher."], times: [90, 98, 104, 110, 118] },
+          { id: "src", kind: "credit", text: "Sample data", x: 0.05, y: 0.94, anchor: "bottom-left", layer: "text", enter: "fade", at: 20 },
+        ],
+        cues: [],
+      },
+    },
+  ],
+  captions: { ...SAMPLE.captions, burn: false, pages: [] },
+  progress: "bottom",
+  speech: [],
+};
+

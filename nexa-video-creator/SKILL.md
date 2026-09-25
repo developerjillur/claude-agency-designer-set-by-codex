@@ -1,6 +1,6 @@
 ---
 name: nexa-video-creator
-description: "Edits real footage and makes finished videos for every platform, like a professional editor: YouTube long-form, Shorts, Reels, TikTok, Facebook and Instagram feed and Stories, ads, promos, tutorials, talking-head and screen-recording videos, faceless explainers and day or occasion videos. It syncs a separately recorded camera and screen recording by their sound (offset and clock drift), transcribes with word timings (Bangla included), cuts pauses, fillers and retakes on the frame grid, and places layouts (picture-in-picture, split, stacked 9:16), zooms, punch-ins, designed full-frame scenes (kinetic words, step cards, charts, before and after, end cards), hook titles, lower thirds, b-roll (judged Pixabay stock), burned captions, music, sound effects and platform loudness, then renders with Remotion and checks the result. Use it whenever someone asks to edit, cut or make a video, or to turn raw recordings into a finished one, Banglish included ('video edit kore dao', 'youtube er jonno edit koro', 'reels banao', 'shorts cut koro', 'screen recording ar face cam sync koro')."
+description: "Edits real footage and makes finished videos for every platform, like a professional editor: YouTube long-form, Shorts, Reels, TikTok, Facebook and Instagram feed and Stories, ads, promos, tutorials, talking-head and screen-recording videos, faceless explainers, Vox-style explainers (paper collage, halftone cut-outs with a marker stroke, counters, charts, newspaper highlights, typewriter lines) and day or occasion videos. It syncs a separately recorded camera and screen recording by their sound (offset and clock drift), transcribes with word timings (Bangla included), cuts pauses, fillers and retakes on the frame grid, and places layouts (picture-in-picture, split, stacked 9:16), zooms, punch-ins, designed full-frame scenes (kinetic words, step cards, charts, before and after, end cards), hook titles, lower thirds, b-roll (judged Pixabay stock), burned captions, music, sound effects and platform loudness, then renders with Remotion and checks the result. Use it whenever someone asks to edit, cut or make a video, or to turn raw recordings into a finished one, Banglish included ('video edit kore dao', 'youtube er jonno edit koro', 'reels banao', 'shorts cut koro', 'screen recording ar face cam sync koro', 'vox style video banao')."
 ---
 
 # nexa-video-creator
@@ -34,6 +34,17 @@ Another format from the same footage: write `plan.shorts.json`, then `compile`, 
 `--target shorts`. Faceless explainer: make the voice with nexa-speech, `add JOB vo_48k.wav --role voice`, and
 carry the picture with a designed scene per sentence or two (kinetic, step, bigStat, bars, versus, photo, recap,
 endCard; the recipe is in `references/plan.md`).
+
+Vox-style explainer (the paper-collage look: `references/vox.md`):
+1. Voice with nexa-speech, `nvc.py add JOB vo_48k.wav --role voice`, then `nvc.py brief JOB --style vox`: the look,
+   the rules, the job's pictures and a storyboard of the narration as beats with word ids.
+2. Pictures per beat: `nvc.py stock JOB "..." --type photo` and `--pick`, then `nvc.py cutout JOB ID...` (people
+   become halftone with the red marker stroke, objects keep their colour, a shadow is baked in) and
+   `nvc.py key JOB ID` for fire, smoke or sparks shot on black (a transparent WebM).
+3. One `vox` overlay per beat (`references/plan.md`, vox beats): an anchor picture, then one new thing about every
+   second on the word it shows (cut-outs, clips, a counting `tag`, a `chart`, a `headline`, `bubble`s, a
+   `newspaper` with marks, a `typewriter` closer, `scribble`s, a `credit` for the source). `"progress_bar":
+   "bottom"`, facts on every number. Then compile, stills, audio, render, qa as usual.
 
 B-roll for a slot (a common, real-world shot: hands typing, a city street, coffee being poured):
 1. `nvc.py stock JOB "hands typing laptop" --also "keyboard close up" --also "person working laptop" --judge --slot
@@ -71,6 +82,10 @@ B-roll for a slot (a common, real-world shot: hands typing, a city street, coffe
   after, `photo` for b-roll and stock, `recap` and `endCard` to close. Colours change from scene to scene, every hold
   moves, sweeps and slides carry the cuts, and every moment has its sound; over a camera the speaker stays in a round
   picture. Judge the stills against the kit's minute cut, not against "clean".
+- **Vox beats.** For the explainer look (a paper ground that never changes, pictures and numbers arriving on the
+  words), use `vox` overlays instead of scenes: the compiler times every element to its word (landing just before
+  it), places it by slot for the frame's shape, keeps text inside the safe area and clear of other text, and gives
+  each movement a soft sound. `references/vox.md` has the look, the beat recipes and the rules.
 - **2D explainer animation.** For drawn characters and acting, build a remotion-broll kit segment, then
   `nvc.py segment broll KIT_PROJECT --comp NAME --job JOB` and place it as a `segment` overlay. Remotion comes first
   for everything; HyperFrames only where Remotion cannot do the job (`nvc.py segment hf HF_PROJECT --alpha --job JOB`,
@@ -98,6 +113,9 @@ B-roll for a slot (a common, real-world shot: hands typing, a city street, coffe
 | `qa [--review]`, `deliver [--force]` | the checks; the final files |
 | `segment broll\|hf PROJECT --job JOB` | remotion-broll or HyperFrames renders added as media |
 | `stock JOB "QUERY" [--also W] [--judge] [--pick ID]` | Pixabay videos, photos, illustrations and vectors on a numbered sheet, judged for the slot; a pick downloads it with its licence record |
+| `cutout JOB PICTURE... [--style auto\|color\|bw\|halftone] [--stroke]` | cut-outs for vox beats (Apple Vision on this Mac): people halftone with the marker stroke, objects in colour, a baked shadow |
+| `key JOB CLIP... [--on auto\|black\|green] [--start S --seconds N]` | a clip shot on black or green made transparent (VP9 WebM with alpha) |
+| `brief JOB --style vox` | the brief with the Vox look, rules, the job's pictures and a storyboard of beats |
 | `doctor [--setup --link-modules PATH]` | the machine; builds the numpy venv and the shared Remotion renderer |
 
 ## Rules
@@ -126,6 +144,7 @@ B-roll for a slot (a common, real-world shot: hands typing, a city street, coffe
 | `stills` (5 to 11 frames) | 2.8 to 5.5 s |
 | `render` 1080p | 13.4 s of video in 11.5 s (0.86 s a second); research measured 50 to 60 s a minute for 1080p edits |
 | a 43 s Bangla explainer of 11 scenes (voice, music, 17 effects) | compile under 1 s, `audio` 6 s, `stills` 3 s, `render` 24 s (0.55 s a second) |
+| a 43 s Vox explainer of 7 beats (8 cut-outs, a keyed fire, 34 soft cues) | `cutout` 6 s for 8 pictures, `key` 11 s for 8 s of fire, compile under 1 s, `render` 34 s (0.8 s a second) |
 
 ## Licence
 
@@ -140,10 +159,13 @@ credit needed, the limits above; `references/cli.md` has the full list), recorde
   activity, word snapping; numpy in the skill venv), `facetrack.swift` (Apple Vision), `presets.json` (targets,
   safe zones, captions, pacing, loudness), `gemini_api.py` and `elevenlabs_api.py` (shared with nexa-speech and
   nexa-sound), `pixabay_api.py` (the stock search: cache, rate limits, the key kept out of every URL shown),
-  `sheet.swift` (the numbered contact sheet).
-- `template/`: the Remotion renderer (layouts, overlays, the designed scenes in `src/scenes.tsx`, captions,
-  transitions), synced to `~/.nexa-video-creator/renderer` on use.
+  `sheet.swift` (the numbered contact sheet), `nvc_vox.py` (vox beats: times, slots, checks, cues, the storyboard),
+  `cutout.swift` (the cut-outs: Apple Vision and Core Image).
+- `template/`: the Remotion renderer (layouts, overlays, the designed scenes in `src/scenes.tsx`, the vox beats,
+  paper, grain and light leaks in `src/vox.tsx`, captions, transitions), synced to `~/.nexa-video-creator/renderer`
+  on use.
 - `references/plan.md` (the plan, with examples per video type), `references/cli.md` (every command and file),
   `references/editing-rules.md` (the craft rules and their sources), `references/engines.md` (Remotion, remotion-broll
-  and HyperFrames together).
+  and HyperFrames together), `references/vox.md` (the Vox explainer look and recipes) with its research in
+  `references/research/`.
 - `tests/`: `python3 -m unittest discover -s ~/.claude/skills/nexa-video-creator/tests`.

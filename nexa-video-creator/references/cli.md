@@ -29,7 +29,7 @@ name; names only are ever shown): `GEMINI_API_KEY` (Bangla transcription, the st
 | `sync JOB` | `--set SOURCE=SECONDS` (by hand) | `job.json` `sources.ID.sync`: `offset_s`, `drift_ppm`, `segments`, `steps`, `confidence` |
 | `clean JOB` | `--isolate`, `--hum 50\|60` | `media/audio/DIALOGUE.clean.wav` (nexa-sound) |
 | `transcribe JOB` | `--engine auto\|whisper\|gemini\|agy`, `--lang`, `--model` | `analysis/words.json`, `analysis/transcript.txt`; Gemini cost in `ledger.jsonl` |
-| `brief JOB` | `--target` | `edit-brief.md` (or `edit-brief.TARGET.md`) |
+| `brief JOB` | `--target`, `--style vox` (the Vox look, rules, the job's pictures and a storyboard of beats; remembered in `job.json` `style`) | `edit-brief.md` (or `edit-brief.TARGET.md`) |
 | `compile JOB` | `--plan FILE`, `--target` | `out/TARGET/`: `edl.json`, `edl.md`, `report.json`, `pieces.json`, `speech.json`, `sfx_cues.json`, `words.out.json`, `captions.srt`, `captions.vtt`, `chapters.txt` |
 | `audio JOB` | `--target`, `--music FILE`, `--no-music`, `--no-sfx`, `--budget USD` | `audio/TARGET/`: `dialogue.wav`, `music.wav`, `sfx.wav`, `mix.wav`, `audio.json`; sets `edl.json` `audio` |
 | `stills JOB` | `--target`, `--frames 0,45,300` | `out/TARGET/stills/`, `out/TARGET/stills.png` |
@@ -40,6 +40,8 @@ name; names only are ever shown): `GEMINI_API_KEY` (Bangla transcription, the st
 | `stock JOB --pick ID` | `--id NAME` | `media/stock/pixabay-ID.mp4` (or `.jpg`, `.png`) and its `.json` record, added as `broll` or `image`; `job.json` `stock` |
 | `segment broll PROJECT --job JOB` | `--comp NAME`, `--id` | `media/segments/ID.mp4` from a remotion-broll project, added as a `segment` source |
 | `segment hf PROJECT --job JOB` | `--alpha`, `--id` | `media/segments/ID.webm` (VP9 with alpha) or `.mp4` from a HyperFrames project |
+| `cutout JOB PICTURE...` | a file or a job source id; `--style auto\|color\|bw\|halftone` (auto: people halftone, the rest in colour), `--stroke auto\|none\|#RRGGBB`, `--stroke-width PX`, `--offset DX,DY`, `--shadow soft\|none`, `--no-lift`, `--id` | `media/cutouts/ID.png` (transparent, padded, at most 2000 px) and its `.json` record (from, style, people found, a stock licence carried over), added as an `image` source with `alpha` |
+| `key JOB CLIP...` | a file or a job source id; `--on auto\|black\|green`, `--start S`, `--seconds N` (default 20), `--max PX` (default 1280), `--id` | `media/keyed/ID.webm` (VP9, alpha: on black the brightness is the alpha and the colour is un-premultiplied; on green a chroma key with despill) and its `.json` record, added as a `broll` source with `alpha` |
 | `status JOB` | | what is done and the next step |
 
 ## Files

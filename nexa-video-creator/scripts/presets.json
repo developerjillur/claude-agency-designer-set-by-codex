@@ -644,6 +644,13 @@
       "slot": "chip",
       "min_s": 1.2,
       "max_s": 10.0
+    },
+    "vox": {
+      "slot": "full",
+      "min_s": 1.0,
+      "max_s": 90.0,
+      "enter": "cut",
+      "exit": "cut"
     }
   },
   "sfx_defaults": {

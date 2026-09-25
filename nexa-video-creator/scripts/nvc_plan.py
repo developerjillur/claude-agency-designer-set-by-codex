@@ -17,16 +17,19 @@ import math
 import re
 import unicodedata
 
+import nvc_vox as V
+
 PLAN_SCHEMA = "nvc-plan/1"
 EDL_SCHEMA = "nvc-edl/1"
 PAD_BEFORE = 0.05
 PAD_AFTER = 0.08
 MIN_CUT_PAUSE = 0.15
 LAYOUTS = ("camFull", "screenFull", "screenPip", "split", "stack", "brollFull", "voiceOnly")
-TRANSITIONS = ("cut", "zoom", "whip", "dip", "flash", "slide", "sweep")
+TRANSITIONS = ("cut", "zoom", "whip", "dip", "flash", "slide", "sweep", "leak")
 # designed full-frame scenes (template/src/scenes.tsx) and how any full-frame overlay may come in and go out
 SCENE_TYPES = ("kinetic", "step", "bigStat", "bars", "versus", "recap", "endCard", "photo")
-MOTIONS = ("cut", "slide", "slideUp", "pop", "fade", "sweep")
+# "leak" washes warm light over the cut; "drop" (a vox beat's exit) lets its elements fall away before the cut
+MOTIONS = ("cut", "slide", "slideUp", "pop", "fade", "sweep", "leak", "drop")
 CAMERA_KINDS = ("camera", "talking_head", "phone_clip")
 SCREEN_KINDS = ("screen", "screen_recording", "screen_with_cam", "slides")
 MEDIA_KINDS = ("broll", "b_roll", "image", "segment", "camera", "talking_head", "screen", "screen_recording", "logo")
@@ -666,6 +669,8 @@ def _frames(t, fps):
 
 def _overlay_text(ov):
     """Every word an overlay puts on screen (for reading time, number checks and the review's expected lines)."""
+    if ov.get("type") == "vox":
+        return V.vox_text(ov)
     props = ov.get("props") or {}
     parts = []
 
@@ -696,7 +701,9 @@ def _overlay_text(ov):
 
 def _reading_text(ov):
     """The words a viewer has to read on a scene: its headline parts, not the small print (a source, a note, axis
-    labels). Other overlays are read whole."""
+    labels). Other overlays are read whole. A vox beat is as long as its words: each element is checked on its own."""
+    if ov.get("type") == "vox":
+        return ""
     if ov.get("type") not in SCENE_TYPES:
         return _overlay_text(ov)
     props = dict(ov.get("props") or {})
@@ -859,6 +866,7 @@ def compile_plan(plan, words, job, preset, overlay_rules, sfx_defaults=None, fps
     rules = overlay_rules or {}
     overlays = []
     slot_busy = []
+    vctx = V.Ctx(words, idx, by_index, fps, preset, job, lang, balance_lines, graphemes, reading_time)
     for n, ov in enumerate(plan.get("overlays") or []):
         where = "overlays[%d] (%s)" % (n, ov.get("type"))
         otype = ov.get("type")
@@ -892,7 +900,9 @@ def compile_plan(plan, words, job, preset, overlay_rules, sfx_defaults=None, fps
             if not a or not b:
                 rep.error(where, "its words are not in the edit (removed or outside every segment)")
                 continue
-            lead = 0.0 if otype in ("broll", "image", "segment", "redact", "callout") else 0.12
+            # a vox beat cuts in the breath before its line (6 to 15 frames early in the reference)
+            lead = 0.0 if otype in ("broll", "image", "segment", "redact", "callout") else 0.3 if otype == "vox" \
+                else 0.12
             start = max(0.0, a["start"] - lead)
             end = b["end"] + (0.0 if otype in ("redact",) else 0.25)
         elif ov.get("at") == "start":
@@ -985,12 +995,16 @@ def compile_plan(plan, words, job, preset, overlay_rules, sfx_defaults=None, fps
         f0, f1 = _frames(start, fps), _frames(end, fps)
         if otype in SCENE_TYPES or otype in ("hook", "quote", "label"):
             props = scene_props(otype, props, ov, (f0, f1), lang, preset, vertical, clips, rep, where)
+        elif otype == "vox":
+            props = V.prepare(ov, props, (start, end), vctx, rep, where)
+            if props is None:
+                continue
         overlays.append({"id": "o%03d" % (n + 1), "type": otype, "from": f0, "durationInFrames": max(1, f1 - f0),
                          "props": props, "slot": slot, "enter": ov.get("enter") or rule.get("enter"),
                          "exit": ov.get("exit") or rule.get("exit"), "sfx": ov.get("sfx", "default")})
         if slot not in ("redact", "screen", "bar"):
             # a scene next to another scene ends where the next begins, down to its type's minimum
-            floor = need if otype not in SCENE_TYPES else float(rule.get("min_s") or 0)
+            floor = need if otype not in SCENE_TYPES and otype != "vox" else float(rule.get("min_s") or 0)
             slot_busy.append({"i": len(overlays) - 1, "slot": slot, "need": int(math.ceil(floor * fps)),
                               "want": int(math.ceil(need * fps)), "name": "overlays[%d]" % n})
         if ov.get("words"):
@@ -1037,7 +1051,13 @@ def compile_plan(plan, words, job, preset, overlay_rules, sfx_defaults=None, fps
                 o["props"]["t"] = events
             else:
                 o["props"].pop("t", None)
-    scenes = [o for o in overlays if o["type"] in SCENE_TYPES]
+    fulls = sorted((o for o in overlays if o.get("slot") == "full"), key=lambda o: o["from"])
+    for i, o in enumerate(fulls):
+        if o["type"] == "vox":
+            nxt = fulls[i + 1] if i + 1 < len(fulls) else None
+            joined = bool(nxt and nxt["type"] == "vox" and nxt["from"] - (o["from"] + o["durationInFrames"]) <= 1)
+            o["props"] = V.bake(o, joined, fps, vctx, rep, lang)
+    scenes = [o for o in overlays if o["type"] in SCENE_TYPES or o["type"] == "vox"]
     for o in overlays:
         if o["slot"] in ("title", "centre", "card"):
             for sc in scenes:
@@ -1144,10 +1164,12 @@ def compile_plan(plan, words, job, preset, overlay_rules, sfx_defaults=None, fps
         "schema": EDL_SCHEMA, "job": job.get("id"), "target": preset.get("name"), "title": plan.get("title")
         or job.get("title"), "language": lang, "width": preset["width"], "height": preset["height"], "fps": fps,
         "durationInFrames": total_frames, "safe": preset.get("safe"), "bands": preset.get("bands"),
-        "theme": theme_for(plan, job, lang, faceless=not (cams or screens)), "base": "", "audio": None,
+        "theme": theme_for(plan, job, lang, faceless=not (cams or screens),
+                           vox=any(o["type"] == "vox" for o in overlays)), "base": "", "audio": None,
         "sources": sources, "clips": clips,
         "overlays": overlays, "zooms": zooms, "captions": captions, "chapters": chapters,
-        "progress": bool(plan.get("progress_bar")),
+        "progress": plan.get("progress_bar") if plan.get("progress_bar") in ("top", "bottom")
+        else bool(plan.get("progress_bar")),
         "speech": [[_frames(a, fps), _frames(b, fps)] for a, b in speech],
         "meta": {"warnings": rep.warnings, "review": rep.review},
     }
@@ -1157,9 +1179,18 @@ def compile_plan(plan, words, job, preset, overlay_rules, sfx_defaults=None, fps
             "report": rep.as_dict(), "duration": duration}
 
 
-def theme_for(plan, job, lang, faceless=False):
+# The Vox look, measured on the reference: warm grey paper with a light grid, an orange accent, the red-orange
+# marker, an amber highlighter, cream chart cards, heavy geometric type (research/vox, 2026-09-25).
+VOX_THEME = {"accent": "#FF8900", "paper": "#D9D7D1", "paperText": "#161616", "highlight": "#F4B41A",
+             "marker": "#E04329", "cream": "#F9F5ED", "grid": "rgba(250, 248, 242, 0.62)", "display": "Montserrat",
+             "grain": 0.16}
+
+
+def theme_for(plan, job, lang, faceless=False, vox=False):
     """The look: Poppins titles (Anek Bangla for Bangla), Montserrat captions, the scene palette, warm paper for data
-    cards, and a paper backdrop when nothing is filmed (a faceless video) or light pools on dark otherwise."""
+    cards, and a paper backdrop when nothing is filmed (a faceless video) or light pools on dark otherwise. Vox beats
+    bring the Vox look (and its grid paper as the backdrop of a faceless video); the job's and the plan's own theme
+    still win."""
     theme = {"accent": "#FFD23F", "text": "#FFFFFF", "ink": "#0E1014", "bg": "#0E1014", "card": "#FFFFFF",
              "cardText": "#0E1014", "muted": "#9AA3B2", "danger": "#FF4D4D",
              "display": "Poppins", "body": "Inter", "captions": "Montserrat", "radius": 28,
@@ -1168,6 +1199,10 @@ def theme_for(plan, job, lang, faceless=False):
              "paperText": "#1E1B2E", "highlight": "#FFC43D", "backdrop": "paper" if faceless else "pools"}
     if str(lang).startswith("bn"):
         theme.update({"captions": "HindSiliguri"})
+    if vox:
+        theme.update(VOX_THEME)
+        if faceless:
+            theme["backdrop"] = "grid"
     theme.update(job.get("theme") or {})
     theme.update(plan.get("theme") or {})
     return theme
@@ -1346,6 +1381,17 @@ def build_sfx(plan, overlays, clips, by_index, words, idx, rep, fps, preset, def
         cues.append({"t": round(t, 3), "name": item.get("name") or "whoosh", "gain_db": item.get("gain_db"),
                      "align": item.get("align") or _sfx_align(item.get("name")), "why": "plan", "prio": 0})
     for ov in overlays:
+        for side, f in (("enter", ov["from"]), ("exit", ov["from"] + ov["durationInFrames"])):
+            if ov.get(side) == "leak":
+                cues.append({"t": round(f / fps, 3), "name": "whoosh", "gain_db": None, "align": "peak",
+                             "why": "light leak %s %s" % (side, ov["id"]), "prio": 2})
+        if ov["type"] == "vox":
+            # the beat's movement: a rise, a pop, a counter landing, a key for every typed word
+            if ov.get("sfx", "default") == "default":
+                for c in (ov.get("props") or {}).get("cues") or []:
+                    cues.append({"t": round((ov["from"] + c["at"]) / fps, 3), "name": c["name"], "gain_db": c.get("gain_db"),
+                                 "align": _sfx_align(c["name"]), "why": "vox %s" % ov["id"], "prio": 1})
+            continue
         name = ov.get("sfx")
         if name == "default":
             name = defaults.get(ov["type"])
@@ -1371,10 +1417,11 @@ def build_sfx(plan, overlays, clips, by_index, words, idx, rep, fps, preset, def
                          "prio": prio})
     for c in clips:
         kind = c["transitionIn"]["type"]
-        if kind in ("zoom", "whip", "flash", "slide", "sweep"):
-            cues.append({"t": round(c["from"] / fps, 3), "name": {"flash": "impact", "sweep": "whoosh"}.get(
-                kind, "whoosh-short"), "gain_db": None, "align": "peak", "why": "transition into " + c["id"],
-                         "prio": 2 if kind in ("slide", "sweep") else 3})
+        if kind in ("zoom", "whip", "flash", "slide", "sweep", "leak"):
+            cues.append({"t": round(c["from"] / fps, 3), "name": {"flash": "impact", "sweep": "whoosh",
+                                                                   "leak": "whoosh"}.get(kind, "whoosh-short"),
+                         "gain_db": None, "align": "peak", "why": "transition into " + c["id"],
+                         "prio": 2 if kind in ("slide", "sweep", "leak") else 3})
     cues.sort(key=lambda c: (c["t"], c["prio"]))
     kept = []
     for c in cues:
@@ -1415,6 +1462,9 @@ def check_hook_and_pacing(clips, overlays, zooms, mapped, preset, duration, rep,
     for o in overlays:
         events.add(o["from"] / fps)
         events.add((o["from"] + o["durationInFrames"]) / fps)
+        if o["type"] == "vox":
+            for el in (o.get("props") or {}).get("elements") or []:
+                events.add((o["from"] + el["at"]) / fps)
     for z in zooms:
         events.add(z["from"] / fps)
     ev = sorted(events)

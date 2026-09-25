@@ -19,6 +19,8 @@ The job, in order (each step writes files into the job folder and can be run aga
   nvc.py deliver JOB            final files: video, subtitles, chapters, credits, disclosure notes, report
 
   nvc.py segment broll|hf ...   render a remotion-broll scene or a HyperFrames composition and add it as media
+  nvc.py cutout JOB PICTURE...  cut the subject out for Vox beats: people halftone with a marker stroke, objects in colour
+  nvc.py key JOB CLIP...        a clip shot on black (fire, smoke, sparks) or green made transparent for Vox beats
   nvc.py doctor [--setup]       what this machine has; --setup builds the Python environment and the renderer
 """
 from __future__ import annotations
@@ -42,7 +44,7 @@ import gemini_api  # noqa: E402
 import nvc_plan as P  # noqa: E402
 import pixabay_api as X  # noqa: E402
 
-SKILL_VERSION = "2026.09.25.6"
+SKILL_VERSION = "2026.09.25.7"
 REMOTION_VERSION = "4.0.528"
 SKILL_DIR = HERE.parent
 TEMPLATE = SKILL_DIR / "template"
@@ -990,6 +992,12 @@ def cmd_brief(args):
         lines.append("- Sound effects (nexa-sound): whoosh, whoosh-short, swipe, swoosh-down, pop, bubble, click, "
                      "tick, key, typing, ding, chime, notify, success, error, riser, downlifter, impact, boom, "
                      "sub-drop, glitch, shutter, sparkle.")
+    style = args.style or job.get("style")
+    if style == "vox":
+        if job.get("style") != "vox":
+            job["style"] = "vox"
+            save_job(d, job)
+        lines += [""] + P.V.brief_lines(words, job, preset, lang)
     lines += ["", "## Transcript (word ids, master-clock seconds)", ""] + P.pack_transcript(words)
     lines += ["", "## Write the plan", "",
               "Save it as `plan.json` (or `plan.%s.json` for another target) in the job folder, then run "
@@ -1365,6 +1373,13 @@ def cmd_stills(args):
         fps = edl["fps"]
         frames.add(min(n - 1, int(0.5 * fps)))
         for o in edl["overlays"]:
+            if o["type"] == "vox":
+                # a vox beat is looked at as each picture lands, and once everything is in
+                els = sorted((o.get("props") or {}).get("elements") or [], key=lambda e: e["at"])
+                picks = els if len(els) <= 3 else [els[0], els[len(els) // 2], els[-1]]
+                for e in picks:
+                    frames.add(min(n - 1, o["from"] + min(o["durationInFrames"] - 1, e["at"] + 24)))
+                continue
             # a designed scene is looked at once its parts have landed; other graphics 0.8 s in
             t_ = (o.get("props") or {}).get("t") or {}
             at = (t_.get("click", 0) + 12) if o["type"] == "endCard" and t_.get("click") else \
@@ -1909,6 +1924,158 @@ def stock_pick(d, job, args):
               % (it.get("download_w"), it.get("download_h"), "x".join(str(v) for v in frame_size(job))))
 
 
+# ---------------------------------------------------------------- cut-outs for Vox beats
+
+def cmd_cutout(args):
+    """Cut the subject out of pictures (Apple Vision, on this Mac) and style them for a Vox-style collage. A person
+    becomes black and white halftone with the red-orange marker stroke behind, anything else keeps its colour; a
+    soft shadow is baked in. Each cut-out is added to the job as a picture with transparency, with a note of where it
+    came from (a stock picture's licence travels with it)."""
+    d = job_dir(args.job)
+    job = load_job(d)
+    tool = compile_swift("cutout")
+    if not tool:
+        raise NvcError("cutting out needs swiftc (xcode-select --install) and macOS 14 or newer")
+    outdir = d / "media" / "cutouts"
+    outdir.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for n, f in enumerate(args.pictures):
+        src_id = None
+        if f in job["sources"]:
+            src_id = f
+            srec = job["sources"][f]
+            path = Path(srec.get("original") or (d / srec["link"]))
+        else:
+            path = Path(f).expanduser().resolve()
+        if not path.exists():
+            raise NvcError("no such picture or source id: %s" % f)
+        if path.suffix.lower() not in IMAGE_EXT:
+            raise NvcError("%s is not a picture (cut a still out of a clip first: nvc.py frames, or ffmpeg)" % path.name)
+        sid = slug(args.id if (args.id and len(args.pictures) == 1) else (src_id or path.stem) + "-cut", "cutout")
+        out = outdir / (sid + ".png")
+        cmd = [tool, path, out, "--style", args.style, "--stroke", args.stroke, "--shadow", args.shadow]
+        if args.stroke_width:
+            cmd += ["--stroke-width", str(args.stroke_width)]
+        if args.offset:
+            cmd += ["--offset", args.offset]
+        if args.no_lift:
+            cmd.append("--no-lift")
+        r = run(cmd, timeout=600)
+        if r.returncode:
+            raise NvcError("cutout %s: %s" % (path.name, (r.stderr or r.stdout).strip()[-400:]))
+        info = json.loads(r.stdout.strip().splitlines()[-1])
+        # where it came from: a stock picture's record (and licence) travels with the cut-out
+        origin = read_json(Path(str(path) + ".json")) or {}
+        side = {"schema": "nvc-cutout/1", "from": src_id or str(path), "made": now(),
+                "tool": "Apple Vision foreground mask and Core Image, on this Mac (a cut-out, nothing generated)",
+                "style": info["style"], "stroke": info["stroke"], "shadow": info["shadow"], "people": info["people"],
+                "width": info["width"], "height": info["height"]}
+        if origin.get("licence"):
+            side.update({"licence": origin["licence"], "source": origin.get("source"), "page_url": origin.get("page_url"),
+                         "user": origin.get("user"), "stock_id": origin.get("id")})
+        write_json(out.with_name(out.name + ".json"), side)
+        rel = str(out.relative_to(d))
+        job["sources"][sid] = {"id": sid, "role": "image", "kind": "cutout", "original": str(out), "link": rel,
+                               "image": rel, "probe": {"image": True, "width": info["width"],
+                                                       "height": info["height"]},
+                               "evidence": "cut out by nvc.py cutout from %s" % (src_id or path.name),
+                               "duration": None, "width": info["width"], "height": info["height"],
+                               "hasAudio": False, "hasVideo": False, "alpha": True, "people": info["people"],
+                               "cutout": side}
+        if origin.get("licence") and info["people"]:
+            rows.append("%s: note: a recognisable person from stock: Pixabay allows no political, health, dating, "
+                        "drug or adult use of people (no model releases)" % sid)
+        rows.append("%s: %s%s, %dx%d, %s" % (sid, info["style"], " + marker stroke" if info["stroke"] != "none" else "",
+                                            info["width"], info["height"],
+                                            "%d person(s)" % info["people"] if info["people"] else "no people"))
+    save_job(d, job)
+    for row in rows:
+        print(row)
+    print("next: use them in a vox beat (\"kind\": \"cutout\", \"source\": ID); references/plan.md, Vox beats")
+
+
+KEY_MAX_S = 20.0
+
+
+def key_filter(on, width):
+    """ffmpeg filters that make a clip's background transparent. On black, the brightness becomes the alpha and the
+    colour is un-premultiplied, so flames and sparks stay bright on light paper (a screen blend washes them out
+    there); on green, a chroma key with the green spill taken out."""
+    scale = "scale='min(%d,iw)':-2" % width
+    if on == "green":
+        return "%s,chromakey=color=0x00FF00:similarity=0.16:blend=0.08,despill=type=green,format=yuva420p" % scale
+    m = "max(max(r(X,Y),g(X,Y)),b(X,Y))"
+    un = "if(gt({m},0),{c}(X,Y)*255/{m},0)"
+    return ("%s,format=rgba,geq=r='%s':g='%s':b='%s':a='clip((%s-18)*1.25,0,255)',format=yuva420p"
+            % (scale, un.format(m=m, c="r"), un.format(m=m, c="g"), un.format(m=m, c="b"), m))
+
+
+def backdrop_of(path):
+    """black or green: what a clip was shot on, from the average colour of its frame's edges."""
+    try:
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", "0.5", "-i", str(path), "-frames:v", "1", "-vf",
+                              "scale=64:36,crop=64:6:0:0,scale=1:1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                             capture_output=True, timeout=120).stdout or b""
+    except (OSError, subprocess.TimeoutExpired):
+        raw = b""
+    if len(raw) < 3:
+        return "black"
+    red, green, blue = raw[0], raw[1], raw[2]
+    return "green" if green > 90 and green > red * 1.4 and green > blue * 1.4 else "black"
+
+
+def cmd_key(args):
+    """Make clips shot on black (fire, smoke, sparks, light) or on a green screen transparent: a VP9 WebM with
+    alpha that a Vox beat lays over the paper as it is. Each becomes a source of the job with a note of where it
+    came from (a stock clip's licence travels with it)."""
+    d = job_dir(args.job)
+    job = load_job(d)
+    outdir = d / "media" / "keyed"
+    outdir.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for f in args.clips:
+        src_id = f if f in job["sources"] else None
+        if src_id:
+            srec = job["sources"][f]
+            path = Path(srec.get("original") or (d / srec["link"]))
+        else:
+            path = Path(f).expanduser().resolve()
+        if not path.exists():
+            raise NvcError("no such clip or source id: %s" % f)
+        sid = slug(args.id if (args.id and len(args.clips) == 1) else (src_id or path.stem) + "-key", "keyed")
+        out = outdir / (sid + ".webm")
+        on = args.on if args.on != "auto" else backdrop_of(str(path))
+        start = float(args.start or 0)
+        length = float(args.seconds or KEY_MAX_S)
+        cmd = ["ffmpeg", "-v", "error", "-y", "-ss", "%.3f" % start, "-t", "%.3f" % length, "-i", path, "-vf",
+               key_filter(on, int(args.max)), "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-crf", "32", "-b:v", "0",
+               "-auto-alt-ref", "0", "-row-mt", "1", "-an", out]
+        t0 = time.time()
+        r = run(cmd, timeout=3600)
+        if r.returncode or not out.exists():
+            raise NvcError("keying %s failed: %s" % (path.name, (r.stderr or "").strip()[-400:]))
+        info = probe(out)
+        origin = read_json(Path(str(path) + ".json")) or {}
+        side = {"schema": "nvc-keyed/1", "from": src_id or str(path), "made": now(), "on": on,
+                "tool": "ffmpeg %s key on this Mac" % ("luma (brightness as alpha)" if on == "black" else "chroma"),
+                "start_s": start, "seconds": info.get("duration")}
+        if origin.get("licence"):
+            side.update({"licence": origin["licence"], "source": origin.get("source"), "page_url": origin.get("page_url"),
+                         "user": origin.get("user"), "stock_id": origin.get("id")})
+        write_json(out.with_name(out.name + ".json"), side)
+        rel = str(out.relative_to(d))
+        job["sources"][sid] = {"id": sid, "role": "broll", "kind": "broll", "original": str(out), "link": rel,
+                               "proxy": rel, "probe": info, "evidence": "keyed by nvc.py key from %s" % (src_id or path.name),
+                               "duration": info.get("duration"), "width": info.get("width"), "height": info.get("height"),
+                               "hasAudio": False, "hasVideo": True, "alpha": True, "keyed": side}
+        rows.append("%s: keyed on %s, %sx%s, %s, %.1f s to key" % (sid, on, info.get("width"), info.get("height"),
+                                                                  fmt_dur(info.get("duration")), time.time() - t0))
+    save_job(d, job)
+    for row in rows:
+        print(row)
+    print("next: use them in a vox beat (\"kind\": \"clip\", \"source\": ID, no blend needed)")
+
+
 # ---------------------------------------------------------------- segments from other engines
 
 def cmd_segment(args):
@@ -2068,6 +2235,7 @@ def build_parser():
     s = sub.add_parser("brief", help="edit-brief.md for writing the plan")
     s.add_argument("job")
     s.add_argument("--target", choices=targets)
+    s.add_argument("--style", choices=("vox",), help="vox: add the Vox look, its rules and a beat storyboard")
 
     s = sub.add_parser("compile", help="verify the plan and build the edit")
     s.add_argument("job")
@@ -2135,6 +2303,27 @@ def build_parser():
     s.add_argument("--id", help="the source id to add it as (default px-ID)")
     s.add_argument("--json", action="store_true")
 
+    s = sub.add_parser("cutout", help="cut subjects out of pictures for Vox beats (halftone people, marker stroke)")
+    s.add_argument("job")
+    s.add_argument("pictures", nargs="+", help="picture files, or ids of pictures already in the job")
+    s.add_argument("--style", default="auto", choices=("auto", "color", "bw", "halftone"),
+                   help="auto: people halftone, everything else in colour")
+    s.add_argument("--stroke", default="auto", help="auto (the marker red for people), none, or a colour #RRGGBB")
+    s.add_argument("--stroke-width", type=float, help="px (default 1.4%% of the subject's longer side)")
+    s.add_argument("--offset", help="the stroke's offset DX,DY in px, y down (default up and to the left)")
+    s.add_argument("--shadow", default="soft", choices=("soft", "none"))
+    s.add_argument("--no-lift", action="store_true", help="the picture is a cut-out already (has transparency)")
+    s.add_argument("--id")
+
+    s = sub.add_parser("key", help="make clips shot on black or green transparent for Vox beats")
+    s.add_argument("job")
+    s.add_argument("clips", nargs="+", help="clip files, or ids of clips already in the job")
+    s.add_argument("--on", default="auto", choices=("auto", "black", "green"), help="what the clip was shot on")
+    s.add_argument("--start", type=float, help="seconds into the clip to start (default 0)")
+    s.add_argument("--seconds", type=float, help="how much to key (default %d s)" % KEY_MAX_S)
+    s.add_argument("--max", type=int, default=1280, help="the longest side in px (default 1280)")
+    s.add_argument("--id")
+
     s = sub.add_parser("status", help="what is done and what is next")
     s.add_argument("job")
 
@@ -2149,7 +2338,8 @@ def build_parser():
 COMMANDS = {"new": cmd_new, "add": cmd_add, "ingest": cmd_ingest, "sync": cmd_sync, "clean": cmd_clean,
             "transcribe": cmd_transcribe, "brief": cmd_brief, "compile": cmd_compile, "audio": cmd_audio,
             "stills": cmd_stills, "render": cmd_render, "qa": cmd_qa, "deliver": cmd_deliver,
-            "segment": cmd_segment, "stock": cmd_stock, "status": cmd_status, "doctor": cmd_doctor}
+            "segment": cmd_segment, "stock": cmd_stock, "cutout": cmd_cutout, "key": cmd_key, "status": cmd_status,
+            "doctor": cmd_doctor}
 
 
 def main(argv=None):

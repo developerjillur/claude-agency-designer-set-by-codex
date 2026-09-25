@@ -30,7 +30,7 @@ export type Box = { x: number; y: number; w: number; h: number };
 export type Band = { y: number; h: number };
 export type Layout = "camFull" | "screenFull" | "screenPip" | "split" | "stack" | "brollFull" | "voiceOnly";
 export type Placement = { source: string; trimBefore: number } | null;
-export type Transition = { type: "cut" | "zoom" | "whip" | "dip" | "flash" | "slide" | "sweep"; frames: number };
+export type Transition = { type: "cut" | "zoom" | "whip" | "dip" | "flash" | "slide" | "sweep" | "leak"; frames: number };
 export type Pip = { corner: "tl" | "tr" | "bl" | "br"; shape: "circle" | "rounded"; size: number };
 
 export type Clip = {
@@ -105,9 +105,16 @@ export type Theme = {
   paperText?: string;
   palette?: string[];
   highlight?: string;
-  backdrop?: "pools" | "paper" | "dusk";
+  backdrop?: "pools" | "paper" | "dusk" | "grid";
   displayBn?: string;
   bodyBn?: string;
+  // the Vox look: the marker stroke and bubble key words, the chart cards, the grid lines on the paper
+  marker?: string;
+  cream?: string;
+  grid?: string;
+  grain?: number;
+  // Vox graphics "on twos": 2 draws every element's motion on every second frame, like hand animation (1: smooth)
+  voxStep?: number;
 };
 
 export type Edl = {
@@ -139,7 +146,8 @@ export type Edl = {
     case: string;
   };
   chapters: { t: number; title: string }[];
-  progress: boolean;
+  // a thin bar along the top (true or "top"), or a thick one along the bottom ("bottom")
+  progress: boolean | "top" | "bottom";
   // speech on the output timeline, in frames: the presenter's ring moves only while someone talks
   speech?: [number, number][];
 };
