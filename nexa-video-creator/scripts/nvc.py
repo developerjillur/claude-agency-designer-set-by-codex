@@ -1056,9 +1056,20 @@ def premix_dialogue(d, job, pieces, fps, out):
     graph = ";\n".join(parts) + ";\n" + "".join(labels) + "concat=n=%d:v=0:a=1[out]" % len(labels)
     script = out.with_suffix(".filter.txt")
     script.write_text(graph, encoding="utf-8")
-    run(["ffmpeg", "-y", "-v", "error", "-nostdin", "-i", src, "-filter_complex_script", script, "-map", "[out]",
+    run(["ffmpeg", "-y", "-v", "error", "-nostdin", "-i", src, filter_file_option(), script, "-map", "[out]",
          "-ac", "1", "-ar", "48000", "-c:a", "pcm_s24le", out], timeout=6 * 3600, check=True)
     return out
+
+
+def filter_file_option():
+    """How this ffmpeg reads a filter graph from a file: `-/filter_complex FILE` from ffmpeg 7 on (newer builds
+    removed `-filter_complex_script`, which was deprecated in 7.0), the old option before that."""
+    try:
+        first = run(["ffmpeg", "-version"], timeout=30).stdout.splitlines()[0]
+    except (NvcError, IndexError):
+        return "-/filter_complex"
+    m = re.search(r"version n?(\d+)\.", first)
+    return "-filter_complex_script" if m and int(m.group(1)) < 7 else "-/filter_complex"
 
 
 def audio_duration(path):

@@ -37,5 +37,7 @@ post and footage, Lyria, Gemini TTS) and tested on a synthetic camera and screen
   overlaps are checked per layer; subtitle cues can no longer overlap; word captions no longer double punctuation
   in the subtitle files; a hold on a segment's last word now keeps its pause; transparent cutouts respect a box;
   subtitle files follow the target's line length (42 characters on 16:9, 32 on narrower frames).
+- **ffmpeg 7 and later:** the dialogue cut reads its filter graph with `-/filter_complex FILE`; newer builds removed
+  `-filter_complex_script` (deprecated in 7.0), and the old option is used only on ffmpeg 6 and earlier.
 - **Tests:** 25 offline tests (the compiler's rules, the review fixes, and the pipeline on synthetic media with a
   known 1.25 s offset).
