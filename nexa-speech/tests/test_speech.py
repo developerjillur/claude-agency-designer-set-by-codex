@@ -34,11 +34,12 @@ sys.path.insert(0, str(SKILL / "scripts"))
 import speech as S  # noqa: E402
 
 FAKE_KEY = "test-key-0000"
+EL_FAKE_KEY = "el-test-key-0000"
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 RATE = 24000
 WORD_S, SENT_PAUSE_S, LEAD_S, TAIL_S = 0.38, 0.45, 0.10, 0.20
 ENV_KEYS = ("NEXA_GEMINI_BASE_URL", "NEXA_GEMINI_SLEEP_SCALE", "NEXA_NO_KEYCHAIN", "GEMINI_API_KEY",
-            "NEXA_SPEECH_HOME")
+            "NEXA_SPEECH_HOME", "NEXA_ELEVENLABS_BASE_URL", "ELEVENLABS_API_KEY")
 
 
 def nfc(s):
@@ -235,6 +236,8 @@ class FakeGemini:
                 self.send(404, {"error": {"code": 404, "message": "not found"}})
 
             def do_POST(self):
+                if self.path.startswith("/v1/forced-alignment"):
+                    return self.forced_alignment()
                 if not self.authorised():
                     return
                 n = int(self.headers.get("Content-Length") or 0)
@@ -246,6 +249,24 @@ class FakeGemini:
                 if "transcription_config" in (body.get("generation_config") or {}):
                     return self.transcribe(body)
                 return self.speak(body)
+
+            def forced_alignment(self):
+                """ElevenLabs: multipart file + text; each word gets an even share of the audio."""
+                raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                if self.headers.get("xi-api-key") != EL_FAKE_KEY:
+                    return self.send(401, {"detail": {"status": "invalid_api_key", "message": "Invalid API key"}})
+                m = re.search(rb'name="text"\r\n\r\n(.*?)\r\n--', raw, re.S)
+                text = m.group(1).decode("utf-8") if m else ""
+                w = re.search(rb"RIFF.{4}WAVE", raw, re.S)
+                n_audio = len(raw) - (w.start() if w else 0) - 44 - 200
+                dur = max(1.0, n_audio / 32000.0)
+                words = text.split()
+                step = dur / max(1, len(words))
+                with fake.lock:
+                    fake.log.append({"kind": "fa", "text": text})
+                return self.send(200, {"characters": [], "loss": 0.07, "words": [
+                    {"text": t, "start": round(i * step, 3), "end": round((i + 0.9) * step, 3),
+                     "loss": 0.9 if t == "ferry" else 0.05} for i, t in enumerate(words)]})
 
             def speak(self, body):
                 inp = body.get("input")
@@ -1035,7 +1056,8 @@ class EndToEndTests(unittest.TestCase):
             del os.environ[k]
         os.environ.update({"NEXA_GEMINI_BASE_URL": cls.fake.url, "NEXA_GEMINI_SLEEP_SCALE": "0",
                            "NEXA_NO_KEYCHAIN": "1", "GEMINI_API_KEY": FAKE_KEY,
-                           "NEXA_SPEECH_HOME": str(cls.tmp / "home")})
+                           "NEXA_SPEECH_HOME": str(cls.tmp / "home"), "NEXA_ELEVENLABS_BASE_URL": cls.fake.url,
+                           "ELEVENLABS_API_KEY": EL_FAKE_KEY})
         cls.cli("profile", "new", "en-doc", "--preset", "documentary-m", "--mode", "story=calm and visual storytelling")
         cls.cli("profile", "new", "en-31", "--preset", "documentary-m", "--model", "gemini-3.1-flash-tts-preview")
         cls.cli("profile", "new", "bn-yt", "--preset", "bn-yt-explainer-m")
@@ -1089,6 +1111,9 @@ class EndToEndTests(unittest.TestCase):
         ledger = [json.loads(x) for x in (self.main / "ledger.jsonl").read_text().splitlines()]
         self.assertEqual(len([e for e in ledger if e["result"] == "ok" and e["command"] == "render"]), self.calls1)
         for e in ledger:
+            if e.get("model") == "elevenlabs-forced-alignment":
+                self.assertEqual(e["key_source"], "ELEVENLABS_API_KEY")          # align's own line
+                continue
             self.assertEqual(e["key_source"], "GEMINI_API_KEY")
             self.assertGreater(e["est_usd"], 0)
             self.assertIn("usage", e)
@@ -1187,6 +1212,22 @@ class EndToEndTests(unittest.TestCase):
             self.assertLessEqual(len(lines) - 2, 2)
             for line in lines[2:]:
                 self.assertLessEqual(len(line), 42)
+
+    def test_align_elevenlabs_sends_the_spoken_script(self):
+        words = json.loads((self.main / "words.json").read_text())
+        before = len(self.fake.log)
+        r = self.cli("align", self.main, "--engine", "elevenlabs", "--json")
+        info = self.js(r)["info"]
+        fa = [x for x in self.fake.log[before:] if x.get("kind") == "fa"]
+        self.assertEqual(len(fa), 1)
+        self.assertIn("four dollars ninety-nine cents", fa[0]["text"])        # the spoken form goes up
+        self.assertNotIn("$4.99", fa[0]["text"])
+        self.assertEqual((info["engine"], info["matched_share"]), ("elevenlabs", 1.0))
+        self.assertIn("ferry", info["suspect_words"])                          # a high per-word loss is flagged
+        got = json.loads((self.main / "words.json").read_text())
+        self.assertEqual([w["w"] for w in got], [w["w"] for w in words])      # the display words come back
+        self.assertTrue(all(a["start"] <= b["start"] for a, b in zip(got, got[1:])))
+        self.cli("align", self.main, "--engine", "pauses")                     # leave words.json as it was made
 
     def test_align_gemini_carries_the_display_text(self):
         words = json.loads((self.main / "words.json").read_text())

@@ -74,6 +74,14 @@ that:
 - For `nexa-speech`, `nexa-sound` and Bangla transcripts: a Gemini API key from a Google Cloud project with billing
   turned on, in `GEMINI_API_KEY` or in the macOS keychain (`security add-generic-password -a "$USER" -s GEMINI_API_KEY -w`
   asks for it at a prompt). The skills never ask for a key, print it or write it to a file.
+- Optional keys, the same way (environment variable or keychain item of the same name):
+  - `ELEVENLABS_API_KEY` for ElevenLabs music, ambience loops, realistic effects, voice isolation, Scribe
+    transcripts and forced alignment. Give the key User access (the tools read the plan: free-plan output is
+    marked for evaluation and never delivered to a client) and the endpoints you use. Client work needs a paid
+    plan.
+  - `PIXABAY_API_KEY` for stock video, photos, illustrations and vectors (`nvc.py stock`). Pixabay's API has no
+    music, sound effects, GIFs or 3D; without full API access, pictures stop at 1280 px.
+  - `FREESOUND_API_KEY` for CC0 sound effects.
 - [Claude Code](https://docs.claude.com/en/docs/claude-code).
 
 ## Install

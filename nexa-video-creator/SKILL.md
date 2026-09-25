@@ -1,6 +1,6 @@
 ---
 name: nexa-video-creator
-description: "Edits real footage and makes finished videos for every platform, like a professional editor: YouTube long-form, Shorts, Reels, TikTok, Facebook and Instagram feed and Stories, ads, promos, tutorials, talking-head and screen-recording videos, faceless explainers and day or occasion videos. It syncs a separately recorded camera and screen recording by their sound (offset and clock drift), transcribes with word timings (Bangla included), cuts pauses, fillers and retakes on the frame grid, and places layouts (picture-in-picture, split, stacked 9:16), zooms, punch-ins, hook titles, stat and list cards, keyword pops, lower thirds, b-roll, 2D explainer animation from remotion-broll, HyperFrames segments, burned captions, music, sound effects and platform loudness, then renders with Remotion and checks the result. Use it whenever someone asks to edit, cut or make a video, or to turn raw recordings into a finished one, Banglish included ('video edit kore dao', 'youtube er jonno edit koro', 'reels banao', 'shorts cut koro', 'screen recording ar face cam sync koro')."
+description: "Edits real footage and makes finished videos for every platform, like a professional editor: YouTube long-form, Shorts, Reels, TikTok, Facebook and Instagram feed and Stories, ads, promos, tutorials, talking-head and screen-recording videos, faceless explainers and day or occasion videos. It syncs a separately recorded camera and screen recording by their sound (offset and clock drift), transcribes with word timings (Bangla included), cuts pauses, fillers and retakes on the frame grid, and places layouts (picture-in-picture, split, stacked 9:16), zooms, punch-ins, hook titles, stat and list cards, keyword pops, lower thirds, b-roll (judged Pixabay stock), 2D explainer animation from remotion-broll, burned captions, music, sound effects and platform loudness, then renders with Remotion and checks the result. Use it whenever someone asks to edit, cut or make a video, or to turn raw recordings into a finished one, Banglish included ('video edit kore dao', 'youtube er jonno edit koro', 'reels banao', 'shorts cut koro', 'screen recording ar face cam sync koro')."
 ---
 
 # nexa-video-creator
@@ -33,6 +33,16 @@ Command prefix: `python3 ~/.claude/skills/nexa-video-creator/scripts/nvc.py`.
 Another format from the same footage: write `plan.shorts.json`, then `compile`, `audio`, `render` with
 `--target shorts`. Faceless explainer: make the voice with nexa-speech, `add JOB vo_48k.wav --role voice`, and
 carry the picture with b-roll, images, segments and graphics.
+
+B-roll for a slot (a common, real-world shot: hands typing, a city street, coffee being poured):
+1. `nvc.py stock JOB "hands typing laptop" --also "keyboard close up" --also "person working laptop" --judge --slot
+   "hands typing on a laptop, close, no logos"` (English keywords; add `--market bangladesh` when people or places
+   must fit the client's market, `--no-ai` for real footage only).
+2. Look at `media/stock/QUERY/sheet.png`, then `nvc.py stock JOB --pick ID --id broll-typing`: the clip, its licence
+   record and a `broll` source in the job.
+3. Nothing accepted after two searches: make the shot instead (remotion-broll for explainer scenes, codex-imagegen
+   for a still from a text prompt, never from a Pixabay file). Specific places, products and the client's own people
+   never come from stock.
 
 ## How to edit (the plan)
 
@@ -80,6 +90,7 @@ carry the picture with b-roll, images, segments and graphics.
 | `stills`, `render [--draft]` | the contact sheet; the video |
 | `qa [--review]`, `deliver [--force]` | the checks; the final files |
 | `segment broll\|hf PROJECT --job JOB` | remotion-broll or HyperFrames renders added as media |
+| `stock JOB "QUERY" [--also W] [--judge] [--pick ID]` | Pixabay videos, photos, illustrations and vectors on a numbered sheet, judged for the slot; a pick downloads it with its licence record |
 | `doctor [--setup --link-modules PATH]` | the machine; builds the numpy venv and the shared Remotion renderer |
 
 ## Rules
@@ -91,7 +102,10 @@ carry the picture with b-roll, images, segments and graphics.
 - A synthetic voice, a generated person or generated music is disclosed where the platform asks (the delivery notes
   say where). Never present a generated person as a real customer or expert.
 - Music must be licensed for the platform (Meta ads: no licensed commercial music; TikTok business: the Commercial
-  Music Library). Lyria music is not exclusive and never goes to Content ID.
+  Music Library). Lyria and ElevenLabs music is not exclusive and never goes to Content ID. `deliver` stops when the
+  sound has ElevenLabs items from a free or unknown plan.
+- Stock from Pixabay is used inside the edit, never handed over as files; no clip with a visible logo or brand, no
+  recognisable person in a health, dating, drug, adult or political context, no Pixabay file fed to an AI tool.
 - Private data in screen recordings (e-mails, keys, customer records, notifications) gets a `redact` overlay.
 
 ## Measured on this machine (Mac Studio M4 Max, 2026-09-25)
@@ -109,13 +123,16 @@ carry the picture with b-roll, images, segments and graphics.
 
 Remotion is free for individuals and companies of up to 3 people. Above that, code that runs `remotion render`
 counts as an automation (Remotion for Automators: $0.01 a render, at least $100 a month). HyperFrames is Apache-2.0.
-The fonts come from Google Fonts (OFL).
+The fonts come from Google Fonts (OFL). Pixabay stock: the Pixabay Content License (free for commercial use, no
+credit needed, the limits above; `references/cli.md` has the full list), recorded next to every file.
 
 ## Files
 
 - `scripts/nvc.py` (the CLI), `nvc_plan.py` (plan checks and compile), `nvc_sync.py` and `nvc_dsp.py` (sync, speech
   activity, word snapping; numpy in the skill venv), `facetrack.swift` (Apple Vision), `presets.json` (targets,
-  safe zones, captions, pacing, loudness), `gemini_api.py` (shared with nexa-speech and nexa-sound).
+  safe zones, captions, pacing, loudness), `gemini_api.py` and `elevenlabs_api.py` (shared with nexa-speech and
+  nexa-sound), `pixabay_api.py` (the stock search: cache, rate limits, the key kept out of every URL shown),
+  `sheet.swift` (the numbered contact sheet).
 - `template/`: the Remotion renderer (layouts, overlays, captions, transitions), synced to
   `~/.nexa-video-creator/renderer` on use.
 - `references/plan.md` (the plan, with examples per video type), `references/cli.md` (every command and file),

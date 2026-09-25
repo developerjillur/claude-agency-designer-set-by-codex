@@ -14,12 +14,13 @@ first second of a video to the last.
   speech.py say "TEXT" --profile NAME --out FILE       one line, cached and mastered
   speech.py qa DIR [--asr]                            run the gates again, write qa.json
   speech.py master DIR                                vo_48k.wav and vo.manifest.json
-  speech.py align DIR [--engine auto|gemini|pauses]    words.json, sentences.json, vo.srt, vo.vtt
+  speech.py align DIR [--engine auto|gemini|elevenlabs|pauses]   words.json, sentences.json, vo.srt, vo.vtt
   speech.py fit DIR --scenes FILE [--ad] [--apply]     fit scenes to target lengths
   speech.py cost [DIR] [--minutes 10] [--model M]      an estimate, or the actual numbers from ledger.jsonl
 
-render, say, design, audition, voices --library, qa --asr, align --engine gemini and doctor --live reach the API;
-everything else is offline and free. Every command prints a short summary, or one JSON object with --json.
+render, say, design, audition, voices --library, qa --asr, align --engine gemini and doctor --live reach the Gemini
+API, align --engine elevenlabs reaches ElevenLabs; everything else is offline and free. Every command prints a short
+summary, or one JSON object with --json.
 """
 from __future__ import annotations
 
@@ -47,8 +48,9 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gemini_api as G  # noqa: E402  (shared by the nexa skills: never edit it here)
+import elevenlabs_api as EL  # noqa: E402  (shared by the nexa skills: never edit it here)
 
-SKILL_VERSION = "2026.09.25.2"
+SKILL_VERSION = "2026.09.25.3"
 PRICES_AS_OF = "2026-09-25"
 ANALYSIS_VERSION = "2026.09.25.1"   # bump when what analyse_audio() returns changes
 SCRIPTS = Path(__file__).resolve().parent
@@ -2912,29 +2914,20 @@ def align_pauses(project: Path, plan: dict, manifest: dict) -> tuple:
     return words_out, sents_out, {"engine": "pauses", "pauses_found": len(pauses)}
 
 
-def align_gemini(project: Path, plan: dict, manifest: dict, budget: float) -> tuple:
-    """One transcription of the whole voice-over (word timestamps), the ASR words matched to the script words with
-    difflib, the display text carried over, unmatched words placed between their neighbours."""
-    dur = manifest.get("duration_s") or probe_duration(project / "vo_48k.wav") or 0.0
-    est = asr_usd(dur)
-    if est > budget + 1e-9:
-        raise BudgetError(est, budget, 1)
-    proxy = project / "work" / "asr_16k.wav"
-    proxy.parent.mkdir(parents=True, exist_ok=True)
-    ff(["-v", "error", "-y", "-i", project / "vo_48k.wav", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", proxy])
-    bn = any(is_bn(c["spoken"]) for c in plan["chunks"])
-    lang = plan["profiles"][plan["main_profile"]]["language"]
-    tr = transcribe_cached(proxy, "vo-" + file_sha(proxy), bn, lang, project, "align", "vo_48k.wav")
-    asr_words = [w for w in tr.get("words") or [] if w.get("start") is not None]
+def script_tokens(plan: dict, manifest: dict) -> list:
+    """The spoken script as normalised tokens, each knowing its sentence, word and display form."""
     script = []
     for idx, s, sent in manifest_sentences(plan, manifest):
         for wi, w in enumerate(sent["words"]):
             toks = norm_tokens(w["sp"] or w["w"], is_bn(w["sp"] or w["w"])) or [""]
             for t in toks:
                 script.append({"tok": t, "sent": idx, "wi": wi, "word": w, "s": s})
-    hyp = heard_tokens(asr_words, bn)
-    matched, close = place_tokens(script, hyp)
-    # unmatched tokens: between the neighbours, inside their sentence
+    return script
+
+
+def words_from_tokens(script: list, manifest: dict) -> tuple:
+    """(words, sentences) once the script tokens carry times: unmatched tokens are placed between their neighbours
+    in the same sentence, the display words are carried over, and each sentence spans its words."""
     for i, x in enumerate(script):
         if "t" in x:
             continue
@@ -2962,9 +2955,79 @@ def align_gemini(project: Path, plan: dict, manifest: dict, budget: float) -> tu
         b = ws[-1]["end"] if ws else s["end"]
         sents_out.append({"index": idx, "scene": s["scene"], "chunk": s["chunk"], "text": s["text"], "start": a,
                           "end": b})
+    return words_out, sents_out
+
+
+def asr_proxy(project: Path) -> Path:
+    proxy = project / "work" / "asr_16k.wav"
+    proxy.parent.mkdir(parents=True, exist_ok=True)
+    ff(["-v", "error", "-y", "-i", project / "vo_48k.wav", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", proxy])
+    return proxy
+
+
+def align_gemini(project: Path, plan: dict, manifest: dict, budget: float) -> tuple:
+    """One transcription of the whole voice-over (word timestamps), the ASR words matched to the script words with
+    difflib, the display text carried over, unmatched words placed between their neighbours."""
+    dur = manifest.get("duration_s") or probe_duration(project / "vo_48k.wav") or 0.0
+    est = asr_usd(dur)
+    if est > budget + 1e-9:
+        raise BudgetError(est, budget, 1)
+    proxy = asr_proxy(project)
+    bn = any(is_bn(c["spoken"]) for c in plan["chunks"])
+    lang = plan["profiles"][plan["main_profile"]]["language"]
+    tr = transcribe_cached(proxy, "vo-" + file_sha(proxy), bn, lang, project, "align", "vo_48k.wav")
+    asr_words = [w for w in tr.get("words") or [] if w.get("start") is not None]
+    script = script_tokens(plan, manifest)
+    matched, close = place_tokens(script, heard_tokens(asr_words, bn))
+    words_out, sents_out = words_from_tokens(script, manifest)
     return words_out, sents_out, {"engine": "gemini", "model": TRANSCRIBE_MODEL, "asr_words": len(asr_words),
                                   "script_tokens": len(script), "matched": matched, "close": close,
                                   "matched_share": round((matched + close) / max(1, len(script)), 3),
+                                  "est_usd": round(est, 5)}
+
+
+EL_FA_USD_PER_HOUR = 0.22       # ElevenLabs forced alignment, billed at the Scribe rate (pricing/api, 2026-09-25)
+
+
+def align_eleven(project: Path, plan: dict, manifest: dict, budget: float) -> tuple:
+    """ElevenLabs forced alignment: the spoken script goes up with the audio and every word comes back timed, with
+    a per-word loss (high where the voice did not say what the script says). No recogniser guesses, so nothing
+    needs matching back except the display forms. ElevenLabs lists the Multilingual v2 languages for it; Bengali
+    is not among them, so Bangla is tried and checked, never assumed."""
+    dur = manifest.get("duration_s") or probe_duration(project / "vo_48k.wav") or 0.0
+    est = dur / 3600.0 * EL_FA_USD_PER_HOUR
+    if est > budget + 1e-9:
+        raise BudgetError(est, budget, 1)
+    proxy = asr_proxy(project)
+    script = script_tokens(plan, manifest)
+    spoken = " ".join(w["sp"] or w["w"] for _, _, sent in manifest_sentences(plan, manifest) for w in sent["words"])
+    t0 = time.time()
+    try:
+        fa, info = EL.forced_alignment(str(proxy), spoken)
+    except EL.ElevenError as err:
+        ledger(project, {"time": now_iso(), "command": "align", "model": "elevenlabs-forced-alignment",
+                         "est_usd": 0.0, "result": "error:" + err.kind, "message": EL.scrub(str(err))[:300]})
+        raise
+    ledger(project, {"time": now_iso(), "command": "align", "model": "elevenlabs-forced-alignment",
+                     "est_usd": round(est, 5), "key_source": info.get("key"), "result": "ok",
+                     "response": EL.cost_headers(info), "seconds": round(time.time() - t0, 2)})
+    words = [w for w in (fa.get("words") or []) if isinstance(w, dict) and str(w.get("text") or "").strip()]
+    bn = any(is_bn(c["spoken"]) for c in plan["chunks"])
+    hyp = []
+    for w in words:
+        for t in norm_tokens(w["text"], is_bn(w["text"]) or bn) or []:
+            hyp.append({"tok": t, "start": float(w["start"]), "end": float(w["end"]), "loss": w.get("loss")})
+    matched, close = place_tokens(script, hyp)
+    words_out, sents_out = words_from_tokens(script, manifest)
+    losses = sorted(float(w["loss"]) for w in words if isinstance(w.get("loss"), (int, float)))
+    med = losses[len(losses) // 2] if losses else None
+    # a starting rule, to calibrate on the first real files: 4x the median and 0.2 above it
+    suspect = [w["text"] for w in words if med is not None and isinstance(w.get("loss"), (int, float))
+               and w["loss"] >= max(4 * med, med + 0.2)][:20]
+    return words_out, sents_out, {"engine": "elevenlabs", "model": "forced-alignment", "fa_words": len(words),
+                                  "script_tokens": len(script), "matched": matched, "close": close,
+                                  "matched_share": round((matched + close) / max(1, len(script)), 3),
+                                  "loss": fa.get("loss"), "median_word_loss": med, "suspect_words": suspect,
                                   "est_usd": round(est, 5)}
 
 
@@ -3518,10 +3581,14 @@ def cmd_align(args) -> None:
     try:
         if engine == "gemini":
             words, sents, info = align_gemini(project, plan, man, args.budget)
+        elif engine == "elevenlabs":
+            words, sents, info = align_eleven(project, plan, man, args.budget)
         else:
             words, sents, info = align_pauses(project, plan, man)
     except G.GeminiError as err:
         die(explain(err))
+    except EL.ElevenError as err:
+        die("ElevenLabs forced alignment: %s" % EL.scrub(str(err)))
     except BudgetError as err:
         die(str(err))
     cues = build_cues(words)
@@ -4176,7 +4243,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     al = sub.add_parser("align", parents=[common, money], help="words.json, sentences.json, vo.srt, vo.vtt")
     al.add_argument("dir")
-    al.add_argument("--engine", choices=("auto", "gemini", "pauses"), default="auto")
+    al.add_argument("--engine", choices=("auto", "gemini", "elevenlabs", "pauses"), default="auto",
+                    help="gemini: Gemini 3.5 Transcribe; elevenlabs: forced alignment of the known script")
     al.set_defaults(func=cmd_align)
 
     ft = sub.add_parser("fit", parents=[common], help="fit scenes to target lengths")

@@ -77,6 +77,10 @@ command -v node >/dev/null || echo "note    Node.js was not found: remotion-brol
 command -v whisper-cli >/dev/null || echo "note    whisper.cpp was not found: nexa-video-creator uses it for English transcripts (brew install whisper-cpp)"
 [ -n "${GEMINI_API_KEY:-}" ] || security find-generic-password -s GEMINI_API_KEY >/dev/null 2>&1 || \
   echo "note    no Gemini API key: nexa-speech, nexa-sound and Bangla transcripts need one (set GEMINI_API_KEY, or: security add-generic-password -a \"\$USER\" -s GEMINI_API_KEY -w)"
+for k in ELEVENLABS_API_KEY PIXABAY_API_KEY; do
+  [ -n "$(printenv $k)" ] || security find-generic-password -s "$k" >/dev/null 2>&1 || \
+    echo "note    optional: no $k (store it with: security add-generic-password -a \"\$USER\" -s $k -w)"
+done
 
 if [ "$run_tests" = 1 ]; then
   python3 -m unittest discover -s "$dest/codex-design/tests"

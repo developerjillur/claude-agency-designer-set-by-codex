@@ -57,6 +57,33 @@ the job.
 made only by a person in order to deceive. Background music needs no label on its own, but never claim it was
 composed by hand.
 
+## ElevenLabs music, effects and isolation, in plain words
+
+**Plan first.** Output made on a paid plan while subscribed may be used commercially; free-plan output is
+non-commercial and needs "elevenlabs.io" or "11.ai" in the title. nexa-sound reads the plan with the key before
+every paid call. A key without the User permission cannot read it: the output is then marked "plan unknown", and
+`credits --strict` (which nexa-video-creator's `deliver` runs) refuses it for a client until the plan is confirmed.
+
+**Eleven Music on a self-serve plan** (Music Terms and the Model-Specific Terms, both 2026-05-26):
+- Free, Starter, Creator and Pro are for individuals; a company needs Scale (under 10 employees) or Business (under
+  50). A small agency should ask ElevenLabs to confirm its tier in writing.
+- Online and offline commercial use is covered (YouTube, social, web ads, events, in-store); film, TV, radio and
+  games on more than one platform need Enterprise Music.
+- A client in firearms, tobacco, prescription drugs or controlled substances, adult entertainment, a religious
+  organisation or a political campaign may not use it at all.
+- It is not exclusive (others may get similar or identical music): never register it with Content ID, and keep the
+  sidecar (`song-id`, the plan, the date) to answer a claim.
+- No artist, songwriter, label or publisher names, no song or album titles and no real lyrics in a prompt.
+- Never give a client wider rights than the plan grants, and never resell tracks as stock or a library.
+
+**Sound effects.** Commercial use on a paid plan, including YouTube, social and advertising. ElevenLabs may offer
+your effects to other users unless "Disable" is chosen on the Sound Effects page, and that choice is not
+retroactive: switch it off before the first client effect. Effects go to a client mixed into the video, never as
+separate files, samples or a library (Prohibited Use Policy, 2026-08-17).
+
+**Provenance.** ElevenLabs adds an inaudible watermark; nobody tries to remove it. Music MP3s can carry a C2PA
+credential when asked for (`sign_with_c2pa`); PCM has none.
+
 ## Sound effects
 
 | Source | Licence | How nexa-sound uses it |
@@ -64,8 +91,8 @@ composed by hand.
 | The built-in synthesiser | made by the skill's own code: no samples, no third-party rights | first choice for every preset name; free to use in any work |
 | Your own folders (`NEXA_SFX_DIRS`) | whatever you recorded in the folder's `manifest.json` | used in place; `CREDITS.txt` flags a licence that is not recorded |
 | media-use's bundled effects | Pixabay Content License: free for commercial use, no attribution needed; the files may not be redistributed on their own, and trimming or filtering them does not change that | used in place, by path, inside the mix; never copied into a project or deliverable folder, never into a public repo |
-| Freesound | per sound; nexa-sound searches with `license:"Creative Commons 0"` | CC0 by default; CC BY only when a cue allows it, and then `CREDITS.txt` lists the credit line to paste; NC never. Downloads are the 128 kbps previews (the original file needs OAuth2) |
-| ElevenLabs Sound Effects | commercial use on paid plans (check your plan's terms) | only with `ELEVENLABS_API_KEY`; the account's plan is checked first and the free plan is refused |
+| Freesound | per sound; nexa-sound searches with `license:"Creative Commons 0"` | CC0 by default; CC BY only when a cue allows it, and then `CREDITS.txt` lists the credit line to paste; NC never; explicit sounds skipped. Downloads are the 128 kbps previews (the original file needs OAuth2) |
+| ElevenLabs Sound Effects | commercial use on paid plans (above) | only with `ELEVENLABS_API_KEY`; the plan is read first and recorded in the sidecar; free or unknown plans are marked not for client delivery |
 
 ## Never used for client work, and why
 
@@ -79,14 +106,17 @@ composed by hand.
 | HunyuanVideo-Foley | a community licence with territory and use restrictions: avoided |
 | BBC Sound Effects | the RemArc licence covers personal, educational and research use |
 | Freesound sounds under an NC licence | non-commercial by definition; the search filter and a second check on each result exclude them |
-| ElevenLabs on the free plan | its output is not for commercial use (check ElevenLabs' current plan terms) |
+| ElevenLabs on the free plan, or with a plan the key cannot read | free-plan output is non-commercial; an unknown plan cannot be shown to be paid |
+| Eleven Music for film, TV, radio or multi-platform games | self-serve plans exclude them (Enterprise Music only) |
 | Any sound "from YouTube" or a streaming service | no licence to reuse it |
 
 ## What nexa-sound records
 
-- `<id>.json` per Lyria track: provider and model, the key's variable name (never the key), the exact prompt and
-  images, every text part the model returned, the original's SHA-256, C2PA presence, the analysis, fits, QC and the
-  licence summary. `<id>_orig.*` stays untouched and read-only.
+- `<id>.json` per track (Lyria or ElevenLabs): provider and model, the key's variable name (never the key), the exact
+  prompt or composition plan and images, every text part the model returned, the original's SHA-256, C2PA presence,
+  the analysis, fits, QC and the licence summary; for ElevenLabs also the plan read at the time, `song-id`,
+  `request-id` and the cost headers. `<id>_orig.*` stays untouched and read-only.
+- `<name>.json` next to each ElevenLabs effect or ambience: the prompt, model, length, loop, plan and licence.
 - `ledger.jsonl`: every paid call with its estimate.
 - `<stem>_cues.json`: each effect's source, file, licence and any credit line.
 - `CREDITS.txt`: all of it in plain words for the client.
@@ -110,6 +140,11 @@ composed by hand.
 - Pixabay Content License summary: https://pixabay.com/service/license-summary/
 - Freesound API authentication and search: https://freesound.org/docs/api/authentication.html
 - ElevenLabs sound effects API: https://elevenlabs.io/docs/api-reference/text-to-sound-effects/convert
+- ElevenLabs Terms of Service (2026-03-31): https://elevenlabs.io/terms-of-use
+- ElevenLabs Music Terms (2026-05-26): https://elevenlabs.io/music-terms
+- Eleven Music Model-Specific Terms (2026-05-26): https://elevenlabs.io/eleven-music-model-specific-terms
+- ElevenLabs Sound Effects Terms (2026-02-12): https://elevenlabs.io/sound-effects-terms
+- ElevenLabs Prohibited Use Policy (2026-08-17): https://elevenlabs.io/use-policy
 - Model cards read on Hugging Face (2026-09-25): facebook/musicgen-small, facebook/audiogen-medium, hkchengrex/MMAudio,
   cvssp/audioldm2, declare-lab/TangoFlux, tencent/HunyuanVideo-Foley; ThinkSound README:
   https://github.com/FunAudioLLM/ThinkSound

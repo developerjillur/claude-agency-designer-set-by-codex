@@ -13,6 +13,7 @@ import math
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -189,6 +190,9 @@ class Fake(object):
     active = 0
     max_active = 0
     el_tier = "creator"
+    el_user_read = True          # the key may lack user_read (the live key did at first)
+    el_pcm_ok = True             # a plan may refuse PCM output
+    el_channels = 2
     audio = {}
     blocks = {}
 
@@ -211,6 +215,19 @@ class Fake(object):
         with cls.lock:
             cls.audio[key] = data
         return data
+
+
+def _pcm(secs, rate, channels):
+    """Raw 16-bit little-endian PCM: a 330 Hz tone with a soft envelope, as a stand-in for a generated take."""
+    n = int(round(secs * rate))
+    out = bytearray()
+    for i in range(n):
+        v = int(9000 * math.sin(2 * math.pi * 330 * i / rate) * (0.6 + 0.4 * math.sin(2 * math.pi * 0.5 * i / rate)))
+        out += struct.pack("<h", v) * channels
+    return bytes(out)
+
+
+Fake.pcm = staticmethod(_pcm)
 
 
 def prompt_text(body):
@@ -247,7 +264,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, {"models": [{"name": "models/" + m} for m in
                                                ("lyria-3.5", "lyria-3-clip-preview", "lyria-realtime-exp",
                                                 "gemini-3.8-flash")]})
-        if url.path == "/apiv2/search/text/":
+        if url.path == "/apiv2/search/":            # /apiv2/search/text/ was deprecated in November 2025
             if self.headers.get("Authorization") != "Token " + FS_KEY:
                 return self._send(401, {"detail": "Invalid token"})
             flt = (q.get("filter") or [""])[0]
@@ -266,18 +283,63 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, Fake.audio_sfx(), "audio/mpeg")
         if url.path == "/v1/user/subscription":
             if self.headers.get("xi-api-key") != EL_KEY:
-                return self._send(401, {"detail": "invalid key"})
-            return self._send(200, {"tier": Fake.el_tier})
+                return self._send(401, {"detail": {"status": "invalid_api_key", "message": "Invalid API key"}})
+            if not Fake.el_user_read:
+                return self._send(401, {"detail": {"status": "missing_permissions", "message": "The API key you used "
+                                                   "is missing the permission user_read to execute this operation."}})
+            return self._send(200, {"tier": Fake.el_tier, "character_count": 1200, "character_limit": 10000,
+                                    "next_character_count_reset_unix": 1790000000})
         return self._send(404, {"error": "no route %s" % url.path})
 
     def do_POST(self):
         raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
         url = urllib.parse.urlparse(self.path)
-        if url.path == "/v1/sound-generation":
-            body = json.loads(raw.decode("utf-8"))
-            self._record(body)
+        if url.path == "/v1/audio-isolation":             # hands the upload back as MP3: a pass-through isolator
             if self.headers.get("xi-api-key") != EL_KEY:
-                return self._send(401, {"detail": "invalid key"})
+                return self._send(401, {"detail": {"status": "invalid_api_key", "message": "Invalid API key"}})
+            m = re.search(rb'name="audio"; filename="[^"]*"\r\nContent-Type: [^\r]*\r\n\r\n(.*)\r\n--', raw, re.S)
+            self._record({"bytes": len(m.group(1)) if m else 0})
+            src = os.path.join(ROOT, "fake", "iso_in_%d.wav" % len(Fake.log))
+            os.makedirs(os.path.dirname(src), exist_ok=True)
+            with open(src, "wb") as fh:
+                fh.write(m.group(1))
+            dst = src[:-4] + (".mp3" if HAVE_MP3 else "_out.wav")
+            ff("-i", src, *(["-c:a", "libmp3lame", "-b:a", "128k"] if HAVE_MP3 else []), dst)
+            return self._send(200, read_bytes(dst), "audio/mpeg" if HAVE_MP3 else "audio/wav")
+        if url.path in ("/v1/sound-generation", "/v1/music"):
+            body = json.loads(raw.decode("utf-8"))
+            fmt = urllib.parse.parse_qs(url.query).get("output_format", ["mp3_44100_128"])[0]
+            self._record(dict(body, output_format=fmt))
+            if self.headers.get("xi-api-key") != EL_KEY:
+                return self._send(401, {"detail": {"status": "invalid_api_key", "message": "Invalid API key"}})
+            if url.path == "/v1/sound-generation":
+                dur = body.get("duration_seconds")
+                if dur is not None and not 0.5 <= dur <= 30:
+                    return self._send(400, {"detail": {"status": "invalid_generation_settings", "message":
+                                                       "Invalid setting for duration_seconds received"}})
+                secs = dur or 2.0
+            else:
+                plan = body.get("composition_plan")
+                if plan:
+                    model = body.get("model_id") or "music_v1"
+                    parts = plan.get("chunks") if model != "music_v1" else plan.get("sections")
+                    if not parts:                         # as the live API: the plan type follows the model
+                        return self._send(422, {"detail": {"status": "unprocessable_entity", "message":
+                                                           "Invalid type of `composition_plan` used for model %s"
+                                                           % model}})
+                    bad = [x for x in parts if not 3000 <= x.get("duration_ms", 0) <= 120000]
+                    if bad:
+                        return self._send(422, {"detail": [{"loc": ["body", "composition_plan"],
+                                                            "msg": "Input should be between 3000 and 120000"}]})
+                    secs = sum(x["duration_ms"] for x in parts) / 1000.0
+                else:
+                    secs = (body.get("music_length_ms") or 30000) / 1000.0
+            if fmt.startswith("pcm_"):
+                if not Fake.el_pcm_ok:
+                    return self._send(403, {"detail": {"status": "output_format_not_allowed", "message":
+                                                       "pcm_48000 is not available for your subscription tier"}})
+                rate = int(fmt.split("_")[1])
+                return self._send(200, Fake.pcm(secs, rate, Fake.el_channels), "audio/pcm")
             return self._send(200, Fake.audio_sfx(), "audio/mpeg")
         body = json.loads(raw.decode("utf-8")) if raw else {}
         rec = {k: (v if k != "input" else prompt_text(body)) for k, v in body.items()}
@@ -791,7 +853,7 @@ class E_SfxPlaceTests(unittest.TestCase):
         self.assertIn("Pixabay", res["licence"])
         self.assertFalse(os.path.exists(tmp("place", "mu_files", name)))
 
-    def test_freesound_cc0_and_elevenlabs_paid_only(self):
+    def test_freesound_cc0_and_elevenlabs_licences(self):
         env = {"FREESOUND_API_KEY": FS_KEY, "ELEVENLABS_API_KEY": EL_KEY}
         before = len(Fake.log)
         r = cli_json("sfx", "fetch", "glass break", "--source", "freesound", "--out", tmp("fetch"), env=env)
@@ -804,22 +866,176 @@ class E_SfxPlaceTests(unittest.TestCase):
         r = cli_json("sfx", "fetch", "door slam", "--source", "elevenlabs", "--out", tmp("fetch"), "--dur", 1.5,
                      env=env)
         self.assertEqual(r["source"], "elevenlabs")
+        self.assertIs(r["commercial"], True)                              # a paid plan
         gen = [x for x in Fake.log if x["path"].startswith("/v1/sound-generation")][-1]
         self.assertEqual(gen["body"]["duration_seconds"], 1.5)
+        self.assertEqual(gen["body"]["model_id"], "eleven_text_to_sound_v3")
+        self.assertEqual(gen["body"]["output_format"], "pcm_48000")
         ledger = load_jsonl(tmp("fetch", "ledger.jsonl"))
         self.assertEqual(ledger[-1]["model"], "elevenlabs-sfx")
         self.assertEqual(ledger[-1]["key_source"], "ELEVENLABS_API_KEY")
-        Fake.el_tier = "free"
+        Fake.el_tier = "free"                                             # the free plan: allowed, marked
         try:
-            r = cli("sfx", "fetch", "door slam", "--source", "elevenlabs", "--out", tmp("fetch"), env=env, expect=1)
-            self.assertIn("free plan", r.stderr)
+            r = cli_json("sfx", "fetch", "door slam", "--source", "elevenlabs", "--out", tmp("fetch"), "--dur", 1,
+                         env=env)
+            self.assertIs(r["commercial"], False)
+            self.assertIn("not for client delivery", r["licence_note"])
+            self.assertEqual(r["attribution"], "elevenlabs.io (in the title)")   # the free plan's rule
+            out = tmp("fetch", "CREDITS.txt")
+            c = cli("credits", tmp("fetch"), "--out", out, "--strict", expect=1)    # nothing free goes to a client
+            self.assertIn("NOT FOR CLIENT DELIVERY", read_text(out))
         finally:
             Fake.el_tier = "creator"
+        Fake.el_user_read = False                                         # a key that cannot read the plan
+        try:
+            r = cli_json("sfx", "fetch", "door slam", "--source", "elevenlabs", "--out", tmp("fetch"), "--dur", 1,
+                         env=env)
+            self.assertIsNone(r["commercial"])
+            self.assertIn("User access", r["licence_note"])
+        finally:
+            Fake.el_user_read = True
         cues = tmp("place", "online.json")
         with open(cues, "w") as fh:
             json.dump([{"t": 0.5, "query": "glass break"}], fh)
         r = cli_json("sfx", "place", cues, "--duration", 3, "--out", tmp("place", "online.wav"), env=env)
         self.assertEqual(r["cues"][0]["resolved"]["source"], "freesound")
+
+    def test_elevenlabs_pcm_is_wrapped_and_the_format_steps_down(self):
+        env = {"ELEVENLABS_API_KEY": EL_KEY}
+        for ch in (2, 1):
+            Fake.el_channels = ch
+            try:
+                r = cli_json("sfx", "fetch", "soft riser", "--source", "elevenlabs", "--out", tmp("pcm%d" % ch),
+                             "--dur", 2.5, "--loop", "--influence", 0.4, env=env)
+            finally:
+                Fake.el_channels = 2
+            side = load_json(r["original"] + ".json")
+            self.assertEqual((side["audio"]["format"], side["audio"]["channels"]), ("wav", ch))
+            self.assertAlmostEqual(side["audio"]["duration_s"], 2.5, delta=0.001)
+            self.assertEqual(sound.probe(r["original"])["sample_rate"], 48000)
+            gen = [x for x in Fake.log if x["path"].startswith("/v1/sound-generation")][-1]
+            self.assertIs(gen["body"]["loop"], True)
+            self.assertEqual(gen["body"]["prompt_influence"], 0.4)
+        Fake.el_pcm_ok = False                                            # the plan refuses PCM: 192 kbps MP3
+        try:
+            r = cli_json("sfx", "fetch", "soft riser", "--source", "elevenlabs", "--out", tmp("pcmno"), "--dur", 2,
+                         env=env)
+        finally:
+            Fake.el_pcm_ok = True
+        self.assertEqual(r["output_format"], "mp3_44100_192")
+        self.assertTrue(r["original"].endswith(".mp3"))
+
+    def test_elevenlabs_music_follows_the_brief_sections(self):
+        cuts = tmp("elmusic", "cuts.json")
+        with open(cuts, "w") as fh:
+            json.dump([{"t": 6.0, "weight": 1, "label": "problem"}, {"t": 14.0, "weight": 2.5, "label": "reveal"}], fh)
+        brief = make_brief("elmusic", 20.0, mood="tech", extra=["--cuts", cuts])
+        out = tmp("elmusic", "out")
+        before = len(Fake.log)
+        r = cli_json("generate", brief, "--out", out, "--engine", "elevenlabs", env={"ELEVENLABS_API_KEY": EL_KEY})
+        take = r["takes"][0]
+        self.assertTrue(take["ok"], take)
+        req = [x for x in Fake.log[before:] if x["path"].startswith("/v1/music")][-1]["body"]
+        plan = req["composition_plan"]
+        b = load_json(brief)
+        want = [int(round((sec["end"] - sec["start"]) * 1000)) for sec in b["sections"]]
+        tail = sound.ENDING_MS[b["ending"]]                  # the ending is a chunk of its own, cut from the last
+        self.assertEqual([x["duration_ms"] for x in plan["chunks"]], want[:-1] + [want[-1] - tail, tail])
+        self.assertEqual(plan["chunks"][-1]["text"], "[Ending] {instrumental}")
+        self.assertEqual(sum(x["duration_ms"] for x in plan["chunks"]), 20000)     # the video's exact length
+        self.assertIn("vocals", plan["chunks"][0]["negative_styles"])
+        self.assertTrue(plan["chunks"][0]["text"].startswith("["))
+        self.assertIs(req["respect_sections_durations"], True)
+        self.assertEqual(req["model_id"], "music_v2_5")                      # music_v1 is deprecated
+        self.assertNotIn("sign_with_c2pa", req)                              # C2PA signs MP3 only
+        self.assertAlmostEqual(take["duration_s"], 20.0, delta=0.01)
+        side = load_json(take["sidecar"])
+        self.assertEqual(side["provider"]["api"], "elevenlabs")
+        self.assertIs(side["licence"]["commercial"], True)
+        self.assertFalse(os.access(take["file"], os.W_OK))
+        self.assertEqual([f for f in os.listdir(out) if f.endswith(".lock")], [])
+        Fake.el_pcm_ok = False                               # no PCM on the plan: 320 kbps MP3, signed
+        try:
+            r = cli_json("generate", brief, "--out", tmp("elmusic", "mp3"), "--engine", "elevenlabs",
+                         env={"ELEVENLABS_API_KEY": EL_KEY})
+        finally:
+            Fake.el_pcm_ok = True
+        self.assertTrue(r["takes"][0]["ok"], r)
+        req = [x for x in Fake.log if x["path"].startswith("/v1/music")][-1]["body"]
+        self.assertEqual(req["output_format"], "mp3_48000_320")
+        self.assertIs(req["sign_with_c2pa"], True)
+
+    def test_the_music_engine_follows_the_plan(self):
+        brief = make_brief("engine", 12.0)
+        env = {"ELEVENLABS_API_KEY": EL_KEY}
+        r = cli_json("generate", brief, "--out", tmp("engine", "paid"), env=env)
+        self.assertEqual(r["engine"], "elevenlabs")                       # a paid plan: ElevenLabs first
+        Fake.el_tier = "free"
+        try:
+            r = cli_json("generate", brief, "--out", tmp("engine", "free"), env=env)
+        finally:
+            Fake.el_tier = "creator"
+        self.assertEqual(r["model"], "lyria-3.5")                         # free: not for clients, so Lyria
+        r = cli_json("generate", brief, "--out", tmp("engine", "nokey"))
+        self.assertEqual(r["model"], "lyria-3.5")
+
+    def test_composition_plan_rules(self):
+        brief = {"mood": "corporate", "bpm": 104, "key": "C major", "vocals": False, "ending": "ring_out",
+                 "duration_s": 300.0,
+                 "sections": [{"start": 0.0, "end": 2.0, "label": "Intro", "intensity": 2, "narrated": True},
+                              {"start": 2.0, "end": 250.0, "label": "Story", "intensity": 3, "narrated": True},
+                              {"start": 250.0, "end": 300.0, "label": "Outro", "intensity": 6, "narrated": False}]}
+        plan = sound.composition_plan(brief)                                # music_v2_5: chunks
+        durs = [x["duration_ms"] for x in plan["chunks"]]
+        self.assertEqual(sum(durs), 300000)
+        self.assertTrue(all(3000 <= d <= 120000 for d in durs), durs)     # 2 s merged, 248 s split in three
+        self.assertEqual(len(plan["chunks"]), 5)                           # ... and the ending of its own
+        self.assertEqual(plan["chunks"][-1]["duration_ms"], 4000)
+        self.assertIn("ring", " ".join(plan["chunks"][-1]["positive_styles"]))
+        self.assertIn("104 BPM", plan["chunks"][0]["positive_styles"])
+        self.assertTrue(all(c["text"].endswith("{instrumental}") for c in plan["chunks"]))
+        old = sound.composition_plan(brief, "music_v1")                   # the older shape still builds
+        self.assertEqual(sum(x["duration_ms"] for x in old["sections"]), 300000)
+        self.assertIn("104 BPM", old["positive_global_styles"])
+
+    def test_pcm_channels_from_the_length(self):
+        E = sound.EL
+        self.assertEqual(E.pcm_channels(92160, 48000, 0.5), 2)             # the live 0.48 s answer to 0.5 s
+        self.assertEqual(E.pcm_channels(384000, 48000, 2.0), 2)
+        self.assertEqual(E.pcm_channels(192000, 48000, 2.0), 1)
+        self.assertIsNone(E.pcm_channels(100, 48000, 2.0))
+        self.assertEqual(E.pcm_channels(5, 48000, None, "audio/pcm; rate=48000; channels=1"), 1)
+
+    def test_clean_isolates_with_elevenlabs_in_sync(self):
+        out = tmp("iso", "el.wav")
+        env = {"ELEVENLABS_API_KEY": EL_KEY}
+        r = cli_json("clean", shared("voice_noisy.wav"), "--out", out, "--isolate", "elevenlabs", env=env)
+        self.assertEqual((r["isolate"]["engine"], r["isolate"]["ran"]), ("elevenlabs", True))
+        self.assertTrue(r["delay"]["sync_ok"], r["delay"])
+        self.assertIs(r["isolate"]["commercial"], True)
+        led = load_jsonl(tmp("iso", "ledger.jsonl"))
+        self.assertEqual(led[-1]["model"], "elevenlabs-isolate")
+        self.assertGreater(led[-1]["est_usd"], 0)
+        Fake.el_tier = "free"                                      # made on the free plan: never to a client
+        try:
+            cli_json("clean", shared("voice_noisy.wav"), "--out", tmp("iso2", "el.wav"), "--isolate", "elevenlabs",
+                     env=env)
+        finally:
+            Fake.el_tier = "creator"
+        cli("credits", tmp("iso2"), "--out", tmp("iso2", "CREDITS.txt"), "--strict", expect=1)
+        self.assertIn("voice isolation", read_text(tmp("iso2", "CREDITS.txt")))
+
+    def test_ambience_tiles_a_loop_to_the_exact_length(self):
+        out = tmp("amb", "office.wav")
+        r = cli_json("ambience", "quiet office room tone", "--duration", 17.5, "--piece", 6, "--out", out,
+                     env={"ELEVENLABS_API_KEY": EL_KEY})
+        self.assertEqual(sound.probe(out)["duration_s"], 17.5)
+        self.assertEqual(r["loops"], 3)
+        self.assertEqual(r["seams"]["joins"], 2)
+        gen = [x for x in Fake.log if x["path"].startswith("/v1/sound-generation")][-1]
+        self.assertIs(gen["body"]["loop"], True)
+        self.assertEqual(gen["body"]["duration_seconds"], 6.0)
+        self.assertTrue(os.path.exists(out[:-4] + ".json"))
 
 
 @NEED_FF
@@ -964,6 +1180,19 @@ class G_DuckMixTests(unittest.TestCase):
         r2 = cli_json("mix", "--voice", shared("voice.wav"), "--music", music, "--platform", "broadcast", "--out",
                       tmp("mix", "bc.wav"))
         self.assertAlmostEqual(r2["measured"]["I"], -23.0, delta=0.5)
+
+    def test_ambience_sits_steady_under_the_dialogue(self):
+        room = tmp("mixamb", "room.wav")
+        ff("-f", "lavfi", "-i", "anoisesrc=d=12:c=brown:a=0.2:r=48000", "-ac", 2, room)
+        r = cli_json("mix", "--voice", shared("voice.wav"), "--ambience", room, "--platform", "youtube", "--out",
+                     tmp("mixamb", "mix.wav"))
+        st = r["stems"]["ambience"]
+        self.assertAlmostEqual(sound.loudness(st["file"])["I"], -44.0, delta=0.5)   # 24 dB under the -20 anchor
+        a, b = decode(room), decode(st["file"])
+        for t0, t1 in ((0.6, 2.0), (2.15, 2.55), (7.8, 9.5), (9.75, 9.95)):   # in speech and in the pauses
+            for ch in (0, 1):
+                self.assertAlmostEqual(self.gain_db(a, b, t0, t1, ch), st["gain_db"], delta=0.2)   # never ducked
+        self.assertIsNone(r["duck"]["keyframes"])
 
 
 @NEED_FF

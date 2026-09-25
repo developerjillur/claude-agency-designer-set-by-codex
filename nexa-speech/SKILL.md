@@ -13,8 +13,15 @@ are in `references/craft.md`; the sourced facts are in `references/research-note
 Checked on the live API (2026-09-25): `say`, `render`, `master` and `align --engine gemini` in English and Bangla
 with gemini-3.8-flash-tts and gemini-3.5-transcribe (every word spoken, the numbers read right, 100 % of the words
 aligned). Not yet run live: `design` (it stores voices in the key's project), `voices --library`, the 3.1 and 2.5
-models and `send_language_code`; watch their first real run (`references/research-notes.md` lists what is
-unverified).
+models, `send_language_code` and `align --engine elevenlabs`; watch their first real run
+(`references/research-notes.md` lists what is unverified).
+
+Measured against ElevenLabs the same day (the same lines, a Gemini listening judge, 0 to 10, and the character error
+rate of a transcript): English, Gemini Iapetus natural 8, ElevenLabs v3 and Multilingual v2 (Eric) 9, all accent 10,
+no errors; Bangla, Gemini Sadaltager natural 9 and accent 10, ElevenLabs v3 River 8 and 9, Sia 9 and 9, the same
+error rate. So Gemini stays the voice for English and Bangla here (cheaper, native Bangla, the gates and cache built
+around it); ElevenLabs is worth it only for a cloned or brand voice or a scene with 3 or more speakers, which this
+skill does not make.
 
 ## Fast path (do exactly this)
 
@@ -29,7 +36,8 @@ unverified).
    cached is paid for; the gates run on every take and a failing chunk gets one automatic re-roll.
 5. **Master:** `master DIR` gives `vo_48k.wav` (48 kHz, 24-bit, -16 LUFS, -1.5 dBTP) and `vo.manifest.json`.
 6. **Captions:** `align DIR` gives `words.json`, `sentences.json`, `vo.srt` and `vo.vtt` (free from the pauses; with
-   a key, `--engine gemini` adds word timestamps for about $0.005 a minute).
+   a key, `--engine gemini` adds word timestamps for about $0.005 a minute; `--engine elevenlabs` times the known
+   script instead, $0.22 an hour, and flags words the voice may not have said).
 7. **Client final:** `qa DIR --asr` (a transcript check of every chunk), listen to anything flagged, then
    `pick DIR CHUNK TAKE` or `render ... --only c007 --takes 3`, and `master` again.
 8. **Scene lengths from the edit:** `fit DIR --scenes scenes.json`, then `--apply`.
@@ -52,7 +60,7 @@ A single line (a hook, an outro, a sting): `say "TEXT" --profile NAME --out line
 | `say "TEXT" --profile NAME --out FILE` | one line, cached and mastered | yes |
 | `qa DIR [--asr]` | the gates again, `qa.json` and a table; `--asr` adds the transcript gate | `--asr` |
 | `master DIR` | the finished voice-over and its manifest | no |
-| `align DIR [--engine auto\|gemini\|pauses]` | word and sentence timings, SRT and VTT | gemini engine |
+| `align DIR [--engine auto\|gemini\|elevenlabs\|pauses]` | word and sentence timings, SRT and VTT | gemini, elevenlabs |
 | `fit DIR --scenes FILE [--ad] [--apply]` | gaps first, then one tempo per scene, else what to cut | no |
 | `cost [DIR] [--minutes 10] [--model M]` | an estimate, or the actual numbers from `ledger.jsonl` | no |
 
@@ -130,15 +138,16 @@ here (see the research notes: one public test made 78 s of speech in about 20 s)
 | `align --engine pauses`, 3.5 / 10.8 minutes | 0.2 s / 0.6 s |
 | `fit --apply` (includes a new master), 3.5 minutes | 3.4 s |
 | `say` of a 4 s line / `audition` of 3 voices | 0.4 s / 0.8 s |
-| Offline test suite (67 tests) | about 15 s |
+| Offline test suite (73 tests) | about 15 s |
 
 Measured on the 3.5-minute master: integrated -16.0 LUFS, true peak -4.0 dBTP, sentence starts within 4.1 ms of the
 measured onsets (mean 1.1 ms), an `@pause 1.5` measured at 1.500 s.
 
 ## Files
 
-- `scripts/speech.py`: the CLI (Python 3.9 standard library, ffmpeg). `scripts/gemini_api.py`: the shared Gemini
-  client (keys, calls, errors), identical in every nexa skill. `scripts/voices.json`, `scripts/presets.json`: data.
+- `scripts/speech.py`: the CLI (Python 3.9 standard library, ffmpeg). `scripts/gemini_api.py` and
+  `scripts/elevenlabs_api.py`: the shared clients (keys, calls, errors), identical in every nexa skill.
+  `scripts/voices.json`, `scripts/presets.json`: data.
 - `~/.nexa-speech/`: `profiles/`, `cache/` (paid masters and their sidecars, never deleted), `designs.jsonl`.
 - In a project folder: `plan.json`, `takes.json`, `masters/`, `analysis/`, `qa.json`, `calibration.json`,
   `ledger.jsonl`, `vo_48k.wav`, `vo.manifest.json`, `words.json`, `sentences.json`, `vo.srt`, `vo.vtt`, `align.json`,

@@ -13,7 +13,9 @@ budget refusal, or `doctor` not ready; 130 means interrupted. Paths may use `~`.
 | `GEMINI_API_KEY`, `GEMINI_API_KEY_1`, `_2` ... | the key, then failover keys; with none set, the macOS keychain item `GEMINI_API_KEY` is used. Keys are never printed or written; the ledger records only the source name (`GEMINI_API_KEY_1`). |
 | `NEXA_SPEECH_HOME` | the home folder (default `~/.nexa-speech`): `profiles/`, `cache/`, `designs.jsonl`, `say/` |
 | `FFMPEG` | the ffmpeg binary (default: the one on `PATH`) |
+| `ELEVENLABS_API_KEY`, `ELEVENLABS_API_KEY_1`, `_2` ... | only for `align --engine elevenlabs` (forced alignment); with none set, the keychain item `ELEVENLABS_API_KEY`. The key needs the Forced Alignment permission |
 | `NEXA_GEMINI_BASE_URL`, `NEXA_GEMINI_SLEEP_SCALE`, `NEXA_NO_KEYCHAIN` | test hooks of `gemini_api.py`: a fake server, waits scaled (0 in tests), no keychain |
+| `NEXA_ELEVENLABS_BASE_URL`, `NEXA_ELEVENLABS_SLEEP_SCALE` | the same for `elevenlabs_api.py` |
 
 ## Voice profiles
 
@@ -240,7 +242,8 @@ files in `DIR/work/` are removed afterwards.
 
 ### align
 
-`align DIR [--engine auto|gemini|pauses] [--budget USD]`. `auto` uses `gemini` when a key exists, else `pauses`.
+`align DIR [--engine auto|gemini|elevenlabs|pauses] [--budget USD]`. `auto` uses `gemini` when a key exists, else
+`pauses` (never ElevenLabs: Gemini placed Bangla word edges closer, below).
 
 - `pauses` (free): sentence times from the manifest; words spread over each sentence's voiced time by the length of
   what is said (graphemes plus 2 a word), and moved to a pause (`silencedetect` at the target loudness less 20 dB,
@@ -251,6 +254,15 @@ files in `DIR/work/` are removed afterwards.
   দশ; ী and ি, ূ and ু and a final ো folded). Between two matched stretches, words joined or split differently
   (আসসালামু আলাইকুম heard as one word) share the heard time by length and alike words pair one to one; the display
   words are carried over, and what is left is placed between its matched neighbours in the same sentence.
+- `elevenlabs`: forced alignment (`POST /v1/forced-alignment`, $0.22 an hour, billed like Scribe): the spoken script
+  goes up with a 16 kHz copy and every word comes back timed with a loss (high where the voice did not say the
+  script). The words are matched back the same way. `align.json` adds `fa_words`, `loss`, `median_word_loss` and up
+  to 20 `suspect_words` (a loss at least 4 times the median and 0.2 above it: a starting rule to calibrate on real
+  files). ElevenLabs does not list Bengali for forced alignment; try it on Bangla and check, never assume.
+
+Which engine (2026-09-25, a Bangla voice-over: the 12 word edges next to its 6 pauses against the silence the
+waveform shows): `gemini-3.5-transcribe` median 60 ms off (mean 117, worst 560), ElevenLabs Scribe v2 median 140 ms
+(mean 178, worst 480). Forced alignment itself has not run live yet (the test key had no permission).
 
 Writes `words.json`, `sentences.json`, `vo.srt`, `vo.vtt` and `align.json`. Captions: one sentence at a time, split
 into the fewest cues that fit, of even length, breaking after punctuation where it helps, never a one-word cue left

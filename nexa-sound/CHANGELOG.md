@@ -1,8 +1,41 @@
 # Changelog: nexa-sound
 
 The version is `SKILL_VERSION` in `scripts/sound.py`. Run the offline tests after every change:
-`python3 -m unittest discover -s ~/.claude/skills/nexa-sound/tests` (about 35 s, no network, no keys), and run the
+`python3 -m unittest discover -s ~/.claude/skills/nexa-sound/tests` (about 55 s, no network, no keys), and run the
 changed command once by hand on a synthetic file and measure the result.
+
+## 2026.09.25.3 · ElevenLabs, measured against what was here
+
+ElevenLabs joins as a music, effects, ambience and voice-isolation engine, each run head to head on the live API
+against the engine it would replace (2026-09-25) and made the default only where it won:
+
+- **`generate --engine auto|elevenlabs|lyria`.** ElevenLabs `music_v2_5` (or `music_v2`) takes the brief as a
+  composition plan: one chunk per section at its exact length, sparse where the voice talks, no voices, and the
+  mood's ending as a chunk of its own. With the ending only styled inside the last section, the 16 s take stopped
+  mid-phrase (judged "abrupt_cut", 7/10); as its own chunk it resolved (10/10). 16.0 s exact, 112.0 BPM, 5.3 s to
+  make. `auto` uses it when the key reads a paid plan, else a Lyria final.
+- **`ambience`:** one ElevenLabs seamless loop tiled sample-exactly to the length, with fades and a report on each
+  join (office room tone: 0.69 dB at the joins against 8.36 dB elsewhere; nothing audible).
+- **`mix --ambience`:** a room tone or ambience stem 24 dB under the dialogue anchor, never ducked.
+- **`clean --isolate [auto|elevenlabs|apple]`:** ElevenLabs' isolator on a paid plan (cafe chatter at 5 dB SNR:
+  clarity 9, noise left 1, natural 8, against Apple's 7, 2, 5), else Apple's.
+- **Effects stay on the synthesiser.** It won or tied 5 of the 6 presets tried against `eleven_text_to_sound_v3`
+  (impact 10 against 3); ElevenLabs is for real-world foley. `sfx fetch` gains `--loop`, `--influence` and `--model`;
+  a loop always uses v2 (the only model that loops) and the sidecar says so. A WAV download no longer converts onto
+  itself (`_48k.wav`).
+- **PCM is read, not assumed.** ElevenLabs PCM has no header; the channel count is the one whose implied length is
+  nearest the asked length (within 25 %), which also holds for a 0.5 s click that comes back as 0.48 s.
+- **Formats step down only on a format refusal.** PCM, then 320, 192 and 128 kbps MP3, only when the error names the
+  format, the tier or the plan: an error about the composition plan no longer looked like one.
+- **Licence from the plan, and `credits --strict`.** Every ElevenLabs file records the plan read at the time; free
+  means non-commercial, unknown (a key without User access cannot read it) means not for delivery. `credits` now
+  opens with a STATUS line and ElevenLabs' notes (individual plans, no film, TV or games, barred industries, no
+  Content ID, effects only inside the mix); `--strict` exits 1, and nexa-video-creator's `deliver` runs it.
+- **Freesound's new search.** `/apiv2/search/` (the text search was deprecated in November 2025), sorted by score,
+  explicit sounds skipped; the key can come from the keychain too.
+- The shared `elevenlabs_api.py` module (keys from the environment or the keychain, errors scrubbed of keys, busy
+  and server errors retried, a timeout never resent) is identical in nexa-sound, nexa-speech and
+  nexa-video-creator.
 
 ## 2026.09.25.2 · the first live run
 

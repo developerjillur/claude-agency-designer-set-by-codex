@@ -4,6 +4,19 @@ The version is `SKILL_VERSION` in `scripts/speech.py`. Run the offline tests aft
 `python3 -m unittest discover -s ~/.claude/skills/nexa-speech/tests`, and run `plan`, `render`, `master` and `align`
 once by hand (against the real API only when a key and a budget are agreed).
 
+## 2026.09.25.3 · ElevenLabs, measured
+
+- **`align --engine elevenlabs`:** ElevenLabs forced alignment times the known script on the audio ($0.22 an hour)
+  and returns a loss per word; `align.json` lists the words whose loss stands out (at least 4 times the median and
+  0.2 above it, a first rule to calibrate) as `suspect_words`. `auto` still picks Gemini: on a Bangla voice-over
+  Gemini 3.5 Transcribe put the word edges next to the pauses a median 60 ms from the silence, ElevenLabs Scribe v2
+  140 ms. Forced alignment has not run live yet (the test key lacked the permission).
+- **Voices, head to head.** On the same English and Bangla lines ElevenLabs v3 and Multilingual v2 sounded a little
+  more natural in English (9 against 8) and a little less native in Bangla (River 8 and 9, Sia 9 and 9, against
+  Gemini's 9 and 10), with the same error rate. Gemini stays the engine; an ElevenLabs voice engine waits for a job
+  that needs a cloned or brand voice or 3 or more speakers.
+- The shared `elevenlabs_api.py` module joins `gemini_api.py` (identical in the nexa skills).
+
 ## 2026.09.25.2 · the first live run
 
 An English line (`say`), a Bangla voice-over (`render`, `master`) and `align --engine gemini` on the live API

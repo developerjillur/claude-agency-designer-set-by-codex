@@ -14,7 +14,10 @@ folder; any step can run again. Paths below are inside the job folder.
 
 Environment: `NVC_HOME` (default `~/.nexa-video-creator`), `NVC_RENDERER`, `NVC_WHISPER_MODEL` (a ggml model file;
 otherwise found in `NVC_HOME/models`, `/Volumes/T7 Shield/nexa-video-creator/models`, Homebrew's share folder and
-`~/.local/share/*/models`), `CLAUDE_SKILLS_DIR`.
+`~/.local/share/*/models`), `CLAUDE_SKILLS_DIR`. Keys (the environment first, then the macOS keychain item of the same
+name; names only are ever shown): `GEMINI_API_KEY` (Bangla transcription, the stock judge, `qa --review`),
+`PIXABAY_API_KEY` (`stock`), `ELEVENLABS_API_KEY` (passed on to nexa-sound). Test hooks: `NEXA_PIXABAY_BASE_URL`,
+`NEXA_PIXABAY_CACHE`, `NEXA_PIXABAY_SLEEP_SCALE`, plus the Gemini and ElevenLabs ones of the shared modules.
 
 ## Job
 
@@ -32,7 +35,9 @@ otherwise found in `NVC_HOME/models`, `/Volumes/T7 Shield/nexa-video-creator/mod
 | `stills JOB` | `--target`, `--frames 0,45,300` | `out/TARGET/stills/`, `out/TARGET/stills.png` |
 | `render JOB` | `--target`, `--draft` (half size), `--out FILE` | `out/TARGET/JOB-TARGET.mp4`, `render.json` |
 | `qa JOB` | `--target`, `--review` | `out/TARGET/qa.json` |
-| `deliver JOB` | `--target`, `--force` | `final/`: `NAME-TARGET.mp4`, `.srt`, `.vtt`, `.chapters.txt`, `.notes.md`, `.CREDITS.txt`, `.report.md` |
+| `deliver JOB` | `--target`, `--force`, `--allow-noncommercial` | `final/`: `NAME-TARGET.mp4`, `.srt`, `.vtt`, `.chapters.txt`, `.notes.md`, `.CREDITS.txt`, `.report.md`; stops when nexa-sound's `credits --strict` finds ElevenLabs sound from a free or unknown plan (`--allow-noncommercial` only for an internal test) |
+| `stock JOB "QUERY"` | `--type video\|animation\|photo\|illustration\|vector`, `--also "WORDS"` (repeatable), `--n 12`, `--orientation auto`, `--min-seconds S`, `--order popular\|latest`, `--lang`, `--editors-choice`, `--no-ai`, `--judge`, `--slot`, `--use broll\|ad\|background`, `--market`, `--auto-pick`, `--json` | `media/stock/QUERY/`: `candidates.json`, `sheet.png` (numbered), `thumbs/` |
+| `stock JOB --pick ID` | `--id NAME` | `media/stock/pixabay-ID.mp4` (or `.jpg`, `.png`) and its `.json` record, added as `broll` or `image`; `job.json` `stock` |
 | `segment broll PROJECT --job JOB` | `--comp NAME`, `--id` | `media/segments/ID.mp4` from a remotion-broll project, added as a `segment` source |
 | `segment hf PROJECT --job JOB` | `--alpha`, `--id` | `media/segments/ID.webm` (VP9 with alpha) or `.mp4` from a HyperFrames project |
 | `status JOB` | | what is done and the next step |
@@ -70,6 +75,49 @@ on the frame grid; `audio` cuts the dialogue from exactly these.
 
 `out/TARGET/speech.json`: `{"spans": [[0.067, 4.61], ...]}` (output seconds; ducking). `sfx_cues.json`:
 `[{"t": 4.067, "name": "whoosh-short", "align": "peak", "why": "transition into c002"}]`.
+
+## Stock (Pixabay)
+
+Search once with up to three wordings of the same need (`--also`), look at the numbered sheet, pick by id. Pixabay's
+tags are English: search in English keywords whatever the video's language.
+
+- The search: `GET /api/` (pictures) or `/api/videos/` with `safesearch=true`, `per_page` 3 times `--n`, the
+  orientation from the frame (`auto`: landscape, portrait or square from the target), and for videos a minimum width
+  or height so a clip can fill the frame. Answers are cached 24 hours (`~/.nexa-video-creator/pixabay-cache`),
+  Pixabay's rate headers are read and a 429 waits for the reset (100 requests a minute by default). The key travels
+  in the URL, so no URL is ever printed or stored with it.
+- Skipped before the sheet: hits Pixabay marks `isLowQuality`, AI-made ones with `--no-ai`, videos under
+  `--min-seconds`. Candidates that fill the frame without enlarging come first, then Pixabay's order.
+- The sheet: 480x270 cells with a red number, the id, size, length and author (Swift, `scripts/sheet.swift`; an ffmpeg
+  grid when swiftc is missing).
+- `--judge` (Gemini 3.8 Flash on the sheet, about a cent): per candidate 0 to 5 for subject (weight 0.30), action
+  (0.15), setting (0.10), people and market (0.15, left out when nobody is visible), quality (0.15) and framing
+  (0.15), plus gates. A watermark, burned-in text, a logo or brand, unsafe content or the wrong place (with
+  `--market`) rejects it outright, as does an AI look with `--no-ai` and a recognisable person in a sensitive context.
+  Accept: a score of 0.70 for b-roll, 0.75 for ads, 0.65 for backgrounds, with subject 4 or more and quality and
+  framing 3 or more; within 0.15 of that is "near". An ad candidate with a recognisable person comes back "human"
+  (a person decides). `--auto-pick` adds the best accepted candidate that fills the frame; when none is accepted the
+  tool says to search another way or make the shot (codex-imagegen from a text prompt, never a Pixabay file as the
+  reference; remotion-broll for an explainer scene).
+- `--pick ID`: videos download the largest rendition there is (large, up to 3840x2160; else medium, small, tiny); pictures the
+  largest the key may fetch (`imageURL` or `fullHDURL` with full API access, otherwise `largeImageURL`, 1280 px at
+  most on the long side). A picture that cannot fill the frame is flagged: use it as a card or pick another. The
+  record next to the file: `{"schema": "nvc-stock/1", "source": "pixabay", "id", "type", "page_url", "user",
+  "user_id", "tags", "query", "width", "height", "duration", "rendition", "ai_generated", "fills_frame", "downloaded",
+  "sha256", "licence"}`.
+- What Pixabay's API does not have: music, sound effects, GIFs and 3D (use nexa-sound for sound); scraping the site
+  for them breaks its terms.
+
+Pixabay's licence in short (the record carries it): free for commercial use and editing, no credit needed; never
+sold or handed over as the file itself, alone or as stock, and never in a trademark or logo; no visible logo or
+brand used to promote something; recognisable people not in health, dating, drug, adult or political contexts
+(Pixabay has no model releases); no political use; do not feed the file to AI tools (img2img, outpainting, AI
+upscaling, training). The delivery notes list every stock file with its Pixabay page and author, so a claim can be
+traced and the file taken out.
+
+Measured on the live API (2026-09-25, a 1920x1080 job, "laptop typing" and two more wordings): 1,491 hits, 3 skipped
+as low quality, 12 on the sheet, all filling the frame; the judge rejected the two clips with a visible laptop logo
+and scored the best 0.72, "near", not accepted: the tool asked for another search or a made shot.
 
 ## Exit codes
 

@@ -40,8 +40,9 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import gemini_api  # noqa: E402
 import nvc_plan as P  # noqa: E402
+import pixabay_api as X  # noqa: E402
 
-SKILL_VERSION = "2026.09.25.2"
+SKILL_VERSION = "2026.09.25.3"
 REMOTION_VERSION = "4.0.528"
 SKILL_DIR = HERE.parent
 TEMPLATE = SKILL_DIR / "template"
@@ -1521,10 +1522,14 @@ def cmd_deliver(args):
     (fd / (name + ".notes.md")).write_text(notes, encoding="utf-8")
     files.append(name + ".notes.md")
     if SOUND.exists() and (d / "audio" / target).exists():
-        r = run([sys.executable, SOUND, "credits", d / "audio" / target, "--out", fd / (name + ".CREDITS.txt")],
-                timeout=300)
-        if r.returncode == 0:
+        r = run([sys.executable, SOUND, "credits", d / "audio" / target, "--out", fd / (name + ".CREDITS.txt"),
+                 "--strict"], timeout=300)
+        if (fd / (name + ".CREDITS.txt")).exists():
             files.append(name + ".CREDITS.txt")
+        if r.returncode != 0 and not args.allow_noncommercial:
+            raise NvcError("the sound has ElevenLabs items made on a free or unknown plan (see %s): they are not for "
+                           "client delivery. Make them again on a paid plan, or deliver an internal test with "
+                           "--allow-noncommercial" % (fd / (name + ".CREDITS.txt")))
     report = ["# Delivery: %s (%s)" % (job.get("title"), preset["label"]), "",
               "- Video: %s, %s, %.1f MB, rendered in %.0f s" % (video.name, fmt_dur(rend.get("duration_s")),
                                                                rend.get("size_mb", 0), rend.get("render_s", 0)),
@@ -1545,22 +1550,342 @@ def cmd_deliver(args):
         print("  " + f)
 
 
+def sidecars(root):
+    """Every small JSON under root (audio and media provenance)."""
+    out = []
+    for p in root.rglob("*.json") if root.exists() else []:
+        try:
+            if p.stat().st_size < 2000000:
+                j = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(j, dict):
+                    out.append(j)
+        except (OSError, ValueError):
+            continue
+    return out
+
+
 def disclosure_notes(d, job):
     lines = ["# Notes for the upload", ""]
     voice = [s for s in job["sources"].values() if s["kind"] == "voice"]
-    ai_music = any((d / "audio").rglob("*.json")) and any("lyria" in p.read_text(errors="ignore")
-                                                          for p in (d / "audio").rglob("*.json")
-                                                          if p.stat().st_size < 2000000)
+    audio = sidecars(d / "audio")
+    tracks = [j for j in audio if j.get("schema") == "nexa-sound/track-1"]
+    lyria = any((j.get("provider") or {}).get("api") != "elevenlabs" for j in tracks)
+    eleven_music = any((j.get("provider") or {}).get("api") == "elevenlabs" for j in tracks)
+    eleven_any = eleven_music or any(j.get("schema") in ("nexa-sound/elevenlabs-1", "nexa-sound/ambience-1")
+                                     for j in audio)
     if voice:
-        lines.append("- The voice-over is synthetic (Gemini text-to-speech). YouTube asks for the \"altered or "
+        lines.append("- The voice-over is synthetic (text-to-speech). YouTube asks for the \"altered or "
                      "synthetic content\" label when a voice could be taken for a real person; Meta labels realistic "
                      "AI audio; TikTok needs a label only when it imitates a real person's voice.")
-    if ai_music:
-        lines.append("- The music was generated with Google Lyria: it carries Google's SynthID watermark, is not "
-                     "exclusive, and must not be registered with Content ID. Background music alone does not need "
-                     "YouTube's synthetic-content label.")
+    if lyria:
+        lines.append("- Music generated with Google Lyria carries Google's SynthID watermark, is not exclusive, and "
+                     "must not be registered with Content ID. Background music alone does not need YouTube's "
+                     "synthetic-content label.")
+    if eleven_any:
+        lines.append("- ElevenLabs music or sound carries ElevenLabs' inaudible watermark and is not exclusive: never "
+                     "register it with Content ID. Eleven Music on self-serve plans covers online video, not film, "
+                     "TV, radio or games; see CREDITS.txt for the plan it was made on.")
+    stock = job.get("stock") or {}
+    if stock:
+        lines.append("- Stock from Pixabay (Pixabay Content License; no credit needed): %s. Keep these records: if "
+                     "a claim ever comes up, the file is taken out of the video." % "; ".join(
+                         "%s by %s" % (v.get("page_url"), v.get("user")) for v in stock.values()))
+        if any(v.get("ai_generated") for v in stock.values()):
+            lines.append("- Some stock was marked AI-made on Pixabay: disclose it where the platform asks for "
+                         "realistic AI imagery.")
     lines.append("- Keep the original recordings and the job folder: they are the proof of what was filmed.")
     return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------- stock media (Pixabay)
+
+STOCK_TYPES = {"video": ("video", "film"), "animation": ("video", "animation"), "photo": ("image", "photo"),
+               "illustration": ("image", "illustration"), "vector": ("image", "vector")}
+PIXABAY_LICENCE = {"name": "Pixabay Content License", "url": "https://pixabay.com/service/license-summary/",
+                   "terms": "https://pixabay.com/service/terms/", "attribution_required": False,
+                   "notes": ["free for commercial use and to edit; no credit needed (\"by X via Pixabay\" is optional)",
+                             "never sell or hand over the file as it is, alone or as stock; not in a trademark or logo",
+                             "no visible logo or brand used to promote a product, and nothing that implies endorsement",
+                             "recognisable people: not in health, dating, drug, adult or political contexts; Pixabay "
+                             "has no model releases",
+                             "no political use",
+                             "do not feed the file to AI tools (img2img, outpainting, AI upscaling, training): "
+                             "Pixabay's October 2025 IP guidance",
+                             "if a claim comes up, stop using the file and delete it: this record says where it went"]}
+STOCK_WEIGHTS = {"subject": 0.30, "action": 0.15, "setting": 0.10, "people_market": 0.15, "quality": 0.15,
+                 "framing": 0.15}
+STOCK_HARD_GATES = ("watermark", "burned_text", "logo_or_brand", "nsfw_or_gore", "wrong_place")
+STOCK_JUDGE_SCHEMA = {"type": "array", "items": {"type": "object", "properties": {
+    "i": {"type": "integer"}, "subject": {"type": "integer"}, "action": {"type": "integer"},
+    "setting": {"type": "integer"}, "people_market": {"type": "integer", "nullable": True},
+    "quality": {"type": "integer"}, "framing": {"type": "integer"},
+    "gates": {"type": "object", "properties": {g: {"type": "boolean"} for g in (
+        "watermark", "burned_text", "logo_or_brand", "nsfw_or_gore", "ai_look", "identifiable_person",
+        "sensitive_context", "wrong_place")}},
+    "seen": {"type": "string"}}, "required": ["i", "subject", "quality", "framing", "gates"]}}
+
+
+def frame_size(job):
+    preset = target_preset(job.get("target") or "youtube")
+    return int(preset["width"]), int(preset["height"])
+
+
+def stock_dir(d, query):
+    folder = d / "media" / "stock" / slug(query, "stock")
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def stock_sheet(items, out, cell=(480, 270)):
+    """The candidates on one numbered contact sheet (sheet.swift draws the numbers and captions)."""
+    spec = out.with_suffix(".spec.json")
+    write_json(spec, {"out": str(out), "cols": 4, "cell_w": cell[0], "cell_h": cell[1],
+                      "items": [{"file": it.get("thumb") or "", "label": str(it["n"]), "caption": it["caption"]}
+                                for it in items]})
+    tool = compile_swift("sheet")
+    if tool:
+        r = run([tool, spec], timeout=120)
+        if r.returncode == 0 and out.exists():
+            return out
+    files = [it.get("thumb") for it in items]      # no labels without swiftc: numbered in reading order
+    if not any(files):
+        return None
+    cmd = ["ffmpeg", "-y", "-v", "error"]
+    for f in files:          # a missing preview stays a grey cell, so every cell keeps its number's place
+        cmd += ["-i", f] if f else ["-f", "lavfi", "-i", "color=c=gray:s=%dx%d:d=1" % cell]
+    graph = "".join("[%d:v]scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2[v%d];"
+                    % (i, cell[0], cell[1], cell[0], cell[1], i) for i in range(len(files)))
+    cols = 4
+    layout = "|".join("%d_%d" % ((i % cols) * cell[0], (i // cols) * cell[1]) for i in range(len(files)))
+    graph += "".join("[v%d]" % i for i in range(len(files))) + "xstack=inputs=%d:layout=%s:fill=gray[out]" % (
+        len(files), layout) if len(files) > 1 else "[v0]null[out]"
+    run(cmd + ["-filter_complex", graph, "-map", "[out]", "-frames:v", "1", out], timeout=120, check=True)
+    return out
+
+
+def stock_caption(it):
+    size = "%sx%s" % (it.get("download_w"), it.get("download_h"))
+    bits = [it["kind"], size]
+    if it.get("duration"):
+        bits.append("%d s" % round(it["duration"]))
+    bits.append("fills the frame" if it["fills_frame"] else "card only")
+    if it.get("ai_generated"):
+        bits.append("AI-made")
+    return "  ".join(bits) + "  " + ", ".join(it.get("tags") or [])[:60]
+
+
+def cmd_stock(args):
+    d = job_dir(args.job)
+    job = load_job(d)
+    if args.pick:
+        return stock_pick(d, job, args)
+    if not args.query:
+        raise NvcError("give a search, for example: nvc.py stock JOB \"laptop typing\" --type video")
+    api, sub = STOCK_TYPES[args.type]
+    W, H = frame_size(job)
+    orient = args.orientation
+    if orient == "auto":
+        orient = "horizontal" if W > H else ("vertical" if H > W else "all")
+    params = {"per_page": max(3, min(200, args.n * 3)), "safesearch": True, "order": args.order,
+              "lang": args.lang or None, "page": 1}
+    if api == "image":
+        params.update({"image_type": sub, "orientation": orient, "editors_choice": True if args.editors_choice else None})
+    else:
+        params["video_type"] = sub
+        if orient == "vertical":
+            params["min_height"] = H          # a 4K landscape clip still fills a 9:16 frame when cropped
+        elif orient == "horizontal":
+            params["min_width"] = W
+    queries = [args.query] + [q for q in (args.also or []) if q and q != args.query]
+    hits, seen, total = [], set(), 0
+    for q in queries:
+        try:
+            found = X.search(api, q, **params)
+        except X.PixabayError as err:
+            raise NvcError("Pixabay: %s" % err)
+        total += found.get("totalHits") or 0
+        for hit in found.get("hits") or []:
+            if hit.get("id") not in seen:
+                seen.add(hit.get("id"))
+                hit["_query"] = q
+                hits.append(hit)
+    folder = stock_dir(d, args.query)
+    items, skipped = [], {"low quality": 0, "AI-made": 0, "too short": 0}
+    for hit in hits:
+        it = X.normalize(api, hit)
+        if hit.get("isLowQuality"):
+            skipped["low quality"] += 1
+            continue
+        if args.no_ai and hit.get("isAiGenerated"):
+            skipped["AI-made"] += 1
+            continue
+        if api == "video" and args.min_seconds and (it.get("duration") or 0) < args.min_seconds:
+            skipped["too short"] += 1
+            continue
+        it.update({"ai_generated": bool(hit.get("isAiGenerated")), "g_rated": bool(hit.get("isGRated")),
+                   "fills_frame": X.covers(it, W, H), "type": args.type, "query": hit.get("_query")})
+        items.append(it)
+    items.sort(key=lambda it: not it["fills_frame"])        # stable: Pixabay's relevance order inside each group
+    items = items[:args.n]
+    thumbs = folder / "thumbs"
+    thumbs.mkdir(exist_ok=True)
+    for i, it in enumerate(items, 1):
+        it["n"] = i
+        url = it.get("thumbnail_url") or it.get("preview_url")
+        dest = thumbs / ("%s.jpg" % it["id"])
+        if url and not dest.exists():
+            try:
+                X.download(url, str(dest), max_bytes=20 * 1024 ** 2, timeout=120)
+            except X.PixabayError as err:
+                log("no preview for %s: %s" % (it["id"], err))
+        it["thumb"] = str(dest) if dest.exists() else None
+        it["caption"] = stock_caption(it)
+    sheet = stock_sheet(items, folder / "sheet.png") if items else None
+    judged = None
+    if args.judge and sheet:
+        judged = stock_judge(sheet, items, args, W, H)
+    data = {"schema": "nvc-stock-search/1", "query": args.query, "also": queries[1:], "type": args.type,
+            "frame": [W, H], "orientation": orient, "searched": now(), "total": total, "skipped": skipped,
+            "sheet": str(sheet) if sheet else None, "items": items, "judge": judged, "licence": PIXABAY_LICENCE}
+    write_json(folder / "candidates.json", data)
+    if judged and args.auto_pick and judged.get("best"):
+        args.pick = str(judged["best"])
+        stock_pick(d, load_job(d), args)
+        return
+    if args.json:
+        emit(data, True)
+        return
+    print("stock: %d Pixabay %s for %r (%s%s); %s" % (
+        len(items), args.type + ("s" if len(items) != 1 else ""), args.query, orient,
+        ", skipped " + ", ".join("%d %s" % (v, k) for k, v in skipped.items() if v) if any(skipped.values()) else "",
+        ("sheet: %s" % sheet) if sheet else "no sheet"))
+    for it in items:
+        v = it.get("verdict")
+        print(" %2d  #%-9s %s%s" % (it["n"], it["id"], it["caption"],
+                                   ("   judge: %s %.2f (%s)" % (v["verdict"], v["score"], v.get("seen") or "")
+                                    if v else "")))
+    if judged:
+        print("judge: %s" % (("best #%s (%.2f)" % (judged["best"], judged["best_score"])) if judged.get("best")
+                             else "no candidate reached %.2f with subject 4 or more: search another way or make it"
+                             % STOCK_ACCEPT.get(args.use, 0.75)))
+    if items:
+        print("look at the sheet, then: nvc.py stock %s --pick ID [--id NAME]" % args.job)
+    print("nothing fits? make it instead: codex-imagegen for a still (text prompt only, never a Pixabay file as the "
+          "reference), remotion-broll for an explainer scene")
+    print("results from Pixabay (pixabay.com); the Pixabay Content License applies")
+
+
+STOCK_ACCEPT = {"ad": 0.75, "broll": 0.70, "background": 0.65}   # to tune on the first 50 real slots
+
+
+def stock_verdict(c, real_only=False, ad=False, accept=0.75):
+    """(verdict, score) from one judged candidate: the weighted rubric, the hard gates, the thresholds."""
+    used = {k: w for k, w in STOCK_WEIGHTS.items() if c.get(k) is not None}
+    score = sum(float(c[k]) * w for k, w in used.items()) / (5.0 * sum(used.values())) if used else 0.0
+    g = c.get("gates") or {}
+    if any(g.get(k) for k in STOCK_HARD_GATES) or (real_only and g.get("ai_look")) \
+            or (g.get("identifiable_person") and g.get("sensitive_context")):
+        return "reject", score
+    if score >= accept and (c.get("subject") or 0) >= 4 and (c.get("quality") or 0) >= 3 \
+            and (c.get("framing") or 0) >= 3:
+        return ("human" if ad and g.get("identifiable_person") else "accept"), score
+    return ("near" if score >= accept - 0.15 else "reject"), score
+
+
+def stock_judge(sheet, items, args, W, H):
+    """Gemini 3.8 Flash looks at the numbered sheet and scores every candidate against the slot (subject, action,
+    setting, people and market, quality, framing) with hard gates for watermarks, burned-in text, logos, unsafe
+    content and the wrong place. About a cent a sheet."""
+    import base64
+    if not gemini_api.keys():
+        log("no Gemini key: look at the sheet yourself instead of --judge")
+        return None
+    slot = args.slot or args.query
+    aspect = "%d:%d" % (W // math.gcd(W, H), H // math.gcd(W, H))
+    prompt = ("You check stock candidates for one slot of a client video. Judge only what you can see.\n"
+              "SLOT: %s\nUSE: %s\nMARKET: %s\n"
+              "The sheet shows %d candidates, each with its number in a red badge; the final frame is %s.\n"
+              "Return one object per candidate: i (its number), subject, action, setting, people_market (null when no "
+              "people are visible), quality, framing (0 to 5 each: 5 = exactly the slot, 3 = usable but generic, "
+              "1 = wrong), gates (watermark, burned_text, logo_or_brand, nsfw_or_gore, ai_look, identifiable_person, "
+              "sensitive_context, wrong_place: true or false; if unsure, true) and seen (at most 15 words: what is "
+              "really in the frame). people_market: do the people, dress, signs and buildings fit the market? "
+              "wrong_place applies only when a market is named."
+              % (slot, args.use, args.market or "none named", len(items), aspect))
+    data = base64.b64encode(Path(sheet).read_bytes()).decode("ascii")
+    body = {"model": "gemini-3.8-flash", "store": False, "response_format": STOCK_JUDGE_SCHEMA,
+            "input": [{"type": "text", "text": prompt}, {"type": "image", "mime_type": "image/png", "data": data}]}
+    try:
+        resp, info = gemini_api.interactions(body, timeout=300)
+    except gemini_api.GeminiError as err:
+        log("the stock judge failed (%s): look at the sheet yourself" % err.kind)
+        return None
+    text = "".join(gemini_api.text_parts(resp)).strip()
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
+    try:
+        rows = json.loads(text)
+    except ValueError:
+        log("the stock judge did not answer in JSON: look at the sheet yourself")
+        return None
+    by_n = {it["n"]: it for it in items}
+    best, best_score = None, 0.0
+    for c in rows if isinstance(rows, list) else []:
+        it = by_n.get(c.get("i"))
+        if not it:
+            continue
+        verdict, score = stock_verdict(c, real_only=args.no_ai, ad=args.use == "ad",
+                                       accept=STOCK_ACCEPT.get(args.use, 0.75))
+        it["verdict"] = {"verdict": verdict, "score": round(score, 3), "seen": c.get("seen"), "raw": c}
+        if verdict == "accept" and it.get("fills_frame") and score > best_score:
+            best, best_score = it["id"], score
+    return {"model": "gemini-3.8-flash", "key_source": info.get("key"), "usage": gemini_api.usage(resp),
+            "best": best, "best_score": round(best_score, 3), "slot": slot, "market": args.market}
+
+
+def stock_find(d, pick):
+    for cand in sorted((d / "media" / "stock").glob("*/candidates.json"), key=lambda p: p.stat().st_mtime,
+                       reverse=True):
+        data = read_json(cand) or {}
+        for it in data.get("items") or []:
+            if str(it.get("id")) == str(pick) or ("n%s" % it.get("n")) == str(pick):
+                return it, data
+    return None, None
+
+
+def stock_pick(d, job, args):
+    it, search = stock_find(d, args.pick)
+    if it is None:
+        raise NvcError("#%s is not in this job's stock searches; search first (nvc.py stock JOB \"words\")" % args.pick)
+    api = STOCK_TYPES[it.get("type") or "video"][0]
+    url = it.get("download_url")
+    if not url:
+        raise NvcError("#%s has no download link" % it["id"])
+    ext = ".mp4" if api == "video" else (os.path.splitext(url.split("?")[0])[1].lower() or ".jpg")
+    dest = d / "media" / "stock" / ("pixabay-%s%s" % (it["id"], ext))
+    if not dest.exists():
+        log("downloading Pixabay #%s (%s)" % (it["id"], "%.1f MB" % (it["download_size"] / 1e6)
+                                              if it.get("download_size") else it.get("download_field")))
+        try:
+            X.download(url, str(dest))
+        except X.PixabayError as err:
+            raise NvcError("Pixabay: %s" % err)
+    digest = hashlib.sha256(dest.read_bytes()).hexdigest()
+    side = {"schema": "nvc-stock/1", "source": "pixabay", "id": it["id"], "type": it.get("type"),
+            "page_url": it.get("page_url"), "user": it.get("user"), "user_id": it.get("user_id"),
+            "tags": it.get("tags"), "query": (search or {}).get("query"), "width": it.get("download_w"),
+            "height": it.get("download_h"), "duration": it.get("duration"), "rendition": it.get("download_field"),
+            "ai_generated": it.get("ai_generated"), "fills_frame": it.get("fills_frame"),
+            "downloaded": now(), "sha256": digest, "licence": PIXABAY_LICENCE}
+    write_json(dest.with_name(dest.name + ".json"), side)
+    role = "broll" if api == "video" else "image"
+    cmd_add(argparse.Namespace(job=str(d), files=[str(dest)], role=role, id=args.id or "px-%s" % it["id"]))
+    job = load_job(d)
+    job.setdefault("stock", {})[str(it["id"])] = {k: side[k] for k in ("source", "page_url", "user", "type",
+                                                                           "ai_generated", "sha256")}
+    save_job(d, job)
+    if not it.get("fills_frame"):
+        print("note: %sx%s does not fill the %s frame without enlarging; use it as a card (fit box) or pick another"
+              % (it.get("download_w"), it.get("download_h"), "x".join(str(v) for v in frame_size(job))))
 
 
 # ---------------------------------------------------------------- segments from other engines
@@ -1756,6 +2081,8 @@ def build_parser():
     s.add_argument("job")
     s.add_argument("--target", choices=targets)
     s.add_argument("--force", action="store_true", help="deliver even with open QA items")
+    s.add_argument("--allow-noncommercial", action="store_true",
+                   help="an internal test: deliver even with free-plan ElevenLabs sound in it")
 
     s = sub.add_parser("segment", help="render a remotion-broll scene or a HyperFrames composition into the job")
     s.add_argument("engine", choices=("broll", "hf"))
@@ -1764,6 +2091,28 @@ def build_parser():
     s.add_argument("--comp", help="remotion-broll composition id (default BrollMinute)")
     s.add_argument("--alpha", action="store_true", help="HyperFrames: render VP9 WebM with alpha for an overlay")
     s.add_argument("--id")
+
+    s = sub.add_parser("stock", help="search Pixabay for b-roll and pictures, then pick one into the job")
+    s.add_argument("job")
+    s.add_argument("query", nargs="?", help="what to find, in English keywords (Pixabay's tags are English)")
+    s.add_argument("--type", default="video", choices=sorted(STOCK_TYPES))
+    s.add_argument("--n", type=int, default=12, help="candidates on the sheet (default 12)")
+    s.add_argument("--orientation", default="auto", choices=("auto", "horizontal", "vertical", "all"))
+    s.add_argument("--min-seconds", type=float, help="videos at least this long")
+    s.add_argument("--order", default="popular", choices=("popular", "latest"))
+    s.add_argument("--lang", help="the query's language code (Pixabay's default is en)")
+    s.add_argument("--editors-choice", action="store_true", help="pictures Pixabay's editors picked")
+    s.add_argument("--no-ai", action="store_true", help="leave out AI-made stock")
+    s.add_argument("--also", action="append", help="another wording of the same need (repeatable; 3 in all is "
+                                                     "a good search)")
+    s.add_argument("--judge", action="store_true", help="Gemini scores every candidate on the sheet (about a cent)")
+    s.add_argument("--slot", help="for the judge: what the shot must show, in a sentence (default: the query)")
+    s.add_argument("--use", default="broll", choices=("broll", "ad", "background"), help="for the judge")
+    s.add_argument("--market", help="for the judge: the client's market when people or places must fit it")
+    s.add_argument("--auto-pick", action="store_true", help="with --judge: add the best accepted candidate")
+    s.add_argument("--pick", help="download this Pixabay id (from the sheet) and add it to the job")
+    s.add_argument("--id", help="the source id to add it as (default px-ID)")
+    s.add_argument("--json", action="store_true")
 
     s = sub.add_parser("status", help="what is done and what is next")
     s.add_argument("job")
@@ -1779,7 +2128,7 @@ def build_parser():
 COMMANDS = {"new": cmd_new, "add": cmd_add, "ingest": cmd_ingest, "sync": cmd_sync, "clean": cmd_clean,
             "transcribe": cmd_transcribe, "brief": cmd_brief, "compile": cmd_compile, "audio": cmd_audio,
             "stills": cmd_stills, "render": cmd_render, "qa": cmd_qa, "deliver": cmd_deliver,
-            "segment": cmd_segment, "status": cmd_status, "doctor": cmd_doctor}
+            "segment": cmd_segment, "stock": cmd_stock, "status": cmd_status, "doctor": cmd_doctor}
 
 
 def main(argv=None):

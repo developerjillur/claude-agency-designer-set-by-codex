@@ -396,6 +396,150 @@ class SpeechImport(unittest.TestCase):
             self.assertEqual([w["id"] for w in words["words"]], ["w0001", "w0002"])
 
 
+class StockVerdict(unittest.TestCase):
+    def c(self, **kw):
+        base = {"subject": 4, "action": 4, "setting": 4, "people_market": None, "quality": 4, "framing": 4,
+                "gates": {}}
+        base.update(kw)
+        return base
+
+    def test_the_rubric_and_the_gates(self):
+        sys.path.insert(0, str(SCRIPTS))
+        import nvc
+        self.assertEqual(nvc.stock_verdict(self.c())[0], "accept")
+        self.assertEqual(nvc.stock_verdict(self.c(subject=3))[0], "near")               # subject must be 4
+        self.assertEqual(nvc.stock_verdict(self.c(gates={"logo_or_brand": True}))[0], "reject")
+        self.assertEqual(nvc.stock_verdict(self.c(gates={"identifiable_person": True, "sensitive_context": True}))[0],
+                         "reject")                                                      # the licence's people rule
+        self.assertEqual(nvc.stock_verdict(self.c(gates={"identifiable_person": True}), ad=True)[0], "human")
+        self.assertEqual(nvc.stock_verdict(self.c(gates={"ai_look": True}), real_only=True)[0], "reject")
+        v, score = nvc.stock_verdict(self.c(subject=4, action=4, setting=3, people_market=3, quality=3, framing=4),
+                                     accept=0.70)
+        self.assertEqual((v, round(score, 2)), ("accept", 0.72))                        # b-roll takes 0.70
+
+
+@unittest.skipUnless(HAVE_FFMPEG, "needs ffmpeg")
+class Stock(unittest.TestCase):
+    """nvc.py stock against a fake Pixabay: search, filters, sheet, pick, licence record."""
+
+    @classmethod
+    def setUpClass(cls):
+        import http.server
+        import threading
+        import urllib.parse
+        cls.tmp = Path(tempfile.mkdtemp(prefix="nvc-stock-"))
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=1",
+                        "-frames:v", "1", str(cls.tmp / "thumb.jpg")], check=True)
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=25:duration=2",
+                        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(cls.tmp / "clip.mp4")],
+                       check=True)
+        log = cls.log = []
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def send(self, code, data, ctype):
+                self.send_response(code)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("X-RateLimit-Remaining", "99")
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_GET(self):
+                url = urllib.parse.urlparse(self.path)
+                q = urllib.parse.parse_qs(url.query)
+                log.append({"path": url.path, "q": q})
+                base = "http://127.0.0.1:%d" % self.server.server_address[1]
+                if url.path == "/api/videos/":
+                    if q.get("key") != ["px-test"]:
+                        return self.send(400, b"[ERROR 400] Invalid or missing API key", "text/plain")
+                    hits = []
+                    for i, (w, h, low, ai) in enumerate(((1920, 1080, False, False), (1280, 720, False, False),
+                                                         (1920, 1080, True, False), (3840, 2160, False, True))):
+                        hits.append({"id": 100 + i, "pageURL": "https://pixabay.com/videos/id-%d/" % (100 + i),
+                                     "type": "film", "tags": "laptop, typing, keyboard", "duration": 12,
+                                     "user": "maker%d" % i, "user_id": i, "isLowQuality": low, "isAiGenerated": ai,
+                                     "videos": {"large": {"url": base + "/files/clip.mp4", "width": w, "height": h,
+                                                          "size": 900000, "thumbnail": base + "/files/thumb.jpg"},
+                                                "tiny": {"url": base + "/files/clip.mp4", "width": 640, "height": 360,
+                                                         "size": 90000, "thumbnail": base + "/files/thumb.jpg"}}})
+                    body = json.dumps({"total": 4, "totalHits": 4, "hits": hits}).encode()
+                    return self.send(200, body, "application/json")
+                if url.path.startswith("/files/"):
+                    return self.send(200, (cls.tmp / url.path.split("/")[-1]).read_bytes(),
+                                     "video/mp4" if url.path.endswith(".mp4") else "image/jpeg")
+                return self.send(404, b"no route", "text/plain")
+
+        cls.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.env = dict(os.environ, NVC_HOME=str(cls.tmp / "home"), NEXA_NO_KEYCHAIN="1", PIXABAY_API_KEY="px-test",
+                       NEXA_PIXABAY_BASE_URL="http://127.0.0.1:%d" % cls.server.server_address[1],
+                       NEXA_PIXABAY_CACHE=str(cls.tmp / "cache"))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def nvc(self, *args):
+        r = subprocess.run([sys.executable, str(SCRIPTS / "nvc.py")] + [str(a) for a in args], capture_output=True,
+                           text=True, env=self.env, timeout=600)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r
+
+    def test_search_filters_sheet_and_pick(self):
+        job = self.tmp / "job"
+        self.nvc("new", job, "--target", "youtube", "--title", "Stock test")
+        r = self.nvc("stock", job, "laptop typing", "--also", "hands on keyboard", "--n", 8, "--no-ai")
+        self.assertNotIn("px-test", r.stdout + r.stderr)                     # the key never shows
+        cand = json.loads((job / "media" / "stock" / "laptop-typing" / "candidates.json").read_text())
+        ids = [it["id"] for it in cand["items"]]
+        self.assertEqual(ids, [100, 101])                  # low quality and AI-made left out, 1080p fills first
+        self.assertEqual([it["fills_frame"] for it in cand["items"]], [True, False])
+        self.assertEqual(cand["skipped"], {"low quality": 1, "AI-made": 1, "too short": 0})
+        searches = [x for x in self.log if x["path"] == "/api/videos/"]
+        self.assertEqual(len(searches), 2)                                   # the query and one variant
+        self.assertEqual(searches[0]["q"]["safesearch"], ["true"])
+        self.assertEqual(searches[0]["q"]["min_width"], ["1920"])
+        self.assertTrue((job / "media" / "stock" / "laptop-typing" / "sheet.png").exists())
+        again = len(self.log)
+        self.nvc("stock", job, "laptop typing", "--also", "hands on keyboard", "--n", 8, "--no-ai")
+        self.assertEqual(len([x for x in self.log[again:] if x["path"] == "/api/videos/"]), 0)   # 24 h cache
+        self.nvc("stock", job, "--pick", 100, "--id", "broll-typing")
+        side = json.loads((job / "media" / "stock" / "pixabay-100.mp4.json").read_text())
+        self.assertEqual(side["page_url"], "https://pixabay.com/videos/id-100/")
+        self.assertEqual(side["licence"]["name"], "Pixabay Content License")
+        jobj = json.loads((job / "job.json").read_text())
+        self.assertEqual(jobj["sources"]["broll-typing"]["role"], "broll")
+        self.assertIn("100", jobj["stock"])
+        sys.path.insert(0, str(SCRIPTS))
+        import nvc
+        notes = nvc.disclosure_notes(job, jobj)
+        self.assertIn("https://pixabay.com/videos/id-100/ by maker0", notes)
+
+    def test_sheet_without_swift_keeps_every_number_in_place(self):
+        import unittest.mock
+        sys.path.insert(0, str(SCRIPTS))
+        import nvc
+        items = [{"n": i + 1, "thumb": str(self.tmp / "thumb.jpg") if i != 1 else None, "caption": "c%d" % i}
+                 for i in range(3)]
+        out = self.tmp / "fallback.png"
+        with unittest.mock.patch.object(nvc, "compile_swift", return_value=None):
+            self.assertEqual(nvc.stock_sheet(items, out), out)
+        size = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0",
+                               str(out)], capture_output=True, text=True).stdout.strip()
+        self.assertEqual(size, "1440,270")                                   # three cells, none dropped
+
+        def cell_is_flat(k):                         # the missing preview is one grey, a real one is not
+            raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(out), "-vf", "crop=480:270:%d:0,format=gray"
+                                  % (480 * k), "-f", "rawvideo", "-"], capture_output=True).stdout
+            return max(raw) - min(raw) < 8
+        self.assertEqual([cell_is_flat(k) for k in range(3)], [False, True, False])
+
+
 class Pipeline(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -474,11 +618,12 @@ class Pipeline(unittest.TestCase):
 
     def test_shared_module_copies_are_identical(self):
         repo = SCRIPTS.parent.parent
-        copies = [p for p in (repo / "nexa-speech" / "scripts" / "gemini_api.py",
-                              repo / "nexa-sound" / "scripts" / "gemini_api.py") if p.exists()]
-        mine = (SCRIPTS / "gemini_api.py").read_bytes()
-        for p in copies:
-            self.assertEqual(p.read_bytes(), mine, "%s differs from nexa-video-creator's copy" % p)
+        for module in ("gemini_api.py", "elevenlabs_api.py"):
+            copies = [p for p in (repo / "nexa-speech" / "scripts" / module,
+                                  repo / "nexa-sound" / "scripts" / module) if p.exists()]
+            mine = (SCRIPTS / module).read_bytes()
+            for p in copies:
+                self.assertEqual(p.read_bytes(), mine, "%s differs from nexa-video-creator's copy" % p)
 
 
 if __name__ == "__main__":

@@ -15,13 +15,13 @@ Audio in can be anything ffmpeg reads (WAV, MP3, AAC, FLAC, the audio of a video
 | Variable | Meaning |
 |---|---|
 | `GEMINI_API_KEY`, `GEMINI_API_KEY_1`, `_2` ... | Gemini keys, in failover order (a refused key moves to the next; a quota error waits on the same key). Without them the macOS keychain entry `GEMINI_API_KEY` is used. Never printed or written anywhere. |
-| `FREESOUND_API_KEY` | turns on Freesound for `sfx place` and `sfx fetch` (sent only to freesound.org in an `Authorization` header) |
-| `ELEVENLABS_API_KEY` | turns on ElevenLabs sound generation (paid plans only) |
+| `FREESOUND_API_KEY` | turns on Freesound for `sfx place` and `sfx fetch` (sent only to freesound.org in an `Authorization` header); without it the keychain entry `FREESOUND_API_KEY` is used |
+| `ELEVENLABS_API_KEY`, `ELEVENLABS_API_KEY_1`, `_2` ... | ElevenLabs music, effects, ambience and voice isolation (sent only to api.elevenlabs.io in the `xi-api-key` header); a refused key moves to the next; without them the keychain entry `ELEVENLABS_API_KEY` is used. Give the key the User permission (read) so the plan can be read, plus Sound Effects, Music and Audio Isolation |
 | `NEXA_SOUND_HOME` | the skill's own folder, default `~/.nexa-sound` (`library.jsonl`, `venv/`, `bin/`, `capabilities.json`) |
 | `NEXA_SFX_DIRS` | your own effect folders, separated by `:`; each may hold a `manifest.json` (below) |
 | `NEXA_MEDIA_USE_SFX` | where media-use keeps its effects (default `~/.claude/skills/media-use/audio/assets/sfx`) |
 | `FFMPEG`, `FFPROBE` | tool paths when they are not on PATH |
-| test hooks | `NEXA_GEMINI_BASE_URL`, `NEXA_GEMINI_SLEEP_SCALE`, `NEXA_NO_KEYCHAIN` (shared module), `NEXA_FREESOUND_BASE_URL`, `NEXA_ELEVENLABS_BASE_URL`, `NEXA_SOUND_VENV_PYTHON` (a Python to run `realtime.py` with), `NEXA_REALTIME_FAKE=1` and `NEXA_REALTIME_FAKE_LOG=FILE` (a local fake stream), `NEXA_SOUND_ISOLATE_BIN` (a voice-isolation binary) |
+| test hooks | `NEXA_GEMINI_BASE_URL`, `NEXA_GEMINI_SLEEP_SCALE`, `NEXA_NO_KEYCHAIN` (shared module), `NEXA_FREESOUND_BASE_URL`, `NEXA_ELEVENLABS_BASE_URL`, `NEXA_ELEVENLABS_SLEEP_SCALE`, `NEXA_SOUND_VENV_PYTHON` (a Python to run `realtime.py` with), `NEXA_REALTIME_FAKE=1` and `NEXA_REALTIME_FAKE_LOG=FILE` (a local fake stream), `NEXA_SOUND_ISOLATE_BIN` (a voice-isolation binary) |
 
 ## Costs and the ledger
 
@@ -46,7 +46,9 @@ Checks ffmpeg and ffprobe and every filter the skill uses (`filters_missing`), t
 judge), the Gemini key sources (names only), the Freesound and ElevenLabs keys (yes or no), uv and the RealTime venv,
 swiftc and the voice-isolation helper, the media-use folder, `NEXA_SFX_DIRS` and the library. `--live` (a free call)
 lists which of `lyria-3.5`, `lyria-3-clip-preview`, `lyria-realtime-exp` and `gemini-3.8-flash` the key's project
-sees and writes `~/.nexa-sound/capabilities.json`. Exit 1 when ffmpeg or a filter is missing.
+sees and writes `~/.nexa-sound/capabilities.json`; with an ElevenLabs key it also reads the plan (free:
+`GET /v1/user/subscription`): tier, paid or not, credits left, or why the key cannot read it. Exit 1 when ffmpeg or a
+filter is missing.
 
 ## moods
 
@@ -115,11 +117,16 @@ section after the first; density and brightness rise with the section's intensit
 
 ## generate
 
-`generate BRIEF --out DIR (--draft N | --final [--takes N] | --realtime [--seed N]) [--images A,B] [--budget USD]
-[--project DIR]`
+`generate BRIEF --out DIR [--engine auto|elevenlabs|lyria] (--draft N | --final [--takes N] | --realtime [--seed N]
+| --takes N [--model M] [--seed N]) [--images A,B] [--budget USD] [--project DIR]`
+
+The engine: `--draft`, `--final` and `--realtime` are Lyria modes. `--engine elevenlabs` makes ElevenLabs takes.
+`auto` (the default, with no mode flag) picks ElevenLabs when its key is here and the plan it reads is paid, else a
+Lyria final, and says why.
 
 | Mode | Model | What comes back | Price |
 |---|---|---|---|
+| ElevenLabs (`--takes` 1 to 3) | `music_v2_5` (default) or `music_v2` | exact to the brief's length, 48 kHz 16-bit stereo WAV (the PCM answer wrapped), or MP3 when the plan refuses PCM | $0.15 a minute a take (list price) |
 | `--draft N` (1 to 10) | `lyria-3-clip-preview` | about 25 to 30 s, MP3 (25.6 s on 2026-09-25) | $0.04 a take |
 | `--final` (`--takes` 1 to 3) | `lyria-3.5` | MP3, 44.1 kHz stereo, 192 kbps; the length is loose (64 s for an 18 s request) | $0.08 a take |
 | `--realtime` | `lyria-realtime-exp` | the video length plus 3 s, 48 kHz 16-bit stereo WAV | free for now |
@@ -133,11 +140,49 @@ blocked and passed again within 8 minutes on 2026-09-25. A prompt blocked at onc
 never retried; a per-minute quota or a server error waits and retries up to 3 times on the same key (the shared
 `gemini_api` module).
 
+ElevenLabs request (`POST /v1/music`, timeout 600 s, never resent after a timeout since it may be billed): the brief
+as a composition plan, `respect_sections_durations`, `sign_with_c2pa` on MP3 (PCM has no C2PA), `seed` when given,
+`output_format` `pcm_48000` first, then `mp3_48000_320`, `mp3_44100_192` and `mp3_44100_128` when the plan refuses a
+format (only a refusal that names the format, tier or plan steps down; any other error stops). The plan for
+`music_v2_5` and `music_v2`:
+
+```json
+{"chunks": [
+  {"text": "[Intro] {instrumental}", "duration_ms": 13000,
+   "positive_styles": ["Minimal electronic tech", "arpeggiated analog synth", "crisp digital plucks", "112 BPM",
+     "A minor", "background music under a voice-over",
+     "sparse and supportive under the voice-over, simple chords, no lead melody", "intensity 3 of 10",
+     "sparse arrangement that leaves room for the voice"],
+   "negative_styles": ["vocals", "singing", "choir", "spoken words", "lyrics", "vocal chops", "busy lead melody",
+     "loud drum fills"],
+   "context_adherence": "high"},
+  {"text": "[Ending] {instrumental}", "duration_ms": 3000,
+   "positive_styles": ["Minimal electronic tech", "arpeggiated analog synth",
+     "one final hit, then a short tail ringing out to silence", "clear resolution"],
+   "negative_styles": ["vocals", "singing", "choir", "spoken words", "lyrics", "vocal chops", "fade in",
+     "new melody", "abrupt cut"],
+   "context_adherence": "high"}]}
+```
+
+(The 16 s tech brief of the live test, 2026-09-25: 16.0 s back, 48 kHz stereo, 112.0 BPM, judged 10/10.)
+
+One chunk per brief section at its exact length (3 to 120 s each; longer sections are split, a section under 3 s
+joins its neighbour; at most 30 chunks). The first chunk carries the mood's styles, the tempo, the key and the
+voice-over note; later chunks repeat the first two styles plus their own. Narrated sections ask for a sparse
+arrangement. The mood's ending gets its own chunk (`ring_out` and `fade` 4 s, `final_hit` and `cut` 3 s): styled
+only inside the last section, music_v2_5 stopped at the length mid-phrase (the judge called it "abrupt_cut", 7/10);
+as its own chunk it resolved (10/10, 2026-09-25). No voice unless the brief allows vocals. The plan is kept in the
+sidecar (`request.composition_plan`), and the provider block records the plan tier read at the time and the response
+headers that came back (`song-id`; `request-id` and the cost headers when sent). The licence block comes from the
+plan: paid means commercial; free means non-commercial with "elevenlabs.io" in the title; unknown (the key cannot
+read the plan) means not for client delivery until someone confirms it.
+
 `--images`: up to 10 images (JPEG, PNG, WebP; other formats and files over 1.5 MB are turned into a 1280 px JPEG
-first) sent with the prompt to steer the mood.
+first) sent with the prompt to steer the mood (Lyria only).
 
 Per take, in `DIR`:
-- `<id>_orig.<wav|mp3>`: the file exactly as it came, made read-only. Never edited: every edit is a new file.
+- `<id>_orig.<wav|mp3>`: the file exactly as it came (ElevenLabs PCM gets a WAV header), made read-only. Never
+  edited: every edit is a new file.
 - `<id>.json`: the sidecar (below). `<id>.beats.json`: the beat grid.
 - a line in `ledger.jsonl` and in `~/.nexa-sound/library.jsonl`.
 
@@ -286,8 +331,12 @@ seed, repeats of a preset get seeds 1, 2, 3 in order, so they differ.
 
 Sources, in order: the cue's `file`; the synthesiser; `NEXA_SFX_DIRS` folders (by manifest key, file name or all the
 query's words in a key or description); media-use's files by path (Pixabay licence: used in place, never copied);
-Freesound (CC0 only unless the cue allows CC BY; never NC; the 128 kbps preview); ElevenLabs (paid plans only, about
-$0.05 each, within the budget). `--offline` stops at media-use. A cue nothing matches is skipped with the reason.
+Freesound (CC0 only unless the cue allows CC BY; never NC; the 128 kbps preview); ElevenLabs (budgeted at $0.02 a
+clip, within the budget; the plan is recorded, and a free or unknown plan marks the cue not for client delivery).
+`--offline` stops at media-use. A cue nothing matches is skipped with the reason. Measured on 2026-09-25 (synthesiser
+against ElevenLabs `eleven_text_to_sound_v3`, judged on fit, clean and usable): the synthesiser won or tied on
+whoosh, impact (10 against 3), riser, click and ding, ElevenLabs on pop; ElevenLabs is for real-world foley the
+presets do not cover (a door, glass, a crowd, rain), so name those cues with `query` and `source: elevenlabs`.
 
 Levels: each effect's loudest 400 ms (momentary loudness, a mono file measured as dual mono) is set to
 `-20 LUFS + gain_db`: the stem is made for a dialogue anchor of -20 LUFS, and `mix` moves it with the real dialogue.
@@ -305,30 +354,60 @@ A library folder's `manifest.json` (the media-use format, plus optional licence 
                                   "licence": "CC0", "attribution": null}}
 ```
 
-`sfx fetch QUERY --source freesound|elevenlabs --out DIR [--dur S] [--allow-cc-by] [--budget USD] [--project DIR]`:
-one effect into
-`DIR`, converted to 48 kHz 24-bit WAV next to the download, with a sidecar and a `manifest.json` entry (so `DIR` can
-join `NEXA_SFX_DIRS`). ElevenLabs checks the account's plan first (`GET /v1/user/subscription`) and refuses the free
-plan, whose output is not for commercial use.
+`sfx fetch QUERY --source freesound|elevenlabs --out DIR [--dur S] [--loop] [--influence 0-1] [--model M]
+[--allow-cc-by] [--budget USD] [--project DIR]`: one effect into `DIR`, converted to 48 kHz 24-bit WAV next to the
+download (`<name>_48k.wav` when the download is already a WAV), with a sidecar and a `manifest.json` entry (so `DIR`
+can join `NEXA_SFX_DIRS`).
+
+- Freesound: `GET /apiv2/search/` (the old `/apiv2/search/text/` was deprecated in November 2025), sorted by
+  relevance, CC0 only unless `--allow-cc-by`, never NC or sampling licences, explicit sounds skipped, up to 30 s; the
+  HQ preview MP3 is downloaded (the original file needs OAuth2).
+- ElevenLabs: `POST /v1/sound-generation` with `text`, `duration_seconds` (0.5 to 30; lengths come back on a 0.04 s
+  grid, so 0.5 gives 0.48), `prompt_influence` (0 free to 1 literal; the model's default without it), `loop` and
+  `model_id` (`eleven_text_to_sound_v3` by default, `eleven_text_to_sound_v2`; `--loop` always uses v2, the only model
+  that loops). With `--dur` it asks for `pcm_48000` (v3 answers 48 kHz stereo; the channel count is read from the
+  byte count against the length) and wraps it as WAV; without, 192 kbps MP3. The sidecar (schema
+  `nexa-sound/elevenlabs-1`) keeps the prompt, model, length, loop, influence, format, the plan read before the call,
+  the licence, the response headers and the SHA-256.
+
+## ambience
+
+`ambience TEXT --duration S --out FILE [--piece S] [--influence 0-1] [--model M] [--fade-in 1.0] [--fade-out 1.5]
+[--budget USD] [--project DIR]`
+
+An ambience or room-tone bed of exact length for $0.02: one ElevenLabs seamless loop (`--piece`, 4 to 30 s, default
+the length up to 30 s, on `eleven_text_to_sound_v2`), tiled sample-exactly to S with ffmpeg and faded in and out.
+Writes FILE (48 kHz 24-bit stereo) and `<stem>.json` (schema `nexa-sound/ambience-1`): the text, length, loop length
+and count, fades, loudness, the loop's sidecar, the licence and `seams`: the level jump at each join against the rest
+of the file (`joins`, `worst_level_jump_db`, `p95_level_jump_db`, `audible`). An audible join says so: make it again
+or use a longer piece. Measured on 2026-09-25 with 8 s loops: an office room tone (20 s) joined at 0.69 dB while the
+rest of the file moved 8.36 dB (95th percentile), a busy cafe (15 s) at 1.8 dB against 5.35 dB: no join could be
+heard. Describe what is heard, not a scene ("quiet office room tone, distant keyboard, air conditioning hum", not "an
+office").
 
 ## clean
 
-`clean IN --out FILE [--isolate] [--denoiser afftdn|anlmdn|none] [--nr 12] [--hum 50|60] [--deess 0.4]`
+`clean IN --out FILE [--isolate [auto|elevenlabs|apple]] [--denoiser afftdn|anlmdn|none] [--nr 12] [--hum 50|60]
+[--deess 0.4]`
 
 At 48 kHz: `adeclick` and `adeclip` first when astats shows many full-scale peaks; `highpass` 80 Hz; `afftdn` with
 `nf` from the measured noise floor (the twenty quietest 50 ms blocks, clamped to -80 to -20 dB) and `nr` 12 (or
 `anlmdn`); hum notches at 50 or 60 Hz and 3 harmonics (`--hum`); -2 dB at 250 Hz and +2 dB at 4 kHz; `deesser` only
 with `--deess`; `acompressor` (threshold -20 dB, ratio 3, attack 8, release 120, knee 4, makeup 2 dB). The input is
-padded so nothing is lost at the end, and the processing delay is removed (afftdn 25 ms, anlmdn 8 ms, Apple
-isolation 56.3 ms). Then it proves the sync: 1 ms envelopes of input and output are cross-correlated; a leftover
-over 1 ms is measured and removed once more, and anything over 2 ms stops the command without writing the file.
-`--isolate` runs Apple's voice isolation first (`scripts/voice_isolate.swift`, compiled once with swiftc to
-`~/.nexa-sound/bin/voice-isolate`); when it cannot run, the chain goes on without it and the report says why.
-Loudness is not set here.
+padded so nothing is lost at the end, and the processing delay is removed (afftdn 25 ms, anlmdn 8 ms, Apple isolation
+56.3 ms). Then it proves the sync: 1 ms envelopes of input and output are cross-correlated; a leftover over 1 ms is
+measured and removed once more, and anything over 2 ms stops the command without writing the file. `--isolate` runs
+voice isolation first. `auto` (the default when no engine is named) uses ElevenLabs' voice isolator when its key is
+here and the plan is paid, else Apple's (`scripts/voice_isolate.swift`, compiled once with swiftc to
+`~/.nexa-sound/bin/voice-isolate`, free). ElevenLabs (`POST /v1/audio-isolation`, $0.12 a minute, in the ledger): the
+file goes up as 16-bit WAV and comes back as MP3, decoded to the working length; the sync check then measures and
+removes what delay is left. Speech in cafe chatter at 5 dB SNR (2026-09-25, judged 0 to 10): ElevenLabs clarity 9,
+noise left 1, natural 8; Apple 7, 2, 5; the words were read equally well after either (CER 0.045). When isolation
+cannot run, the chain goes on without it and the report says why. Loudness is not set here.
 
 `<out>.json` (schema `nexa-sound/clean-1`): `chain`, `denoiser`, `nr`, `nf_used_db`, `hum`, `deess`, `isolate`
-(`asked`, `ran`), `noise_floor_db` (`before`, `after`), `delay` (`removed_ms`, `known_ms`, `extra_measured_ms`,
-`sync_offset_ms`, `sync_ok`), `clipping_repair`, `notes`.
+(`asked`, `ran`, `engine`, and for ElevenLabs the licence and response headers), `noise_floor_db` (`before`, `after`),
+`delay` (`removed_ms`, `known_ms`, `extra_measured_ms`, `sync_offset_ms`, `sync_ok`), `clipping_repair`, `notes`.
 
 ## duck
 
@@ -348,8 +427,8 @@ strictly increasing) and `<out>.json` (schema `nexa-sound/duck-1`). In Remotion:
 
 ## mix
 
-`mix [--dialogue F] [--voice F] [--music F] [--sfx F] [--speech F] --platform P [--duck -14] [--music-under 20]
-[--duration S] --out FILE`
+`mix [--dialogue F] [--voice F] [--music F] [--sfx F] [--ambience F] [--speech F] --platform P [--duck -14]
+[--music-under 20] [--ambience-under 24] [--duration S] --out FILE`
 
 The mix is as long as the dialogue or voice-over (else the longest input); give `--duration` with the video's
 length when the music runs on after the last word, or its ending is cut (a warning says so).
@@ -360,6 +439,9 @@ length when the music runs on after the last word, or its ending is cut (a warni
 3. Music is ducked by the envelope, then set so that under speech it sits `--music-under` dB (default 20) below the
    anchor, measured on its momentary loudness inside the spans. With no speech it sits 2 dB under the anchor.
 4. Effects stay at their cue gains (moved by the difference between the anchor and `reference_dialogue_lufs`).
+   An ambience or room tone (`--ambience`, from the `ambience` command) is set `--ambience-under` dB (default 24,
+   20 to 30 is natural) under the anchor, integrated, and never ducked: a room that dips under every line gives the
+   edit away.
 5. Summed with `amix ... normalize=0`, then the master: when peaks need it, a 4x-oversampled limiter
    (`alimiter ... level=disabled`) with the gain before it, then two-pass `loudnorm` with `linear=true`. Pass 2's
    JSON must say `linear`; if it says `dynamic` the ceiling drops and it runs again, and after 6 tries the command
@@ -425,17 +507,22 @@ there. Reuse a take before paying for a new one.
 
 ## credits
 
-`credits DIR --out CREDITS.txt`: reads every sidecar, fit report and effect cue file under `DIR` and writes the note
-for the delivery: each track with its model, date, brief and untouched original (sha256), whether it was edited for
-the video, what the licence means in plain words, the effects grouped by source and licence, and any CC BY credit
-lines to paste.
+`credits DIR --out CREDITS.txt [--strict]`: reads every sidecar, fit report, effect cue file, ElevenLabs effect,
+ambience and clean-up report under `DIR` and writes the note for the delivery: a STATUS line first, each track with
+its model, date, brief and untouched original (sha256), whether it was edited for the video, what the licence means
+in plain words (Lyria's notes, and ElevenLabs' when any item came from it), the effects grouped by source and
+licence, and any CC BY credit lines to paste. Anything from ElevenLabs made on a free plan, or on a plan the key
+could not read, is listed under "STATUS: NOT FOR CLIENT DELIVERY"; `--strict` then exits 1 (nexa-video-creator's
+`deliver` runs it this way).
 
 ## cost
 
 `cost [DIR | ledger.jsonl] [--draft N] [--final N] [--listen N] [--elevenlabs N]`: with a folder, the ledger's calls
 and spend by model and status; with counts, an estimate. Prices: `lyria-3.5` $0.08, `lyria-3-clip-preview` $0.04,
-`lyria-realtime-exp` $0 (free for now), `gemini-3.8-flash` judge about $0.01 (estimate), ElevenLabs about $0.05
-(estimate, plan-dependent).
+`lyria-realtime-exp` $0 (free for now), `gemini-3.8-flash` judge about $0.01 (estimate); ElevenLabs at API list
+prices (2026-09-25): an effect or ambience loop budgeted at $0.02 (`--elevenlabs N` counts these), music $0.15 a
+minute, voice isolation $0.12 a minute. A subscription's credits are what is really spent: the ledger keeps the
+response's cost headers where ElevenLabs sends them.
 
 ## beats.py
 

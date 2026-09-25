@@ -4,6 +4,24 @@ The version is `SKILL_VERSION` in `scripts/nvc.py`. Run the offline tests after 
 `python3 -m unittest discover -s ~/.claude/skills/nexa-video-creator/tests` (and with `NVC_RENDER_TESTS=1` once the
 renderer is set up).
 
+## 2026.09.25.3 · stock from Pixabay, and sound that can be delivered
+
+- **`stock`:** Pixabay videos, animations, photos, illustrations and vectors for a b-roll slot. Up to three wordings
+  are searched (`--also`), low-quality hits and (with `--no-ai`) AI-made ones are left out, clips that fill the frame
+  come first, and a numbered sheet (`sheet.swift`) shows the candidates. `--judge` has Gemini 3.8 Flash score each
+  one against the slot (subject, action, setting, people and market, quality, framing) with hard gates for
+  watermarks, burned-in text, logos, unsafe content and the wrong place. On the live API a "laptop typing" search
+  gave 1,491 hits; the judge rejected the two clips with a visible laptop logo and accepted none (best 0.72), so the
+  tool asked for another search or a made shot. `--pick` downloads the largest rendition with a licence record
+  (`pixabay-ID.mp4.json`: page, author, sha256, the Pixabay licence) and adds it as `broll` or `image`; the delivery
+  notes list every stock file with its page and author.
+- **`deliver` checks the sound's licence.** It runs nexa-sound's `credits --strict` and stops when anything came
+  from ElevenLabs on a free or unknown plan (`--allow-noncommercial` for an internal test only). The upload notes
+  now name the music's provider: Lyria's SynthID note, ElevenLabs' watermark and plan limits, or both.
+- A sheet made without swiftc keeps a grey cell for a missing preview, so each number stays in its place.
+- `pixabay_api.py` (24-hour cache, rate limits, the key kept out of every URL shown) and the shared
+  `elevenlabs_api.py` join the scripts.
+
 ## 2026.09.25.2 · the first live run
 
 A Bangla job on the live API (2026-09-25): Gemini 3.5 Transcribe with `bn-BD`, then a 10 s faceless edit from the

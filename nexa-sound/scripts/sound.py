@@ -45,10 +45,11 @@ from array import array
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import beats as BT  # noqa: E402
+import elevenlabs_api as EL  # noqa: E402
 import gemini_api as G  # noqa: E402
 import sfx_synth as SX  # noqa: E402
 
-SKILL_VERSION = "2026.09.25.2"
+SKILL_VERSION = "2026.09.25.3"
 SR = 48000
 HQ_RESAMPLE = "aresample=48000:filter_size=64:phase_shift=10:cutoff=0.97"
 
@@ -57,7 +58,10 @@ MODEL_DRAFT = "lyria-3-clip-preview"
 MODEL_RT = "lyria-realtime-exp"
 MODEL_JUDGE = "gemini-3.8-flash"
 # USD per call. Lyria prices from Google's pricing page (2026-09-25). The judge and ElevenLabs are estimates.
-PRICES = {MODEL_FINAL: 0.08, MODEL_DRAFT: 0.04, MODEL_RT: 0.0, MODEL_JUDGE: 0.01, "elevenlabs-sfx": 0.05}
+# ElevenLabs API list prices (pricing/api, 2026-09-25): music $0.15 a minute, sound effects $0.12 a minute billed
+# per clip (the per-clip minimum is not published, so a clip is budgeted at $0.02).
+PRICES = {MODEL_FINAL: 0.08, MODEL_DRAFT: 0.04, MODEL_RT: 0.0, MODEL_JUDGE: 0.01, "elevenlabs-sfx": 0.02,
+          "elevenlabs-music-min": 0.15}
 STAGES = {MODEL_FINAL: "GA", MODEL_DRAFT: "preview", MODEL_RT: "experimental"}
 # Both Lyria models answer in MP3 only (44.1 kHz stereo, 192 kbps, with a C2PA manifest in the ID3 tag): on
 # 2026-09-25 the live API refused response_format audio/wav and audio/l16 for lyria-3.5 ("Audio MIME type AUDIO_WAV
@@ -509,9 +513,23 @@ def gemini_message(err):
 def secret_values():
     """Every key value this process knows (environment and the shared module's cache), for scrubbing text."""
     vals = [v for k, v in os.environ.items()
-            if v and (k.startswith("GEMINI_API_KEY") or k in ("FREESOUND_API_KEY", "ELEVENLABS_API_KEY"))]
+            if v and (k.startswith("GEMINI_API_KEY") or k.startswith("ELEVENLABS_API_KEY") or k == "FREESOUND_API_KEY")]
     vals += [v for _, v in (getattr(G, "_KEY_CACHE", None) or []) if v]
+    vals += [v for _, v in (getattr(EL, "_KEY_CACHE", None) or []) if v]
+    if _FREESOUND_KEY:
+        vals.append(_FREESOUND_KEY)
     return vals
+
+
+_FREESOUND_KEY = None
+
+
+def freesound_key():
+    """FREESOUND_API_KEY from the environment, else the macOS keychain item of that name."""
+    global _FREESOUND_KEY
+    if _FREESOUND_KEY is None:
+        _FREESOUND_KEY = os.environ.get("FREESOUND_API_KEY", "").strip() or EL._keychain("FREESOUND_API_KEY") or ""
+    return _FREESOUND_KEY or None
 
 
 def scrub(text):
@@ -1126,13 +1144,38 @@ def _run_take(brief, body, model, out_dir, tid, ledger, project, images_meta):
             "qc_failed": sidecar["qc"]["failed"], "vocals_suspected": vocals_suspected, "latency_s": latency}
 
 
+def pick_engine(args):
+    """elevenlabs or lyria. A Lyria mode (--draft, --final, --realtime) means Lyria; --engine says it outright;
+    otherwise ElevenLabs when its key is here and the plan allows client work, else a Lyria final."""
+    lyria_mode = bool(args.draft or args.final or args.realtime)
+    if args.engine == "elevenlabs":
+        if lyria_mode:
+            die("--draft, --final and --realtime are Lyria modes; ElevenLabs takes --takes N")
+        return "elevenlabs"
+    if args.engine == "lyria" or lyria_mode:
+        if not lyria_mode:
+            args.final = True
+        return "lyria"
+    if EL.keys():
+        plan = eleven_plan()
+        if plan.get("paid") is True:
+            return "elevenlabs"
+        log("ElevenLabs is here but %s; making a Lyria final instead (--engine elevenlabs to try it anyway)"
+            % ("the plan is free" if plan.get("paid") is False else "its plan is unknown"))
+    args.final = True
+    return "lyria"
+
+
 def cmd_generate(args):
     brief = read_brief(args.brief)
+    engine = pick_engine(args)
+    os.makedirs(args.out, exist_ok=True)
+    ledger = ledger_file(args.out, args.project)
+    if engine == "elevenlabs":
+        return generate_eleven(args, brief, ledger)
     modes = [bool(args.draft), bool(args.final), bool(args.realtime)]
     if sum(modes) != 1:
         die("choose one of --draft N, --final or --realtime")
-    os.makedirs(args.out, exist_ok=True)
-    ledger = ledger_file(args.out, args.project)
     if args.realtime:
         return generate_realtime(args, brief, ledger)
     model = MODEL_DRAFT if args.draft else MODEL_FINAL
@@ -1289,6 +1332,287 @@ def generate_realtime(args, brief, ledger):
                                        else "none"),
              "cost: $0.00 (experimental model, free for now)"]
     emit(args, result, lines)
+
+
+# ================================================================ ElevenLabs music
+
+ENDING_WORDS = {"ring_out": "end on a clean final chord that rings out naturally to silence",
+                "final_hit": "one final hit, then a short tail ringing out to silence",
+                "fade": "fade out gently to silence at the very end",
+                "cut": "end with a clean, tight stop", "cut_to_silence": "end with a clean, tight stop"}
+NO_VOICE = ["vocals", "singing", "choir", "spoken words", "lyrics", "vocal chops"]
+ENDING_MS = {"ring_out": 4000, "final_hit": 3000, "fade": 4000, "cut": 3000, "cut_to_silence": 3000}
+
+
+def composition_plan(brief, model=None):
+    """The brief as an ElevenLabs composition plan: the mood's styles for the whole track, one section per brief
+    section at its exact length (split at 120 s, the longest section ElevenLabs takes), sparse where the voice-over
+    talks, the mood's ending in the last section, and no voices unless the brief asks for them. music_v2 and
+    music_v2_5 take {"chunks": [{"text": "[Section]", "duration_ms", "positive_styles", "negative_styles",
+    "context_adherence"}]} (the first chunk's styles set the tone); music_v1 took global styles and sections."""
+    model = model or EL.MUSIC_MODELS[0]
+    mood = load_moods().get(brief.get("mood")) or {}
+    weighted = sorted(((w, p) for p, w in ((mood.get("realtime") or {}).get("prompts") or [])), reverse=True)
+    pos = [p for _, p in weighted][:5]
+    if brief.get("bpm"):
+        pos.append("%g BPM" % float(brief["bpm"]))
+    if brief.get("key"):
+        pos.append(str(brief["key"]))
+    narrated = any(sec.get("narrated") for sec in brief.get("sections") or [])
+    if narrated:
+        pos.append("background music under a voice-over")
+    neg = [] if brief.get("vocals") else list(NO_VOICE)
+    sections = []
+    for sec in brief.get("sections") or []:
+        total = int(round((float(sec["end"]) - float(sec["start"])) * 1000))
+        parts = max(1, int(math.ceil(total / float(EL.MUSIC_SECTION_MAX_MS))))
+        for k in range(parts):
+            dur = total // parts + (1 if k < total % parts else 0)
+            local = [str(sec.get("change") or sec.get("label") or "").strip(), "intensity %d of 10" % int(
+                sec.get("intensity") or 5)]
+            local_neg = []
+            if sec.get("narrated"):
+                local += ["sparse arrangement that leaves room for the voice"]
+                local_neg += ["busy lead melody", "loud drum fills"]
+            sections.append({"section_name": (sec.get("label") or "Section") + ("" if parts == 1 else " %d" % (k + 1)),
+                             "positive_local_styles": [x for x in local if x], "negative_local_styles": local_neg,
+                             "duration_ms": dur, "lines": []})
+    if not sections:
+        total = int(round(float(brief.get("duration_s") or 30) * 1000))
+        sections = [{"section_name": "Track", "positive_local_styles": [], "negative_local_styles": [],
+                     "duration_ms": total, "lines": []}]
+    short = [x for x in sections if x["duration_ms"] < EL.MUSIC_SECTION_MIN_MS]
+    for x in short:                           # a section under 3 s joins its neighbour
+        i = sections.index(x)
+        j = i - 1 if i > 0 else i + 1
+        if 0 <= j < len(sections) and x in sections:
+            sections[j]["duration_ms"] += x["duration_ms"]
+            sections.remove(x)
+    ending = ENDING_WORDS.get(brief.get("ending") or mood.get("ending") or "")
+    if ending:
+        sections[-1]["positive_local_styles"].append(ending)
+    if model == "music_v1":
+        return {"positive_global_styles": pos, "negative_global_styles": neg, "sections": sections}
+    # the ending gets its own chunk: styled only at the end of a chunk, music_v2_5 cut off at the length
+    # (judged "abrupt_cut" on the live test, 2026-09-25); a chunk of its own lets it land
+    last = sections[-1]
+    tail_ms = ENDING_MS.get(brief.get("ending") or mood.get("ending") or "", 0)
+    if ending and tail_ms and last["duration_ms"] >= tail_ms + EL.MUSIC_SECTION_MIN_MS:
+        last["duration_ms"] -= tail_ms
+        last["positive_local_styles"] = [x for x in last["positive_local_styles"] if x != ending]
+        sections.append({"section_name": "Ending", "positive_local_styles": [ending, "clear resolution"],
+                         "negative_local_styles": ["fade in", "new melody", "abrupt cut"],
+                         "duration_ms": tail_ms, "lines": []})
+    chunks = []
+    for i, sec in enumerate(sections):
+        styles = (pos if i == 0 else pos[:2]) + sec["positive_local_styles"]
+        text = "[%s]%s" % (sec["section_name"], "" if brief.get("vocals") else " {instrumental}")
+        chunks.append({"text": text, "duration_ms": sec["duration_ms"], "positive_styles": styles[:50],
+                       "negative_styles": (neg + sec["negative_local_styles"])[:50], "context_adherence": "high"})
+    return {"chunks": chunks[:30]}
+
+
+def plan_parts(plan):
+    return plan.get("chunks") or plan.get("sections") or []
+
+
+def plan_length_s(plan):
+    return sum(x["duration_ms"] for x in plan_parts(plan)) / 1000.0
+
+
+def generate_eleven(args, brief, ledger):
+    if not EL.keys():
+        die(EL.MISSING_KEY_HELP)
+    takes = int(args.takes or 1)
+    if not 1 <= takes <= 3:
+        die("--takes is 1 to 3 on ElevenLabs")
+    model = args.model or EL.MUSIC_MODELS[0]
+    plan = composition_plan(brief, model)
+    length = plan_length_s(plan)
+    est = PRICES["elevenlabs-music-min"] * length / 60.0 * takes
+    guard(est, args.budget, "%d ElevenLabs music take%s of %.0f s" % (takes, "s" if takes > 1 else "", length))
+    acct = eleven_plan()
+    lic = eleven_licence(acct)
+    if lic["commercial"] is not True:
+        log("ElevenLabs plan: %s. %s" % (acct.get("tier") or "unknown", lic["note"]))
+    ids = next_ids(args.out, brief.get("mood") or "track", takes)
+    log("%d ElevenLabs music take%s (%s, %.1f s, %d section%s)" % (
+        takes, "s" if takes > 1 else "", model, length, len(plan_parts(plan)),
+        "s" if len(plan_parts(plan)) > 1 else ""))
+
+    def one(tid):
+        try:
+            return _eleven_take(args, brief, plan, length, model, tid, ledger, lic, acct)
+        finally:
+            release_id(args.out, tid)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(3, takes)) as pool:
+        results = list(pool.map(one, ids))
+    ok = [r for r in results if r["ok"]]
+    lines = []
+    for r in results:
+        if r["ok"]:
+            lines.append("%s: %s, %.1f s (asked %.1f s), %s BPM, QC %s%s" % (
+                r["id"], r["format"], r["duration_s"], length, r.get("bpm"),
+                "passed" if r["qc_passed"] else "failed (%s)" % ", ".join(r["qc_failed"]),
+                "" if lic["commercial"] else "; NOT for client work (%s)" % lic["source"]))
+        else:
+            lines.append("%s: failed: %s" % (r["id"], r["error"]))
+    lines.append("ledger %s" % ledger)
+    emit(args, {"ok": bool(ok), "engine": "elevenlabs", "model": model, "takes": results, "plan": plan,
+                "licence": lic, "ledger": ledger}, lines)
+    if not ok:
+        sys.exit(1)
+
+
+def _eleven_take(args, brief, plan, length, model, tid, ledger, lic, acct):
+    t0 = time.time()
+    try:
+        data, info, fmt = eleven_call(EL.music, "pcm_48000", steps=("mp3_48000_320", "mp3_44100_192",
+                                                                 "mp3_44100_128"),
+                                      composition_plan=plan, model_id=model, respect_durations=True, c2pa=True,
+                                      seed=getattr(args, "seed", None))
+    except EL.ElevenError as err:
+        ledger_add(ledger, "generate", "elevenlabs-" + model, 1, 0.0, None, "failed", id=tid, error_kind=err.kind)
+        return {"id": tid, "ok": False, "error_kind": err.kind, "error": scrub(str(err))}
+    latency = round(time.time() - t0, 1)
+    ledger_add(ledger, "generate", "elevenlabs-" + model, 1, PRICES["elevenlabs-music-min"] * length / 60.0,
+               info.get("key"), "ok", id=tid, seconds=round(length, 2), response=EL.cost_headers(info) or None,
+               commercial=lic["commercial"])
+    try:
+        path, meta = EL.save_audio(data, os.path.join(args.out, tid + "_orig"), fmt, expect_s=length, info=info)
+    except EL.ElevenError as err:
+        rescue = os.path.join(args.out, tid + "_orig.pcm")
+        with open(rescue, "wb") as fh:
+            fh.write(data)
+        return {"id": tid, "ok": False, "error_kind": "format", "error": "%s; the raw answer is kept in %s" % (
+            scrub(str(err)), rescue)}
+    os.chmod(path, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    side_path = os.path.join(args.out, tid + ".json")
+    sidecar = {
+        "schema": "nexa-sound/track-1", "id": tid, "created_at": now_iso(),
+        "tool": {"skill": "nexa-sound", "version": SKILL_VERSION},
+        "provider": {"api": "elevenlabs", "endpoint": "POST /v1/music", "model": model, "stage": None,
+                     "key_var_used": info.get("key"), "plan": acct.get("tier"), "response": EL.cost_headers(info)},
+        "request": {"prompt": None, "composition_plan": plan, "respect_sections_durations": True,
+                    "c2pa": fmt.startswith("mp3"),
+                    "output_format": fmt, "seed": getattr(args, "seed", None), "requested_duration_s": length,
+                    "brief": brief_summary(brief)},
+        "response": {"text_parts": [], "timed_lines": [], "vocals_suspected": False, "latency_s": latency},
+        "original": {"file": os.path.abspath(path), "sha256": hashlib.sha256(raw).hexdigest(),
+                     "format": meta.get("format"), "bytes": len(raw), "c2pa_manifest_present": has_c2pa(raw),
+                     "read_only": True, "sample_rate": meta.get("sample_rate"), "channels": meta.get("channels")},
+        "analysis": {}, "fit": None, "qc": None, "licence": lic,
+        "usage": {"project": os.path.abspath(args.project) if args.project else None,
+                  "video_edl": brief.get("cuts_file"), "approved_by": None},
+    }
+    write_json(side_path, sidecar)
+    try:
+        pr = probe(path)
+        sidecar["original"]["duration_s"] = pr["duration_s"]
+        sidecar["analysis"] = analyse_track(path, brief.get("bpm"), os.path.join(args.out, tid + ".beats.json"))
+        ana = sidecar["analysis"]
+        qc = measured_checks(path, "music", brief_summary(brief), sidecar,
+                             lo={"I": ana.get("lufs_i"), "TP": ana.get("true_peak_dbtp"), "LRA": ana.get("lra_lu")})
+        sidecar["qc"] = qc_summary(qc, None, brief_summary(brief), "music")
+    except (Exception, SystemExit) as err:
+        sidecar["qc"] = {"passed": False, "failed": ["analysis"], "warnings": [], "error": scrub(str(err))}
+        pr = {"duration_s": sidecar["original"].get("duration_s")}
+    write_json(side_path, sidecar)
+    library_add({"id": tid, "mood": brief.get("mood"), "bpm": sidecar["analysis"].get("bpm") or brief.get("bpm"),
+                 "bpm_requested": brief.get("bpm"), "key": brief.get("key"), "duration_s": pr["duration_s"],
+                 "file": os.path.abspath(path), "sidecar": os.path.abspath(side_path), "model": "elevenlabs-" + model,
+                 "vocals": brief.get("vocals"), "qc_passed": sidecar["qc"]["passed"],
+                 "qc_failed": sidecar["qc"]["failed"], "commercial": lic["commercial"], "created": now_iso()})
+    return {"id": tid, "ok": True, "file": os.path.abspath(path), "sidecar": os.path.abspath(side_path),
+            "format": sidecar["original"]["format"], "duration_s": pr["duration_s"],
+            "bpm": sidecar["analysis"].get("bpm"), "qc_passed": sidecar["qc"]["passed"],
+            "qc_failed": sidecar["qc"]["failed"], "latency_s": latency, "commercial": lic["commercial"]}
+
+
+# ================================================================ ambience beds
+
+def seam_report(path, piece_s, n_loops, rate=16000):
+    """How audible the loop's joins are: at each join, the level change between the 20 ms windows either side
+    against the 95th percentile of such changes elsewhere, and the sample jump against the median sample step."""
+    x = decode_f32(path, rate=rate, channels=1)
+    n = len(x)
+    win = int(0.02 * rate)
+    if n < 4 * win:
+        return {"joins": 0}
+
+    def level(a, b):
+        seg = x[max(0, a):min(n, b)]
+        return 10 * math.log10(sum(v * v for v in seg) / max(1, len(seg)) + 1e-12)
+    jumps = []
+    for i in range(win, n - win, win):
+        jumps.append(abs(level(i, i + win) - level(i - win, i)))
+    jumps.sort()
+    p95 = jumps[int(0.95 * (len(jumps) - 1))] if jumps else 0.0
+    steps = sorted(abs(x[i] - x[i - 1]) for i in range(1, n, max(1, n // 20000)))
+    med = steps[len(steps) // 2] if steps else 0.0
+    joins = []
+    for k in range(1, n_loops):
+        i = int(round(k * piece_s * rate))
+        if win <= i < n - win:
+            joins.append({"at_s": round(i / float(rate), 3), "level_jump_db": round(abs(level(i, i + win) -
+                                                                                        level(i - win, i)), 2),
+                          "sample_jump_x_median": round(abs(x[i] - x[i - 1]) / max(med, 1e-9), 1)})
+    worst = max((j["level_jump_db"] for j in joins), default=0.0)
+    return {"joins": len(joins), "worst_level_jump_db": round(worst, 2), "p95_level_jump_db": round(p95, 2),
+            "audible": bool(joins) and worst > max(3.0, 1.5 * p95), "detail": joins[:12]}
+
+
+def cmd_ambience(args):
+    """An ambience or room-tone bed of exact length from one ElevenLabs loop: made once as a seamless loop (up to 30
+    s), then repeated sample-exactly to the length, with a fade at each end."""
+    out = os.path.abspath(args.out)
+    folder = os.path.dirname(out) or "."
+    os.makedirs(folder, exist_ok=True)
+    check_out(out, [])
+    ledger = ledger_file(folder, args.project)
+    if not EL.keys():
+        die(EL.MISSING_KEY_HELP)
+    piece = max(4.0, min(EL.SFX_MAX_S, float(args.piece or min(EL.SFX_MAX_S, args.duration))))
+    guard(PRICES["elevenlabs-sfx"], args.budget, "one ElevenLabs loop")
+    try:
+        r = elevenlabs_fetch(args.text, os.path.join(folder, "ambience_parts"), piece, loop=True,
+                             influence=args.influence, model=args.model)
+    except ServiceError as err:
+        ledger_add(ledger, "ambience", "elevenlabs-sfx", 1, 0.0, None, "failed", error_kind=err.kind)
+        die("ElevenLabs: %s" % err)
+    ledger_add(ledger, "ambience", "elevenlabs-sfx", 1, PRICES["elevenlabs-sfx"], r.get("key_source"), "ok",
+               detail=args.text[:80], commercial=r.get("commercial"), response=r.get("response") or None)
+    with Work() as work:
+        loop_wav = work.path("loop.wav")
+        to_wav(r["file"], loop_wav, channels=2, codec="pcm_f32le")
+        got = probe(loop_wav)["duration_s"]
+        loops = int(math.ceil(args.duration / max(0.5, got)))
+        N = int(round(args.duration * SR))
+        fade_in, fade_out = min(args.fade_in, args.duration / 4), min(args.fade_out, args.duration / 4)
+        af = "atrim=end_sample=%d,asetpts=PTS-STARTPTS" % N
+        if fade_in > 0:
+            af += ",afade=t=in:st=0:d=%.3f:curve=hsin" % fade_in
+        if fade_out > 0:
+            af += ",afade=t=out:st=%.3f:d=%.3f:curve=hsin" % (args.duration - fade_out, fade_out)
+        run_ff(["-y", "-v", "error", "-stream_loop", str(max(0, loops - 1)), "-i", loop_wav, "-af", af,
+                "-ar", SR, "-c:a", "pcm_s24le", out], what="tiling the loop")
+    seams = seam_report(out, got, loops)
+    lo = loudness(out)
+    side = {"schema": "nexa-sound/ambience-1", "skill_version": SKILL_VERSION, "created": now_iso(),
+            "file": out, "text": args.text, "duration_s": probe(out)["duration_s"], "loop_s": got, "loops": loops,
+            "fade_in_s": fade_in, "fade_out_s": fade_out, "seams": seams,
+            "loudness": {"I": lo["I"], "TP": lo["TP"], "LRA": lo["LRA"]}, "source": r,
+            "licence": r.get("licence"), "commercial": r.get("commercial"), "sha256": sha256(out)}
+    write_json(stem_of(out) + ".json", side)
+    lines = ["ambience: %s (%.2f s from a %.2f s loop x %d, %s LUFS)" % (out, side["duration_s"], got, loops,
+                                                                           lo["I"]),
+             "joins: %d, worst level jump %.1f dB (elsewhere 95%% under %.1f dB)%s" % (
+                 seams.get("joins", 0), seams.get("worst_level_jump_db", 0.0), seams.get("p95_level_jump_db", 0.0),
+                 ": AUDIBLE, make it again or use a longer --piece" if seams.get("audible") else ""),
+             "licence: %s%s" % (r.get("licence"), "" if r.get("commercial") else " (NOT for client work)")]
+    emit(args, dict(side, ok=True), lines)
 
 
 # ================================================================ track metadata
@@ -1975,18 +2299,23 @@ def elevenlabs_base():
 
 def freesound_fetch(query, out_dir, allow_cc_by=False, max_dur=30.0):
     """Search Freesound for CC0 (or, when allowed, CC-BY) effects and download the best match's preview."""
-    key = os.environ.get("FREESOUND_API_KEY")
+    key = freesound_key()
     if not key:
-        raise ServiceError("no_key", "FREESOUND_API_KEY is not set")
+        raise ServiceError("no_key", "no Freesound key: set FREESOUND_API_KEY or store it in the keychain "
+                                     "(security add-generic-password -a \"$USER\" -s FREESOUND_API_KEY -w)")
     lic = 'license:"Creative Commons 0"'
     if allow_cc_by:
         lic = '(license:"Creative Commons 0" OR license:"Attribution")'
+    # /apiv2/search/ replaced /apiv2/search/text/ (deprecated November 2025)
     params = {"query": query, "filter": "%s duration:[0 TO %d]" % (lic, int(max_dur)), "page_size": 10,
-              "fields": "id,name,username,license,previews,duration,url"}
-    raw, _ = http("GET", freesound_base() + "/apiv2/search/text/?" + urllib.parse.urlencode(params),
+              "sort": "score", "fields": "id,name,username,license,previews,duration,url,tags,is_explicit,"
+                                         "single_event,loopable,loudness"}
+    raw, _ = http("GET", freesound_base() + "/apiv2/search/?" + urllib.parse.urlencode(params),
                   headers={"Authorization": "Token " + key}, timeout=60)
     results = (json.loads(raw.decode("utf-8")) or {}).get("results") or []
     for r in results:
+        if r.get("is_explicit"):
+            continue
         lic_url = str(r.get("license") or "").lower()
         if "-nc" in lic_url or "noncommercial" in lic_url or "sampling" in lic_url:
             continue
@@ -2014,29 +2343,93 @@ def freesound_fetch(query, out_dir, allow_cc_by=False, max_dur=30.0):
     raise ServiceError("empty", "no %s result on Freesound for %r" % ("CC0 or CC BY" if allow_cc_by else "CC0", query))
 
 
-def elevenlabs_fetch(query, out_dir, duration=None):
-    key = os.environ.get("ELEVENLABS_API_KEY")
-    if not key:
-        raise ServiceError("no_key", "ELEVENLABS_API_KEY is not set")
-    raw, _ = http("GET", elevenlabs_base() + "/v1/user/subscription", headers={"xi-api-key": key}, timeout=60)
-    tier = str((json.loads(raw.decode("utf-8")) or {}).get("tier") or "").lower()
-    if tier in ("", "free"):
-        raise ServiceError("licence", "the ElevenLabs account is on the free plan (%s), whose sound effects are not "
-                                      "for commercial use; nexa-sound only uses a paid plan for client work"
-                                      % (tier or "unknown"))
-    body = {"text": query, "prompt_influence": 0.3, "model_id": "eleven_text_to_sound_v2"}
-    if duration:
-        body["duration_seconds"] = max(0.5, min(30.0, float(duration)))
-    data, hdrs = http("POST", elevenlabs_base() + "/v1/sound-generation?output_format=mp3_44100_128",
-                      headers={"xi-api-key": key}, body=body, timeout=180)
+_EL_PLAN = None
+
+
+def eleven_plan():
+    """The ElevenLabs plan for this run (read once): {"tier", "paid", "known", "credits_left", "note"}."""
+    global _EL_PLAN
+    if _EL_PLAN is None:
+        try:
+            _EL_PLAN = EL.plan_status()
+        except EL.ElevenError as err:
+            _EL_PLAN = {"tier": None, "paid": None, "known": False, "credits_left": None, "note": scrub(str(err))}
+    return _EL_PLAN
+
+
+def eleven_licence(plan):
+    """What a client may do with ElevenLabs output from this account."""
+    base = {"terms": ["https://elevenlabs.io/terms-of-use"], "content_id": "Do not register.",
+            "attribution_required": False}
+    if plan.get("paid") is True:
+        return dict(base, source="ElevenLabs (%s plan)" % plan.get("tier"), commercial=True,
+                    note="made on a paid plan: commercial use in client work is allowed, mixed into the video "
+                         "(never delivered as separate sound files)")
+    if plan.get("paid") is False:
+        return dict(base, source="ElevenLabs (free plan)", commercial=False, attribution_required=True,
+                    note="made on the free plan: non-commercial use only, with elevenlabs.io in the title; for "
+                         "evaluation, not for client delivery")
+    return dict(base, source="ElevenLabs (plan unknown)", commercial=None,
+                note="the key cannot read the plan (turn on User access for the key); confirm a paid plan before "
+                     "client delivery")
+
+
+def eleven_call(fn, output_format, steps=("mp3_44100_192", "mp3_44100_128"), **kw):
+    """Run an ElevenLabs call, stepping down the output format when the plan refuses it (PCM, then the MP3s in
+    `steps`). Returns (data, info, format used)."""
+    order = [output_format] + [f for f in steps if f != output_format]
+    last = None
+    for fmt in order:
+        try:
+            data, info = fn(output_format=fmt, **kw)
+            return data, info, fmt
+        except EL.ElevenError as err:
+            last = err
+            low = str(err).lower()
+            if err.kind in ("plan", "bad_request") and re.search(r"\boutput[_ ]format\b|\bformat\b|\btier\b|"
+                                                                 r"\bsubscription\b|\bplan\b", low):
+                log("ElevenLabs refused %s (%s); trying %s" % (fmt, err.detail or err.kind,
+                                                              order[order.index(fmt) + 1] if fmt != order[-1] else
+                                                              "nothing else"))
+                continue
+            raise
+    raise last
+
+
+def elevenlabs_fetch(query, out_dir, duration=None, loop=False, influence=None, model=None):
+    """One effect from ElevenLabs (text to sound effects), saved as it came plus a sidecar with the plan and the
+    licence. PCM at 48 kHz when the length is known (the channel count is read from it), else 192 kbps MP3."""
+    if not EL.keys():
+        raise ServiceError("no_key", EL.MISSING_KEY_HELP)
+    plan = eleven_plan()
+    dur = float(duration) if duration else None
+    model = "eleven_text_to_sound_v2" if loop else (model or EL.SFX_MODELS[0])   # only v2 makes loops
+    fmt = "pcm_48000" if dur else "mp3_44100_192"
+    try:
+        data, info, fmt = eleven_call(EL.sound_effect, fmt, text=query, duration=dur, prompt_influence=influence,
+                                      loop=loop or None, model_id=model)
+    except EL.ElevenError as err:
+        raise ServiceError(err.kind, scrub(str(err)))
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, "elevenlabs_%s.mp3" % hashlib.sha256(
-        (query + str(duration)).encode("utf-8")).hexdigest()[:10])
-    with open(path, "wb") as fh:
-        fh.write(data)
-    return {"file": os.path.abspath(path), "source": "elevenlabs", "model": "eleven_text_to_sound_v2",
-            "prompt": query, "plan": tier, "licence": "ElevenLabs paid plan (commercial use allowed on paid plans)",
-            "licence_url": "https://elevenlabs.io/terms-of-use", "attribution": None}
+    stem = os.path.join(out_dir, "elevenlabs_%s" % hashlib.sha256(
+        ("%s|%s|%s|%s|%s" % (query, dur, loop, influence, time.time())).encode("utf-8")).hexdigest()[:10])
+    try:
+        path, meta = EL.save_audio(data, stem, fmt, expect_s=dur, info=info)
+    except EL.ElevenError as err:
+        raise ServiceError("empty", scrub(str(err)))
+    lic = eleven_licence(plan)
+    side = {"schema": "nexa-sound/elevenlabs-1", "provider": "elevenlabs", "endpoint": "POST /v1/sound-generation",
+            "model": model, "prompt": query, "duration_s": dur, "loop": bool(loop), "prompt_influence": influence,
+            "output_format": fmt, "audio": meta, "response": EL.cost_headers(info), "key_source": info.get("key"),
+            "plan": {"tier": plan.get("tier"), "known": plan.get("known")}, "licence": lic, "created": now_iso(),
+            "sha256": sha256(path)}
+    write_json(path + ".json", side)
+    return {"file": os.path.abspath(path), "source": "elevenlabs", "model": model, "prompt": query,
+            "plan": plan.get("tier"), "licence": lic["source"], "licence_url": lic["terms"][0],
+            "commercial": lic["commercial"], "licence_note": lic["note"],
+            "attribution": "elevenlabs.io (in the title)" if lic.get("attribution_required") else None,
+            "key_source": info.get("key"), "output_format": fmt, "response": EL.cost_headers(info),
+            "loop": bool(loop)}
 
 
 def sound_points(path, known=None):
@@ -2138,28 +2531,28 @@ class Resolver(object):
                 "licence_url": LICENCE_PIXABAY["url"], "note": LICENCE_PIXABAY["note"]}
 
     def _freesound(self, cue, index):
-        if self.offline or not os.environ.get("FREESOUND_API_KEY"):
+        if self.offline or not freesound_key():
             return None
         return freesound_fetch(cue.get("query") or cue.get("name"), self.files_dir,
                                allow_cc_by=bool(cue.get("allow_cc_by")))
 
     def _elevenlabs(self, cue, index):
-        if self.offline or not os.environ.get("ELEVENLABS_API_KEY"):
+        if self.offline or not EL.keys():
             return None
         est = PRICES["elevenlabs-sfx"]
         if self.spent + est > self.budget + 1e-9:
             raise ServiceError("budget", "the budget of $%.2f is spent (an ElevenLabs effect is about $%.2f)"
                                % (self.budget, est))
         try:
-            r = elevenlabs_fetch(cue.get("query") or cue.get("name"), self.files_dir, cue.get("dur"))
+            r = elevenlabs_fetch(cue.get("query") or cue.get("name"), self.files_dir, cue.get("dur"),
+                                 loop=bool(cue.get("loop")), influence=cue.get("influence"))
         except ServiceError as err:
-            if err.kind not in ("licence", "no_key"):
-                ledger_add(self.ledger, "sfx", "elevenlabs-sfx", 1, 0.0, "ELEVENLABS_API_KEY", "failed",
-                           error_kind=err.kind)
+            if err.kind not in ("no_key",):
+                ledger_add(self.ledger, "sfx", "elevenlabs-sfx", 1, 0.0, None, "failed", error_kind=err.kind)
             raise
         self.spent += est
-        ledger_add(self.ledger, "sfx", "elevenlabs-sfx", 1, est, "ELEVENLABS_API_KEY", "ok",
-                   detail=r["prompt"][:80])
+        ledger_add(self.ledger, "sfx", "elevenlabs-sfx", 1, est, r.get("key_source"), "ok", detail=r["prompt"][:80],
+                   commercial=r.get("commercial"), response=r.get("response") or None)
         return r
 
 
@@ -2183,16 +2576,15 @@ def cmd_sfx_list(args):
     rows = [SX.info(n) for n in SX.PRESETS]
     mu = media_use_dir()
     sources = {"synth": len(rows), "library_dirs": sfx_dirs(), "media_use": mu if os.path.isdir(mu) else None,
-               "freesound": bool(os.environ.get("FREESOUND_API_KEY")),
-               "elevenlabs": bool(os.environ.get("ELEVENLABS_API_KEY"))}
+               "freesound": bool(freesound_key()), "elevenlabs": bool(EL.keys())}
     lines = ["%-13s %5s  %-6s %5s  %s" % ("preset", "dur", "align", "gain", "description")]
     for r in rows:
         lines.append("%-13s %5s  %-6s %5s  %s" % (r["name"], fmt_num(r["dur"]), r["align"], fmt_num(r["gain_db"]),
                                                  r["description"]))
     lines.append("sources: synth; %d library folder(s); media-use %s; Freesound %s; ElevenLabs %s" % (
         len(sources["library_dirs"]), "found" if sources["media_use"] else "not found",
-        "on" if sources["freesound"] else "off (no FREESOUND_API_KEY)",
-        "on" if sources["elevenlabs"] else "off (no ELEVENLABS_API_KEY)"))
+        "on" if sources["freesound"] else "off (no Freesound key)",
+        "on" if sources["elevenlabs"] else "off (no ElevenLabs key)"))
     emit(args, {"ok": True, "presets": rows, "sources": sources}, lines)
 
 
@@ -2363,21 +2755,23 @@ def cmd_sfx_fetch(args):
         if args.source == "freesound":
             r = freesound_fetch(args.query, args.out, allow_cc_by=args.allow_cc_by)
         else:
-            if not os.environ.get("ELEVENLABS_API_KEY"):
-                die("ELEVENLABS_API_KEY is not set")
+            if not EL.keys():
+                die(EL.MISSING_KEY_HELP)
             guard(PRICES["elevenlabs-sfx"], args.budget, "one ElevenLabs sound effect")
             try:
-                r = elevenlabs_fetch(args.query, args.out, args.dur)
+                r = elevenlabs_fetch(args.query, args.out, args.dur, loop=args.loop, influence=args.influence,
+                                     model=args.model)
             except ServiceError as err:
-                if err.kind not in ("licence",):
-                    ledger_add(ledger, "sfx fetch", "elevenlabs-sfx", 1, 0.0, "ELEVENLABS_API_KEY", "failed",
-                               error_kind=err.kind)
+                if err.kind not in ("no_key",):
+                    ledger_add(ledger, "sfx fetch", "elevenlabs-sfx", 1, 0.0, None, "failed", error_kind=err.kind)
                 raise
-            ledger_add(ledger, "sfx fetch", "elevenlabs-sfx", 1, PRICES["elevenlabs-sfx"], "ELEVENLABS_API_KEY",
-                       "ok", detail=args.query[:80])
+            ledger_add(ledger, "sfx fetch", "elevenlabs-sfx", 1, PRICES["elevenlabs-sfx"], r.get("key_source"),
+                       "ok", detail=args.query[:80], commercial=r.get("commercial"), response=r.get("response") or None)
     except ServiceError as err:
         die("%s: %s" % (args.source, err))
     wav = stem_of(r["file"]) + ".wav"
+    if os.path.abspath(wav) == os.path.abspath(r["file"]):     # the answer is already a WAV: keep it as it came
+        wav = stem_of(r["file"]) + "_48k.wav"
     to_wav(r["file"], wav, channels=2)
     pts = sound_points(wav)
     side = dict(r, schema="nexa-sound/sfx-1", skill_version=SKILL_VERSION, created=now_iso(),
@@ -2497,6 +2891,37 @@ def run_isolate(src48, work, n_samples):
     return out, None
 
 
+EL_ISOLATE_USD_MIN = 0.12      # ElevenLabs voice isolator, API list price (pricing/api, 2026-09-25)
+
+
+def run_isolate_eleven(src48, work, n_samples, channels, ledger):
+    """ElevenLabs' voice isolator: the file goes up as 16-bit WAV and comes back as MP3, which is decoded to the
+    working rate and length; the clean-up's own sync check then measures and removes what delay is left. On a live
+    test with cafe chatter at 5 dB SNR it left the least noise and sounded the most natural of the three ways
+    (judge: clarity 9, noise left 1, natural 8; Apple 7, 2, 5)."""
+    if not EL.keys():
+        return None, "no ElevenLabs key", None
+    up = work.path("iso_up.wav")
+    run_ff(["-y", "-v", "error", "-i", src48, "-c:a", "pcm_s16le", up], what="the isolator's upload")
+    secs = n_samples / float(SR)
+    try:
+        data, info = EL.isolate(up)
+    except EL.ElevenError as err:
+        ledger_add(ledger, "clean --isolate", "elevenlabs-isolate", 1, 0.0, None, "failed", error_kind=err.kind)
+        return None, "ElevenLabs voice isolator: %s" % scrub(str(err)), None
+    lic = eleven_licence(eleven_plan())
+    ledger_add(ledger, "clean --isolate", "elevenlabs-isolate", 1, EL_ISOLATE_USD_MIN * secs / 60.0, info.get("key"),
+               "ok", seconds=round(secs, 2), response=EL.cost_headers(info) or None, commercial=lic["commercial"])
+    got, _ = EL.save_audio(data, work.path("iso_el"), "mp3_44100_128", info=info)
+    dec = work.path("iso_dec.wav")
+    to_wav(got, dec, channels=channels, codec="pcm_f32le")
+    out = work.path("iso.wav")
+    run_ff(["-y", "-v", "error", "-i", dec, "-af", "atrim=end_sample=%d,apad=whole_len=%d" % (n_samples, n_samples),
+            "-c:a", "pcm_f32le", out], what="the isolated voice")
+    return out, None, {"engine": "elevenlabs", "licence": lic["source"], "commercial": lic["commercial"],
+                       "response": EL.cost_headers(info)}
+
+
 def cmd_clean(args):
     src = args.input
     check_out(args.out, [src])
@@ -2512,9 +2937,16 @@ def cmd_clean(args):
         clipped = (st["peak_db"] is not None and st["peak_db"] >= -0.1
                    and ((st["peak_count"] or 0) >= 20 or (st["flat_factor"] or 0) > 0))
         stage_in = base
-        isolated = False
+        isolated, iso_engine, iso_info = False, None, None
         if args.isolate:
-            iso, why = run_isolate(base, work, N)
+            iso_engine = args.isolate
+            if iso_engine == "auto":
+                iso_engine = "elevenlabs" if EL.keys() and eleven_plan().get("paid") is True else "apple"
+            if iso_engine == "elevenlabs":
+                iso, why, iso_info = run_isolate_eleven(base, work, N, ch, ledger_file(
+                    os.path.dirname(os.path.abspath(args.out)) or ".", None))
+            else:
+                iso, why = run_isolate(base, work, N)
             if iso:
                 stage_in, isolated = iso, True
             else:
@@ -2569,9 +3001,11 @@ def cmd_clean(args):
               "source": os.path.abspath(src), "source_sha256": sha256(src), "file": os.path.abspath(args.out),
               "format": {"sample_rate": SR, "codec": "pcm_s24le", "channels": ch},
               "chain": chain, "denoiser": args.denoiser, "nr": args.nr, "nf_used_db": nf, "hum": args.hum,
-              "deess": args.deess, "isolate": {"asked": bool(args.isolate), "ran": isolated},
+              "deess": args.deess, "isolate": dict({"asked": bool(args.isolate), "ran": isolated, "engine": iso_engine},
+                                                   **(iso_info or {})),
               "noise_floor_db": {"before": round(nf_src, 1), "after": round(nf_out, 1), "measured_at_s": nf_at},
-              "delay": {"removed_ms": round(delay_ms + extra + (KNOWN_DELAY_MS["isolate"] if isolated else 0.0), 2),
+              "delay": {"removed_ms": round(delay_ms + extra + (KNOWN_DELAY_MS["isolate"]
+                                                                 if isolated and iso_engine == "apple" else 0.0), 2),
                         "known_ms": delay_ms, "extra_measured_ms": round(extra, 2),
                         "sync_offset_ms": round(off, 2), "sync_ok": abs(off) <= 2.0,
                         "method": "cross-correlation of 1 ms speech-band envelopes, input against output"},
@@ -2843,9 +3277,9 @@ def cmd_mix(args):
     if args.platform not in PLATFORMS:
         die("--platform is one of %s" % ", ".join(PLATFORMS))
     target_i, target_tp = PLATFORMS[args.platform]
-    ins = {k: getattr(args, k) for k in ("dialogue", "voice", "music", "sfx") if getattr(args, k)}
+    ins = {k: getattr(args, k) for k in ("dialogue", "voice", "music", "sfx", "ambience") if getattr(args, k)}
     if not ins:
-        die("give at least one of --dialogue, --voice, --music, --sfx")
+        die("give at least one of --dialogue, --voice, --music, --sfx, --ambience")
     check_out(args.out, list(ins.values()) + [args.speech])
     t0 = time.time()
     warnings, stems = [], {}
@@ -2933,7 +3367,22 @@ def cmd_mix(args):
             stems["sfx"] = {"source": os.path.abspath(ins["sfx"]), "file": st, "gain_db": round(gs, 2),
                             "rule": "authored against a -20 LUFS dialogue anchor (sfx_cues.json)" if cues else
                             "no sfx_cues.json: used at unity"}
-        order = [k for k in ("dialogue", "voice", "music", "sfx") if k in stems]
+        if "ambience" in ins:
+            # room tone and ambience stay steady (never ducked): a bed that dips under every line gives the
+            # edit away; it sits --ambience-under dB under the dialogue anchor
+            raw = work.path("ambience_48k.wav")
+            to_wav(ins["ambience"], raw, channels=2, codec="pcm_f32le")
+            ai = loudness(raw)["I"]
+            if ai is None:
+                warnings.append("ambience is silent; left out")
+            else:
+                ga = (REF_DIALOGUE_LUFS - args.ambience_under) - ai
+                st = os.path.join(stems_dir, "ambience.wav")
+                run_ff(["-y", "-v", "error", "-i", raw, "-af", "volume=%.4fdB,apad=whole_len=%d,atrim=end_sample=%d"
+                        % (ga, N, N), "-c:a", "pcm_s24le", st])
+                stems["ambience"] = {"source": os.path.abspath(ins["ambience"]), "file": st, "gain_db": round(ga, 2),
+                                     "rule": "steady, %s dB under the dialogue anchor" % fmt_num(args.ambience_under)}
+        order = [k for k in ("dialogue", "voice", "music", "sfx", "ambience") if k in stems]
         summed = work.path("sum.wav")
         a = ["-y", "-v", "error"]
         for k in order:
@@ -3277,6 +3726,18 @@ def cmd_library(args):
     emit(args, {"ok": True, "library": library_path(), "tracks": rows}, lines)
 
 
+ELEVEN_NOTES = [
+    "ElevenLabs output is usable commercially only when made on a paid plan while subscribed; free-plan output is "
+    "for evaluation (non-commercial, with elevenlabs.io in the title).",
+    "Eleven Music on self-serve plans covers online video (YouTube, social, ads online), not film, TV, radio or "
+    "games; Free to Pro plans are for individuals, a company needs Scale or Business. Clients in firearms, "
+    "tobacco, prescription drugs, adult content, religious organisations or political campaigns may not use it.",
+    "It is not exclusive: do not register it with Content ID. ElevenLabs adds an inaudible watermark; nobody "
+    "tries to remove it.",
+    "ElevenLabs sound effects go to the client mixed into the video, never as separate files or a library; "
+    "turn off sharing on the Sound Effects page if the effects should not be offered to other users.",
+]
+
 CREDITS_NOTES = [
     "You may use this music in commercial videos, including client work. Google claims no ownership of Lyria output.",
     "It is not exclusive: Google can make similar music for others. Do not register it with Content ID, sell it as "
@@ -3300,7 +3761,7 @@ def cmd_credits(args):
     root = args.dir
     if not os.path.isdir(root):
         die("%s is not a folder" % root)
-    tracks, sfx, fetched, fits = [], [], [], []
+    tracks, sfx, fetched, fits, beds, cleans = [], [], [], [], [], []
     for d, _, files in os.walk(root):
         for f in sorted(files):
             if not f.endswith(".json"):
@@ -3317,8 +3778,37 @@ def cmd_credits(args):
                 fetched.append(j)
             elif s == "nexa-sound/fit-1":
                 fits.append(j)
+            elif s == "nexa-sound/ambience-1":
+                beds.append(j)
+            elif s == "nexa-sound/clean-1" and ((j.get("isolate") or {}).get("engine") == "elevenlabs"):
+                cleans.append(j)
+    blocked = []
+    for t in tracks:
+        if ((t.get("provider") or {}).get("api") == "elevenlabs"
+                and (t.get("licence") or {}).get("commercial") is not True):
+            blocked.append("music %s" % t.get("id"))
+    for f in fetched:
+        if f.get("source") == "elevenlabs" and f.get("commercial") is not True:
+            blocked.append("effect %s" % os.path.basename(f.get("file") or ""))
+    for b in beds:
+        if b.get("commercial") is not True:
+            blocked.append("ambience %s" % os.path.basename(b.get("file") or ""))
+    for c in cleans:
+        if (c.get("isolate") or {}).get("commercial") is not True:
+            blocked.append("voice isolation %s" % os.path.basename(c.get("file") or ""))
+    for s_ in sfx:
+        for c in s_.get("cues") or []:
+            r = c.get("resolved") or {}
+            if r.get("source") == "elevenlabs" and r.get("commercial") is not True:
+                blocked.append("effect cue %s" % (r.get("prompt") or r.get("file")))
     lines = ["Music and sound: licence and provenance notes", "Prepared with nexa-sound %s on %s." % (
         SKILL_VERSION, datetime.date.today().isoformat()), ""]
+    if blocked:
+        lines += ["STATUS: NOT FOR CLIENT DELIVERY. %d item(s) come from a free or unknown ElevenLabs plan, whose "
+                  "output is for evaluation only: %s. Make them again on a paid plan, or replace them." % (
+                      len(blocked), "; ".join(blocked[:12])), ""]
+    else:
+        lines += ["STATUS: every item below may be used in client work under the notes that follow.", ""]
     lines.append("MUSIC")
     if not tracks:
         lines.append("- none")
@@ -3326,10 +3816,16 @@ def cmd_credits(args):
         p, o = t.get("provider") or {}, t.get("original") or {}
         b = (t.get("request") or {}).get("brief") or {}
         used = [f for f in fits if f.get("source") == o.get("file")]
-        lines.append("- %s: made with Google Lyria (%s, %s, Gemini API) on %s from a written brief (%s, %s BPM, "
-                     "%s)." % (t.get("id"), p.get("model"), p.get("stage"), str(t.get("created_at"))[:10],
-                               b.get("mood"), fmt_num(b.get("bpm") or 0), "with vocals" if b.get("vocals")
-                               else "instrumental"))
+        if p.get("api") == "elevenlabs":
+            lines.append("- %s: made with ElevenLabs Music (%s, %s) on %s from a written brief (%s, %s BPM, %s)."
+                         % (t.get("id"), p.get("model"), (t.get("licence") or {}).get("source"),
+                            str(t.get("created_at"))[:10], b.get("mood"), fmt_num(b.get("bpm") or 0),
+                            "with vocals" if b.get("vocals") else "instrumental"))
+        else:
+            lines.append("- %s: made with Google Lyria (%s, %s, Gemini API) on %s from a written brief (%s, %s BPM, "
+                         "%s)." % (t.get("id"), p.get("model"), p.get("stage"), str(t.get("created_at"))[:10],
+                                   b.get("mood"), fmt_num(b.get("bpm") or 0), "with vocals" if b.get("vocals")
+                                   else "instrumental"))
         lines.append("  Original kept untouched: %s (sha256 %s)." % (os.path.basename(o.get("file") or ""),
                                                                      o.get("sha256")))
         for f in used:
@@ -3339,8 +3835,20 @@ def cmd_credits(args):
             lines.append("  Not edited for this video (a draft or an unused take).")
     lines.append("")
     lines.append("WHAT THIS MEANS")
-    for n in CREDITS_NOTES:
+    lyria = [t for t in tracks if (t.get("provider") or {}).get("api") != "elevenlabs"]
+    eleven = len(tracks) - len(lyria) + len(beds) + sum(1 for f in fetched if f.get("source") == "elevenlabs")
+    for n in (CREDITS_NOTES if lyria or not tracks else CREDITS_NOTES[-3:]):  # the effects and labelling notes
         lines.append("- " + n)
+    if eleven:
+        for n in ELEVEN_NOTES:
+            lines.append("- " + n)
+    if beds:
+        lines.append("")
+        lines.append("AMBIENCE")
+        for b in beds:
+            lines.append("- %s: %s (%.1f s from a %.1f s loop). Licence: %s." % (
+                os.path.basename(b.get("file") or ""), b.get("text"), b.get("duration_s") or 0,
+                b.get("loop_s") or 0, ((b.get("source") or {}).get("licence")) or "ElevenLabs"))
     lines.append("")
     lines.append("SOUND EFFECTS")
     groups, credit_lines = {}, []
@@ -3378,10 +3886,13 @@ def cmd_credits(args):
     check_out(args.out, [])
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write(text)
-    emit(args, {"ok": True, "file": os.path.abspath(args.out), "tracks": len(tracks),
-                "sfx_stems": len(sfx), "credit_lines": sorted(set(credit_lines))},
+    emit(args, {"ok": not (blocked and args.strict), "file": os.path.abspath(args.out), "tracks": len(tracks),
+                "sfx_stems": len(sfx), "credit_lines": sorted(set(credit_lines)), "blocked": blocked},
          ["credits: %s (%d track%s, %d effect stem%s)" % (args.out, len(tracks), "" if len(tracks) == 1 else "s",
-                                                          len(sfx), "" if len(sfx) == 1 else "s")])
+                                                          len(sfx), "" if len(sfx) == 1 else "s")]
+         + (["NOT FOR CLIENT DELIVERY: %s" % "; ".join(blocked[:6])] if blocked else []))
+    if blocked and args.strict:
+        sys.exit(1)
 
 
 def cmd_cost(args):
@@ -3430,8 +3941,9 @@ def cmd_doctor(args):
     enc = subprocess.run([ff, "-hide_banner", "-encoders"], capture_output=True, text=True).stdout if ff else ""
     rep["mp3_encoder"] = "libmp3lame" in enc
     rep["key_sources"] = G.key_sources()
-    rep["freesound_key"] = bool(os.environ.get("FREESOUND_API_KEY"))
-    rep["elevenlabs_key"] = bool(os.environ.get("ELEVENLABS_API_KEY"))
+    rep["freesound_key"] = bool(freesound_key())
+    rep["elevenlabs_keys"] = EL.key_sources()
+    rep["elevenlabs_key"] = bool(rep["elevenlabs_keys"])
     rep["uv"] = shutil.which("uv")
     py = os.path.join(home(), "venv", "bin", "python")
     rep["realtime_venv"] = py if os.path.exists(py) else None
@@ -3452,13 +3964,16 @@ def cmd_doctor(args):
                 "key_sources": rep["key_sources"]})
         except G.GeminiError as err:
             rep["live"] = {"error": scrub(gemini_message(err))}
+        if rep["elevenlabs_key"]:
+            plan = eleven_plan()
+            rep["elevenlabs_plan"] = {k: plan.get(k) for k in ("tier", "paid", "known", "credits_left", "note")}
     lines = ["nexa-sound %s: %s" % (SKILL_VERSION, "ready" if rep["ready"] else "NOT ready"),
              "ffmpeg: %s%s" % (ff or "missing", (", missing filters: " + ", ".join(rep["filters_missing"]))
                                if rep["filters_missing"] else ", all filters present"),
              "Gemini key sources: %s" % (", ".join(rep["key_sources"]) or "none (drafts, finals and --listen need "
                                          "one; everything else works without)"),
-             "Freesound key: %s; ElevenLabs key: %s" % ("yes" if rep["freesound_key"] else "no",
-                                                        "yes" if rep["elevenlabs_key"] else "no"),
+             "Freesound key: %s; ElevenLabs key sources: %s" % ("yes" if rep["freesound_key"] else "no",
+                                                                ", ".join(rep["elevenlabs_keys"]) or "none"),
              "RealTime: uv %s, venv %s" % ("found" if rep["uv"] else "missing", rep["realtime_venv"] or
                                            "not made yet (generate --realtime makes it on first use)"),
              "voice isolation: swiftc %s, helper %s" % ("found" if rep["swiftc"] else "missing",
@@ -3470,6 +3985,12 @@ def cmd_doctor(args):
              "library: %d track%s" % (rep["library"]["tracks"], "" if rep["library"]["tracks"] == 1 else "s")]
     if "live" in rep:
         lines.append("live: %s" % json.dumps(rep["live"]))
+    if rep.get("elevenlabs_plan"):
+        pl = rep["elevenlabs_plan"]
+        lines.append("ElevenLabs plan: %s%s%s" % (
+            pl["tier"] or "unknown", (", %s credits left" % pl["credits_left"]) if pl.get("credits_left") is not None
+            else "", "; output is for client work" if pl.get("paid") else "; output is NOT for client work (%s)"
+            % (pl.get("note") or "free plan")))
     emit(args, dict(rep, ok=rep["ready"]), lines)
     if not rep["ready"]:
         sys.exit(1)
@@ -3506,18 +4027,35 @@ def build_parser():
     p.add_argument("--out", required=True)
     p.set_defaults(func=cmd_brief)
 
-    p = sub.add_parser("generate", parents=[common], help="make music with Lyria")
+    p = sub.add_parser("generate", parents=[common], help="make music with ElevenLabs or Lyria")
     p.add_argument("brief")
     p.add_argument("--out", required=True, help="folder for originals and sidecars")
+    p.add_argument("--engine", choices=["auto", "elevenlabs", "lyria"], default="auto",
+                   help="auto: ElevenLabs on a paid plan, else a Lyria final")
+    p.add_argument("--model", choices=list(EL.MUSIC_MODELS), help="ElevenLabs music model")
     p.add_argument("--draft", type=int, help="N drafts on lyria-3-clip-preview (30 s MP3, $0.04 each)")
-    p.add_argument("--final", action="store_true", help="a final on lyria-3.5 (WAV asked for, $0.08)")
+    p.add_argument("--final", action="store_true", help="a final on lyria-3.5 (MP3, $0.08)")
     p.add_argument("--takes", type=int, default=1, help="finals to make (1 to 3)")
     p.add_argument("--realtime", action="store_true", help="an exact-length bed on lyria-realtime-exp (free for now)")
-    p.add_argument("--seed", type=int, help="RealTime seed")
+    p.add_argument("--seed", type=int, help="RealTime or ElevenLabs seed")
     p.add_argument("--images", help="up to 10 images (comma-separated) that steer the mood")
     p.add_argument("--budget", type=float, default=1.00, help="refuse a run whose estimate is higher (USD, 1.00)")
     p.add_argument("--project", help="the folder whose ledger.jsonl records the cost")
     p.set_defaults(func=cmd_generate)
+
+    p = sub.add_parser("ambience", parents=[common], help="an ambience or room-tone bed of exact length "
+                                                        "(ElevenLabs loop)")
+    p.add_argument("text", help="what it sounds like: 'quiet office room tone, distant keyboard'")
+    p.add_argument("--duration", type=float, required=True, help="length in seconds")
+    p.add_argument("--out", required=True)
+    p.add_argument("--piece", type=float, help="the loop's length, 4 to 30 s (default: up to 30 s)")
+    p.add_argument("--influence", type=float, help="prompt influence, 0 to 1")
+    p.add_argument("--model", choices=list(EL.SFX_MODELS))
+    p.add_argument("--fade-in", type=float, default=1.0)
+    p.add_argument("--fade-out", type=float, default=1.5)
+    p.add_argument("--budget", type=float, default=1.00)
+    p.add_argument("--project")
+    p.set_defaults(func=cmd_ambience)
 
     p = sub.add_parser("fit", parents=[common], help="fit a track to the picture's length")
     p.add_argument("track")
@@ -3562,7 +4100,10 @@ def build_parser():
     q.add_argument("query")
     q.add_argument("--source", choices=["freesound", "elevenlabs"], required=True)
     q.add_argument("--out", required=True, help="folder")
-    q.add_argument("--dur", type=float, help="ElevenLabs length, 0.5 to 30 s")
+    q.add_argument("--dur", type=float, help="ElevenLabs length, 0.5 to 30 s (without it the model chooses)")
+    q.add_argument("--loop", action="store_true", help="ElevenLabs: a seamless loop (ambience, a bed)")
+    q.add_argument("--influence", type=float, help="ElevenLabs prompt influence, 0 (free) to 1 (literal)")
+    q.add_argument("--model", choices=list(EL.SFX_MODELS), help="ElevenLabs model (default %s)" % EL.SFX_MODELS[0])
     q.add_argument("--allow-cc-by", action="store_true", help="Freesound: also CC BY (a credit line is then needed)")
     q.add_argument("--budget", type=float, default=1.00)
     q.add_argument("--project")
@@ -3571,7 +4112,9 @@ def build_parser():
     p = sub.add_parser("clean", parents=[common], help="dialogue clean-up, proved in sync")
     p.add_argument("input")
     p.add_argument("--out", required=True)
-    p.add_argument("--isolate", action="store_true", help="Apple's voice isolation first (optional)")
+    p.add_argument("--isolate", nargs="?", const="auto", choices=["auto", "elevenlabs", "apple"],
+                   help="voice isolation first: elevenlabs (best on the live test), apple (on the Mac, free), or "
+                        "auto (ElevenLabs on a paid plan, else Apple)")
     p.add_argument("--denoiser", choices=["afftdn", "anlmdn", "none"], default="afftdn")
     p.add_argument("--nr", type=float, default=12.0, help="afftdn noise reduction in dB (10 to 15 is natural)")
     p.add_argument("--hum", type=int, choices=[50, 60], help="notch the mains hum and 3 harmonics")
@@ -3591,10 +4134,13 @@ def build_parser():
     p.add_argument("--voice")
     p.add_argument("--music")
     p.add_argument("--sfx")
+    p.add_argument("--ambience", help="a room tone or ambience bed (from `ambience`): steady, never ducked")
     p.add_argument("--speech", help="speech spans file (else found in the speech stems)")
     p.add_argument("--platform", required=True, help=", ".join(PLATFORMS))
     p.add_argument("--duck", type=float, default=-14.0)
     p.add_argument("--music-under", type=float, default=20.0, help="dB the music sits under speech (18 to 25)")
+    p.add_argument("--ambience-under", type=float, default=24.0,
+                   help="dB the ambience sits under the dialogue anchor (20 to 30)")
     p.add_argument("--duration", type=float, help="length in seconds (default: the dialogue or voice, else the "
                    "longest input; give the video length when music runs on after the last word)")
     p.add_argument("--out", required=True)
@@ -3621,6 +4167,7 @@ def build_parser():
     p = sub.add_parser("credits", parents=[common], help="licence and provenance note from the sidecars")
     p.add_argument("dir")
     p.add_argument("--out", required=True)
+    p.add_argument("--strict", action="store_true", help="exit 1 when anything is not for client delivery")
     p.set_defaults(func=cmd_credits)
 
     p = sub.add_parser("cost", parents=[common], help="estimate a plan, or read a ledger")
