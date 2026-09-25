@@ -193,6 +193,8 @@ class Fake(object):
     el_user_read = True          # the key may lack user_read (the live key did at first)
     el_pcm_ok = True             # a plan may refuse PCM output
     el_channels = 2
+    el_pcm_short = False         # an answer shorter than asked: its channel count cannot be read
+    el_iso_garbage = False       # an isolator answer that is not audio
     audio = {}
     blocks = {}
 
@@ -303,6 +305,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             os.makedirs(os.path.dirname(src), exist_ok=True)
             with open(src, "wb") as fh:
                 fh.write(m.group(1))
+            if Fake.el_iso_garbage:
+                return self._send(200, b"this is not audio" * 64, "audio/mpeg")
             dst = src[:-4] + (".mp3" if HAVE_MP3 else "_out.wav")
             ff("-i", src, *(["-c:a", "libmp3lame", "-b:a", "128k"] if HAVE_MP3 else []), dst)
             return self._send(200, read_bytes(dst), "audio/mpeg" if HAVE_MP3 else "audio/wav")
@@ -339,6 +343,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return self._send(403, {"detail": {"status": "output_format_not_allowed", "message":
                                                        "pcm_48000 is not available for your subscription tier"}})
                 rate = int(fmt.split("_")[1])
+                if Fake.el_pcm_short:
+                    secs *= 0.3
                 return self._send(200, Fake.pcm(secs, rate, Fake.el_channels), "audio/pcm")
             return self._send(200, Fake.audio_sfx(), "audio/mpeg")
         body = json.loads(raw.decode("utf-8")) if raw else {}
@@ -1024,6 +1030,38 @@ class E_SfxPlaceTests(unittest.TestCase):
             Fake.el_tier = "creator"
         cli("credits", tmp("iso2"), "--out", tmp("iso2", "CREDITS.txt"), "--strict", expect=1)
         self.assertIn("voice isolation", read_text(tmp("iso2", "CREDITS.txt")))
+        # a job keeps its clean dialogue apart from the mix: every folder given is read
+        cli("credits", tmp("iso"), "--out", tmp("iso", "CREDITS.txt"), "--strict")
+        cli("credits", tmp("iso"), tmp("iso2"), "--out", tmp("iso", "CREDITS2.txt"), "--strict", expect=1)
+
+    def test_a_paid_isolation_survives_an_answer_that_cannot_be_read(self):
+        out = tmp("isobad", "el.wav")
+        Fake.el_iso_garbage = True
+        try:
+            r = cli_json("clean", shared("voice_noisy.wav"), "--out", out, "--isolate", "elevenlabs",
+                         env={"ELEVENLABS_API_KEY": EL_KEY})
+        finally:
+            Fake.el_iso_garbage = False
+        self.assertFalse(r["isolate"]["ran"])                         # the chain went on without it
+        self.assertTrue(os.path.exists(r["isolate"]["answer"]))       # the paid answer is kept next to the output
+        self.assertTrue(any("kept in" in n for n in r["notes"]), r["notes"])
+        led = load_jsonl(tmp("isobad", "ledger.jsonl"))
+        self.assertEqual((led[-1]["model"], led[-1]["status"]), ("elevenlabs-isolate", "ok"))
+        self.assertTrue(os.path.exists(out))
+        cli("credits", tmp("isobad"), "--out", tmp("isobad", "CREDITS.txt"), "--strict")   # not used: not blocked
+
+    def test_a_paid_effect_that_cannot_be_read_is_kept_and_logged(self):
+        folder = tmp("sfxbad")
+        Fake.el_pcm_short = True
+        try:
+            cli("sfx", "fetch", "door slam", "--source", "elevenlabs", "--dur", 2, "--out", folder,
+                env={"ELEVENLABS_API_KEY": EL_KEY}, expect=1)
+        finally:
+            Fake.el_pcm_short = False
+        self.assertTrue(any(f.endswith(".raw") for f in os.listdir(folder)))
+        led = load_jsonl(os.path.join(folder, "ledger.jsonl"))
+        self.assertEqual((led[-1]["status"], led[-1]["est_usd"]), ("unsaved", 0.02))
+        self.assertAlmostEqual(cli_json("cost", folder)["ledger"]["spent_usd"], 0.02, delta=0.001)
 
     def test_ambience_tiles_a_loop_to_the_exact_length(self):
         out = tmp("amb", "office.wav")

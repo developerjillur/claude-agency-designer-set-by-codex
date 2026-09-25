@@ -4,6 +4,11 @@ The version is `SKILL_VERSION` in `scripts/speech.py`. Run the offline tests aft
 `python3 -m unittest discover -s ~/.claude/skills/nexa-speech/tests`, and run `plan`, `render`, `master` and `align`
 once by hand (against the real API only when a key and a budget are agreed).
 
+## 2026.09.25.4
+
+- `align --engine elevenlabs` skips a word that comes back without a start or an end instead of stopping after the
+  call was paid for (found by an independent review).
+
 ## 2026.09.25.3 · ElevenLabs, measured
 
 - **`align --engine elevenlabs`:** ElevenLabs forced alignment times the known script on the audio ($0.22 an hour)

@@ -4,6 +4,19 @@ The version is `SKILL_VERSION` in `scripts/sound.py`. Run the offline tests afte
 `python3 -m unittest discover -s ~/.claude/skills/nexa-sound/tests` (about 55 s, no network, no keys), and run the
 changed command once by hand on a synthetic file and measure the result.
 
+## 2026.09.25.4 · a paid answer is never lost
+
+From an independent review of 2026.09.25.3:
+- **The isolator's answer is saved before it is decoded.** It was decoded inside the work folder, which is removed
+  on the way out: a decode that failed took the paid audio with it. It is now written next to the output first
+  (`<out>.isolated.mp3`); if it cannot be read, the clean-up goes on without isolation and says where it is.
+- **An effect that cannot be read is kept and costed.** An ElevenLabs answer whose channel count could not be read
+  was dropped and logged as a $0 failure although it was charged; the raw answer now stays as `<name>.raw` and the
+  ledger logs it as `unsaved` at its price (`cost` counts it).
+- **`credits` reads several folders.** A job's cleaned dialogue lives apart from each target's mix, so an ElevenLabs
+  isolation there went unchecked; nexa-video-creator's `deliver` now passes both. A failed isolation (not used) no
+  longer blocks.
+
 ## 2026.09.25.3 · ElevenLabs, measured against what was here
 
 ElevenLabs joins as a music, effects, ambience and voice-isolation engine, each run head to head on the live API

@@ -49,7 +49,7 @@ import elevenlabs_api as EL  # noqa: E402
 import gemini_api as G  # noqa: E402
 import sfx_synth as SX  # noqa: E402
 
-SKILL_VERSION = "2026.09.25.3"
+SKILL_VERSION = "2026.09.25.4"
 SR = 48000
 HQ_RESAMPLE = "aresample=48000:filter_size=64:phase_shift=10:cutoff=0.97"
 
@@ -1580,7 +1580,7 @@ def cmd_ambience(args):
         r = elevenlabs_fetch(args.text, os.path.join(folder, "ambience_parts"), piece, loop=True,
                              influence=args.influence, model=args.model)
     except ServiceError as err:
-        ledger_add(ledger, "ambience", "elevenlabs-sfx", 1, 0.0, None, "failed", error_kind=err.kind)
+        ledger_service_error(ledger, "ambience", "elevenlabs-sfx", PRICES["elevenlabs-sfx"], err)
         die("ElevenLabs: %s" % err)
     ledger_add(ledger, "ambience", "elevenlabs-sfx", 1, PRICES["elevenlabs-sfx"], r.get("key_source"), "ok",
                detail=args.text[:80], commercial=r.get("commercial"), response=r.get("response") or None)
@@ -2266,9 +2266,21 @@ def match_key(idx, name, query):
 
 
 class ServiceError(Exception):
-    def __init__(self, kind, message):
+    """A source that gave nothing usable. `billed` is set when the service answered (and charged) but the answer
+    could not be used; the raw answer is then kept on disk and the ledger records the cost."""
+
+    def __init__(self, kind, message, billed=False, key=None):
         super().__init__(message)
         self.kind = kind
+        self.billed = billed
+        self.key = key
+
+
+def ledger_service_error(ledger, command, model, est, err, **extra):
+    """The ledger line for a failed call: the estimate when the service charged for it, else $0."""
+    billed = bool(getattr(err, "billed", False))
+    ledger_add(ledger, command, model, 1, est if billed else 0.0, getattr(err, "key", None),
+               "unsaved" if billed else "failed", error_kind=err.kind, **extra)
 
 
 def http(method, url, headers=None, body=None, timeout=120):
@@ -2416,7 +2428,11 @@ def elevenlabs_fetch(query, out_dir, duration=None, loop=False, influence=None, 
     try:
         path, meta = EL.save_audio(data, stem, fmt, expect_s=dur, info=info)
     except EL.ElevenError as err:
-        raise ServiceError("empty", scrub(str(err)))
+        rescue = stem + ".raw"
+        with open(rescue, "wb") as fh:
+            fh.write(data)
+        raise ServiceError("unsaved", "%s; the paid answer is kept in %s" % (scrub(str(err)), rescue), billed=True,
+                           key=info.get("key"))
     lic = eleven_licence(plan)
     side = {"schema": "nexa-sound/elevenlabs-1", "provider": "elevenlabs", "endpoint": "POST /v1/sound-generation",
             "model": model, "prompt": query, "duration_s": dur, "loop": bool(loop), "prompt_influence": influence,
@@ -2548,7 +2564,9 @@ class Resolver(object):
                                  loop=bool(cue.get("loop")), influence=cue.get("influence"))
         except ServiceError as err:
             if err.kind not in ("no_key",):
-                ledger_add(self.ledger, "sfx", "elevenlabs-sfx", 1, 0.0, None, "failed", error_kind=err.kind)
+                ledger_service_error(self.ledger, "sfx", "elevenlabs-sfx", est, err)
+                if err.billed:
+                    self.spent += est
             raise
         self.spent += est
         ledger_add(self.ledger, "sfx", "elevenlabs-sfx", 1, est, r.get("key_source"), "ok", detail=r["prompt"][:80],
@@ -2763,7 +2781,7 @@ def cmd_sfx_fetch(args):
                                      model=args.model)
             except ServiceError as err:
                 if err.kind not in ("no_key",):
-                    ledger_add(ledger, "sfx fetch", "elevenlabs-sfx", 1, 0.0, None, "failed", error_kind=err.kind)
+                    ledger_service_error(ledger, "sfx fetch", "elevenlabs-sfx", PRICES["elevenlabs-sfx"], err)
                 raise
             ledger_add(ledger, "sfx fetch", "elevenlabs-sfx", 1, PRICES["elevenlabs-sfx"], r.get("key_source"),
                        "ok", detail=args.query[:80], commercial=r.get("commercial"), response=r.get("response") or None)
@@ -2894,7 +2912,7 @@ def run_isolate(src48, work, n_samples):
 EL_ISOLATE_USD_MIN = 0.12      # ElevenLabs voice isolator, API list price (pricing/api, 2026-09-25)
 
 
-def run_isolate_eleven(src48, work, n_samples, channels, ledger):
+def run_isolate_eleven(src48, work, n_samples, channels, ledger, keep):
     """ElevenLabs' voice isolator: the file goes up as 16-bit WAV and comes back as MP3, which is decoded to the
     working rate and length; the clean-up's own sync check then measures and removes what delay is left. On a live
     test with cafe chatter at 5 dB SNR it left the least noise and sounded the most natural of the three ways
@@ -2912,14 +2930,22 @@ def run_isolate_eleven(src48, work, n_samples, channels, ledger):
     lic = eleven_licence(eleven_plan())
     ledger_add(ledger, "clean --isolate", "elevenlabs-isolate", 1, EL_ISOLATE_USD_MIN * secs / 60.0, info.get("key"),
                "ok", seconds=round(secs, 2), response=EL.cost_headers(info) or None, commercial=lic["commercial"])
-    got, _ = EL.save_audio(data, work.path("iso_el"), "mp3_44100_128", info=info)
-    dec = work.path("iso_dec.wav")
-    to_wav(got, dec, channels=channels, codec="pcm_f32le")
-    out = work.path("iso.wav")
-    run_ff(["-y", "-v", "error", "-i", dec, "-af", "atrim=end_sample=%d,apad=whole_len=%d" % (n_samples, n_samples),
-            "-c:a", "pcm_f32le", out], what="the isolated voice")
-    return out, None, {"engine": "elevenlabs", "licence": lic["source"], "commercial": lic["commercial"],
-                       "response": EL.cost_headers(info)}
+    # the paid answer goes next to the output first: a later step that fails must not take it with the work folder
+    got = stem_of(keep) + ".mp3"
+    with open(got, "wb") as fh:
+        fh.write(data)
+    extra = {"engine": "elevenlabs", "licence": lic["source"], "commercial": lic["commercial"],
+             "response": EL.cost_headers(info), "answer": os.path.abspath(got)}
+    try:
+        dec = work.path("iso_dec.wav")
+        to_wav(got, dec, channels=channels, codec="pcm_f32le")
+        out = work.path("iso.wav")
+        run_ff(["-y", "-v", "error", "-i", dec, "-af", "atrim=end_sample=%d,apad=whole_len=%d" % (n_samples, n_samples),
+                "-c:a", "pcm_f32le", out], what="the isolated voice")
+    except (Exception, SystemExit) as err:
+        return None, "ElevenLabs answered but its audio could not be read (%s); the paid answer is kept in %s" % (
+            scrub(str(err))[:200], got), extra
+    return out, None, extra
 
 
 def cmd_clean(args):
@@ -2944,7 +2970,7 @@ def cmd_clean(args):
                 iso_engine = "elevenlabs" if EL.keys() and eleven_plan().get("paid") is True else "apple"
             if iso_engine == "elevenlabs":
                 iso, why, iso_info = run_isolate_eleven(base, work, N, ch, ledger_file(
-                    os.path.dirname(os.path.abspath(args.out)) or ".", None))
+                    os.path.dirname(os.path.abspath(args.out)) or ".", None), stem_of(args.out) + ".isolated")
             else:
                 iso, why = run_isolate(base, work, N)
             if iso:
@@ -3758,11 +3784,15 @@ CREDITS_NOTES = [
 
 
 def cmd_credits(args):
-    root = args.dir
-    if not os.path.isdir(root):
-        die("%s is not a folder" % root)
+    roots = args.dir if isinstance(args.dir, list) else [args.dir]
+    for root in roots:
+        if not os.path.isdir(root):
+            die("%s is not a folder" % root)
     tracks, sfx, fetched, fits, beds, cleans = [], [], [], [], [], []
-    for d, _, files in os.walk(root):
+    walked = []
+    for root in roots:
+        walked += list(os.walk(root))
+    for d, _, files in walked:
         for f in sorted(files):
             if not f.endswith(".json"):
                 continue
@@ -3780,7 +3810,8 @@ def cmd_credits(args):
                 fits.append(j)
             elif s == "nexa-sound/ambience-1":
                 beds.append(j)
-            elif s == "nexa-sound/clean-1" and ((j.get("isolate") or {}).get("engine") == "elevenlabs"):
+            elif s == "nexa-sound/clean-1" and (j.get("isolate") or {}).get("engine") == "elevenlabs" \
+                    and (j.get("isolate") or {}).get("ran"):
                 cleans.append(j)
     blocked = []
     for t in tracks:
@@ -3918,7 +3949,7 @@ def cmd_cost(args):
             b = by.setdefault(k, {"calls": 0, "est_usd": 0.0})
             b["calls"] += 1
             b["est_usd"] += float(r.get("est_usd") or 0.0)
-        spent = sum(v["est_usd"] for (m, s), v in by.items() if s in ("ok", "empty"))
+        spent = sum(v["est_usd"] for (m, s), v in by.items() if s in ("ok", "empty", "unsaved"))
         result["ledger"] = {"file": lp, "entries": len(rows), "spent_usd": round(spent, 4),
                             "by": [{"model": m, "status": s, "calls": v["calls"], "est_usd": round(v["est_usd"], 4)}
                                    for (m, s), v in sorted(by.items(), key=lambda kv: str(kv[0]))]}
@@ -4165,7 +4196,7 @@ def build_parser():
     p.set_defaults(func=cmd_library)
 
     p = sub.add_parser("credits", parents=[common], help="licence and provenance note from the sidecars")
-    p.add_argument("dir")
+    p.add_argument("dir", nargs="+", help="one or more folders to read (a job's mix folder and its clean dialogue)")
     p.add_argument("--out", required=True)
     p.add_argument("--strict", action="store_true", help="exit 1 when anything is not for client delivery")
     p.set_defaults(func=cmd_credits)

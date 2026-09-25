@@ -4,6 +4,12 @@ The version is `SKILL_VERSION` in `scripts/nvc.py`. Run the offline tests after 
 `python3 -m unittest discover -s ~/.claude/skills/nexa-video-creator/tests` (and with `NVC_RENDER_TESTS=1` once the
 renderer is set up).
 
+## 2026.09.25.4 · the licence check covers the cleaned dialogue
+
+- `deliver` runs nexa-sound's `credits --strict` over the target's mix folder and `media/audio` (where `clean`
+  writes the cleaned dialogue and its report): a voice isolation from a free or unknown ElevenLabs plan was not
+  checked before (found by an independent review).
+
 ## 2026.09.25.3 · stock from Pixabay, and sound that can be delivered
 
 - **`stock`:** Pixabay videos, animations, photos, illustrations and vectors for a b-roll slot. Up to three wordings

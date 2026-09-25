@@ -35,8 +35,9 @@ the output folder; `--project DIR` puts it in `DIR/ledger.jsonl`.
 ```
 
 `status` is `ok`, `empty` (the call answered without audio; it may still be billed), `blocked` (a finished track
-Google blocked, logged at $0 and made once more) or `failed` (logged at $0, except
-a timeout, which may have been billed). `key_source` is the variable's name, never the key.
+Google blocked, logged at $0 and made once more), `unsaved` (ElevenLabs answered and charged, but the audio could not
+be read: logged at its price, the raw answer kept as `<name>.raw` next to where the file would be) or `failed` (logged
+at $0, except a timeout, which may have been billed). `key_source` is the variable's name, never the key.
 
 ## doctor
 
@@ -400,7 +401,8 @@ measured and removed once more, and anything over 2 ms stops the command without
 voice isolation first. `auto` (the default when no engine is named) uses ElevenLabs' voice isolator when its key is
 here and the plan is paid, else Apple's (`scripts/voice_isolate.swift`, compiled once with swiftc to
 `~/.nexa-sound/bin/voice-isolate`, free). ElevenLabs (`POST /v1/audio-isolation`, $0.12 a minute, in the ledger): the
-file goes up as 16-bit WAV and comes back as MP3, decoded to the working length; the sync check then measures and
+file goes up as 16-bit WAV and comes back as MP3, saved next to the output first (`<out>.isolated.mp3`, so a later
+step that fails never loses the paid answer), then decoded to the working length; the sync check then measures and
 removes what delay is left. Speech in cafe chatter at 5 dB SNR (2026-09-25, judged 0 to 10): ElevenLabs clarity 9,
 noise left 1, natural 8; Apple 7, 2, 5; the words were read equally well after either (CER 0.045). When isolation
 cannot run, the chain goes on without it and the report says why. Loudness is not set here.
@@ -507,13 +509,13 @@ there. Reuse a take before paying for a new one.
 
 ## credits
 
-`credits DIR --out CREDITS.txt [--strict]`: reads every sidecar, fit report, effect cue file, ElevenLabs effect,
-ambience and clean-up report under `DIR` and writes the note for the delivery: a STATUS line first, each track with
-its model, date, brief and untouched original (sha256), whether it was edited for the video, what the licence means
-in plain words (Lyria's notes, and ElevenLabs' when any item came from it), the effects grouped by source and
-licence, and any CC BY credit lines to paste. Anything from ElevenLabs made on a free plan, or on a plan the key
-could not read, is listed under "STATUS: NOT FOR CLIENT DELIVERY"; `--strict` then exits 1 (nexa-video-creator's
-`deliver` runs it this way).
+`credits DIR [DIR...] --out CREDITS.txt [--strict]`: reads every sidecar, fit report, effect cue file, ElevenLabs
+effect, ambience and clean-up report under each `DIR` (a job's mix folder and its cleaned dialogue live apart) and
+writes the note for the delivery: a STATUS line first, each track with its model, date, brief and untouched original
+(sha256), whether it was edited for the video, what the licence means in plain words (Lyria's notes, and ElevenLabs'
+when any item came from it), the effects grouped by source and licence, and any CC BY credit lines to paste. Anything
+from ElevenLabs made on a free plan, or on a plan the key could not read, is listed under "STATUS: NOT FOR CLIENT
+DELIVERY"; `--strict` then exits 1 (nexa-video-creator's `deliver` runs it this way).
 
 ## cost
 

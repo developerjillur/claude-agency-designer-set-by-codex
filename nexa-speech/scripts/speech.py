@@ -50,7 +50,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gemini_api as G  # noqa: E402  (shared by the nexa skills: never edit it here)
 import elevenlabs_api as EL  # noqa: E402  (shared by the nexa skills: never edit it here)
 
-SKILL_VERSION = "2026.09.25.3"
+SKILL_VERSION = "2026.09.25.4"
 PRICES_AS_OF = "2026-09-25"
 ANALYSIS_VERSION = "2026.09.25.1"   # bump when what analyse_audio() returns changes
 SCRIPTS = Path(__file__).resolve().parent
@@ -3011,7 +3011,8 @@ def align_eleven(project: Path, plan: dict, manifest: dict, budget: float) -> tu
     ledger(project, {"time": now_iso(), "command": "align", "model": "elevenlabs-forced-alignment",
                      "est_usd": round(est, 5), "key_source": info.get("key"), "result": "ok",
                      "response": EL.cost_headers(info), "seconds": round(time.time() - t0, 2)})
-    words = [w for w in (fa.get("words") or []) if isinstance(w, dict) and str(w.get("text") or "").strip()]
+    words = [w for w in (fa.get("words") or []) if isinstance(w, dict) and str(w.get("text") or "").strip()
+             and isinstance(w.get("start"), (int, float)) and isinstance(w.get("end"), (int, float))]
     bn = any(is_bn(c["spoken"]) for c in plan["chunks"])
     hyp = []
     for w in words:

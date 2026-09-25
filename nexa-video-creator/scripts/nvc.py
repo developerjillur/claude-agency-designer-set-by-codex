@@ -42,7 +42,7 @@ import gemini_api  # noqa: E402
 import nvc_plan as P  # noqa: E402
 import pixabay_api as X  # noqa: E402
 
-SKILL_VERSION = "2026.09.25.3"
+SKILL_VERSION = "2026.09.25.4"
 REMOTION_VERSION = "4.0.528"
 SKILL_DIR = HERE.parent
 TEMPLATE = SKILL_DIR / "template"
@@ -1522,8 +1522,8 @@ def cmd_deliver(args):
     (fd / (name + ".notes.md")).write_text(notes, encoding="utf-8")
     files.append(name + ".notes.md")
     if SOUND.exists() and (d / "audio" / target).exists():
-        r = run([sys.executable, SOUND, "credits", d / "audio" / target, "--out", fd / (name + ".CREDITS.txt"),
-                 "--strict"], timeout=300)
+        r = run([sys.executable, SOUND, "credits"] + credit_roots(d, target)
+                + ["--out", fd / (name + ".CREDITS.txt"), "--strict"], timeout=300)
         if (fd / (name + ".CREDITS.txt")).exists():
             files.append(name + ".CREDITS.txt")
         if r.returncode != 0 and not args.allow_noncommercial:
@@ -1562,6 +1562,15 @@ def sidecars(root):
         except (OSError, ValueError):
             continue
     return out
+
+
+def credit_roots(d, target):
+    """The folders whose sound goes into a target's video: its mix folder, and the cleaned dialogue it was made from
+    (voice isolation may have been ElevenLabs')."""
+    roots = [d / "audio" / target]
+    if (d / "media" / "audio").exists():
+        roots.append(d / "media" / "audio")
+    return roots
 
 
 def disclosure_notes(d, job):

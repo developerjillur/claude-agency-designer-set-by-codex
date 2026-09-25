@@ -520,6 +520,15 @@ class Stock(unittest.TestCase):
         notes = nvc.disclosure_notes(job, jobj)
         self.assertIn("https://pixabay.com/videos/id-100/ by maker0", notes)
 
+    def test_deliver_checks_the_clean_dialogue_too(self):
+        sys.path.insert(0, str(SCRIPTS))
+        import nvc
+        job = self.tmp / "credits-job"
+        (job / "audio" / "youtube").mkdir(parents=True, exist_ok=True)
+        self.assertEqual(nvc.credit_roots(job, "youtube"), [job / "audio" / "youtube"])
+        (job / "media" / "audio").mkdir(parents=True, exist_ok=True)
+        self.assertEqual(nvc.credit_roots(job, "youtube"), [job / "audio" / "youtube", job / "media" / "audio"])
+
     def test_sheet_without_swift_keeps_every_number_in_place(self):
         import unittest.mock
         sys.path.insert(0, str(SCRIPTS))
