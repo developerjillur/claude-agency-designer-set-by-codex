@@ -4,6 +4,41 @@ The version is `SKILL_VERSION` in `scripts/design.py`; `doctor` reports it. Afte
 `python3 -m unittest discover -s ~/.claude/skills/codex-design/tests`, and render the pattern library (every pattern
 on its presets must stay free of errors and warnings; `templates/README.md` lists them).
 
+## 2026.09.25.2 · judges that converge, and gates that let good work ship
+
+Found in a real test on 2026-09-25: six client finals (a Bengali Facebook post, a Bengali carousel, a Lisbon web
+hero, a YouTube thumbnail, an A3 poster, a Bengali wedding card), each a headless Claude Code run at the machine's
+low effort. The designs were strong, and none was delivered: the runs took 5 to 23 minutes and stopped on the
+gates, for these reasons.
+
+- **Judges saw last round.** Over rounds of small fixes the design judge went PASS 3.85, PASS 3.75, REVISE 3.7 and
+  asked for the opposite of its own fixes; the copy judge asked for a wording one round and called it formal the
+  next. A new version of a design is now judged with the last round's fixes and keep list, and a new version of a
+  deck with the last round's notes (`history` in each report): the judge checks them instead of starting over. The
+  same file again rebuilds the same prompt, so its saved verdict is reused.
+- **The designer's own photo prompt is not the client's brief.** "A halved potato was requested" and "legible key
+  letters, contrary to the requirement" came from the plate prompts, reached the design judge through the plate
+  notes, and failed a post (essentials_present) and a thumbnail (text_accuracy) in every run. Plate notes now leave
+  out what only missed the prompt, and the judge is told the plate notes and photo directions are not requirements.
+- **Copy: PASS ships, PASS_NATIVE is the target.** Three finals had copy at PASS 3.79 to 4.12 and looped on
+  wording for PASS_NATIVE. `deliver` now takes PASS at every level (like the design judge's PASS) and warns below
+  PASS_NATIVE at client level, with the judge's notes.
+- **Lines that claim more than the brief come first.** The copy judge now marks `beyond_brief` per string (most
+  runs decide) and the summary lists those as `fix_first`; `deliver`'s notes put them first. A carousel spent five
+  rounds on small notes while its failing line ("never asks for a PIN", where the brief said by call, SMS or
+  Messenger) stayed.
+- **Print is a platform.** `--platform print` (and `"platform": "print"`) is accepted: a poster run had changed it to
+  web to get past copylint. The copy judge reads print copy from a few steps away instead of as a feed post, and
+  "Scan" is a call-to-action verb.
+- **Agreed placeholders.** A string marked `"placeholder": true` (a phone number the client sends later) is a render
+  warning instead of an error, a P1 note for the judge instead of a text_accuracy failure, and `deliver` lists it
+  to replace before print or posting. A wedding card failed in every run on the number its client asked to hold.
+- **A PDF's preview is 200 dpi** (it was 96: a 5x7 in card's preview was 492 px wide, and the judge that read it
+  failed its resolution).
+- **No hand delivery:** SKILL.md says the delivery folder stays empty when `deliver` stops (one run copied the files
+  in by hand after the gate refused them).
+- **Tests:** 135 offline tests.
+
 ## 2026.09.25.1 · the client final in one command
 
 - **`deliver --judge --brief B`** runs the design judge on every design and the copy judge on the copy at the same

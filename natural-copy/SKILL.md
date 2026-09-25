@@ -200,13 +200,14 @@ python3 ~/.claude/skills/codex-design/scripts/design.py copyjudge --caption post
 ```
 
 1. `copylint` (offline): fix every error and warning; read the notes and keep a noted word only when it is literally
-   true. `--platform` also takes whatsapp, email, web, sms and voiceover; `--role` takes headline, cta, caption, body,
+   true. `--platform` also takes whatsapp, email, web, sms, voiceover and print (posters, flyers, cards); `--role` takes headline, cta, caption, body,
    reply, script, voiceover and alt; `--lang` picks the language's rules (the script, then a Latin line's small
    words, pick them when there is no tag), and its region (`zh-TW`, `pt-PT`) or `--locale` adds that market's rules.
    `--brand` leaves the brand's `keep` lines alone.
 2. **Read it aloud** as the reader. If you would not say it across a counter, rewrite it.
-3. `copyjudge` (client level; a fresh native-reader session): PASS at least; PASS_NATIVE with `--runs 3` for client
-   work. It scores
+3. `copyjudge` (client level; a fresh native-reader session): PASS at least, with `--runs 3` for client work;
+   PASS_NATIVE is the target, in at most two rounds (each new version is judged with the last round's notes, and
+   `fix_first` lists the lines that claim more than the brief: fix those first). It scores
    fidelity to the brief first, so an invented detail costs the line. Speed: one run takes about 40 s (up to 2 minutes for long
    Bengali copy at the default `--effort high`); `--runs 3` runs in parallel and takes about 100 s. Run it in the
    background, iterate with `copylint` (instant), and judge once when the draft is done rather than after every small

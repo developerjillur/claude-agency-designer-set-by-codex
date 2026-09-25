@@ -1530,6 +1530,22 @@ class Production(unittest.TestCase):
         self.assertTrue(any("busy sky band" in n for n in notes), notes)
         self.assertEqual([n for n in d.plate_notes({"images": [{"src": plate.as_uri()}]}) if "rejected" in n], [])
 
+    def test_plate_notes_leave_out_the_designers_own_prompt_details(self):
+        """2026-09-25: "a halved potato was requested" and "legible key letters, contrary to the requirement" reached the
+        design judge as client requirements, and it failed a post and a thumbnail on them in every run."""
+        plate = self.tmp / "kacchi.png"
+        plate.write_bytes(b"x")
+        (self.tmp / "kacchi.meta.json").write_text(json.dumps({"output_path": str(plate), "judge": {
+            "computed_verdict": "FAIL", "defects": [
+                {"what": "The potato looks whole; a halved potato was requested.", "where": "handi", "severity": "major"},
+                {"what": "Several key legends are legible, contrary to the no-legible-letters requirement.",
+                 "where": "front", "severity": "major"}]}}))
+        self.assertEqual(d.plate_notes({"images": [{"src": plate.as_uri()}]}), [])
+        (self.tmp / "kacchi.meta.json").write_text(json.dumps({"output_path": str(plate), "judge": {
+            "computed_verdict": "FAIL", "defects": [
+                {"what": "The scene reads as staged stock photography.", "where": "whole", "severity": "major"}]}}))
+        self.assertTrue(any("staged stock" in n for n in d.plate_notes({"images": [{"src": plate.as_uri()}]})))
+
     def test_ledger_flags_a_repeated_device_and_hook(self):
         entries = [{"id": f"p{i}", "client": "tok", "date": "2026-09-2{i}", "hook": h, "cta": "অর্ডার করুন",
                     "recipe": {"structure": s, "archetype": "a", "focal": "f", "device": dev, "type_mode": "t",
@@ -1606,6 +1622,90 @@ class SpeedAndReliability(unittest.TestCase):
         self.assertIn("[the brief is cut here]", seen["prompt"])
         self.assertIn('"The 36-hour loaf"', seen["prompt"])            # was cut off with the brief at 9,000 characters
         self.assertEqual(json.loads(out.getvalue())["report"], str(self.tmp / "post.judge.json"))
+
+    @unittest.skipUnless(HAVE_PIL, "needs Pillow")
+    def test_a_new_version_is_judged_with_the_last_rounds_fixes(self):
+        """2026-09-25: over three rounds of small fixes the design judge went PASS 3.85, PASS 3.75, REVISE 3.7 and
+        asked for the opposite of its own fixes. A new version now shows the judge what it asked for last round."""
+        img = self.tmp / "post.png"
+        Image.new("RGB", (1080, 1350), (240, 236, 228)).save(img)
+        prompts = []
+
+        def answer(ci, prompt, images, schema, effort, timeout, who, required):
+            prompts.append(prompt)
+            return judge_answer()
+        with self.fake_codex(answer), contextlib.redirect_stdout(io.StringIO()):
+            d.cmd_judge(self.judge_args(img, brief="Launch post", fresh=False))
+            self.assertNotIn("new version of a design", prompts[-1])
+            Image.new("RGB", (1080, 1350), (200, 236, 228)).save(img)          # the designer's fix
+            d.cmd_judge(self.judge_args(img, brief="Launch post", fresh=False))
+            self.assertIn("raise the headline to 72 px", prompts[-1])          # last round's fix, to check
+            n = len(prompts)
+            d.cmd_judge(self.judge_args(img, brief="Launch post", fresh=False))
+        self.assertEqual(len(prompts), n)                                      # the same file again: saved verdict
+
+    def test_copy_rounds_carry_the_last_notes_and_wider_claims_come_first(self):
+        cap = self.tmp / "poster.txt"
+        cap.write_text("Fresh bread every morning at 7", encoding="utf-8")
+        prompts = []
+
+        def answer(ci, prompt, images, schema, effort, timeout, who, required):
+            prompts.append(prompt)
+            a = copy_answer()
+            a["strings"] = [{"role": "caption", "text": cap.read_text(), "natural": 4, "beyond_brief": True,
+                             "problem": "promises every morning; the brief says weekdays",
+                             "rewrite": "Fresh bread at 7 on weekdays"}]
+            return a
+        ns = argparse.Namespace(copy=None, caption=str(cap), text=None, role=None, lang=None,
+                                brief="Bakery: bread at 7 am on weekdays", locale="US", platform="print", goal=None,
+                                reader=None, brand=None, effort="low", runs=1, timeout=30, fresh=False, json=False)
+        with self.fake_codex(answer), contextlib.redirect_stdout(io.StringIO()) as out:
+            d.cmd_copyjudge(ns)
+        self.assertEqual(json.loads(out.getvalue())["fix_first"],
+                         ["caption: promises every morning; the brief says weekdays"])
+        self.assertIn("printed poster", prompts[0])                             # read as print, not as a feed post
+        cap.write_text("Fresh bread at 7 on weekdays", encoding="utf-8")
+        with self.fake_codex(answer), contextlib.redirect_stdout(io.StringIO()):
+            d.cmd_copyjudge(ns)
+        self.assertIn("promises every morning", prompts[-1])                   # last round's note, to check
+
+    @unittest.skipUnless(HAVE_PIL, "needs Pillow")
+    def test_the_judge_is_told_which_placeholders_the_client_agreed(self):
+        img = self.tmp / "card.png"
+        Image.new("RGB", (1000, 1400), (245, 238, 225)).save(img)
+        copy = self.tmp / "copy.json"
+        copy.write_text(json.dumps({"strings": [{"role": "rsvp", "text": "০১XXX-XXXXXX", "placeholder": True}]}))
+        seen = {}
+
+        def answer(ci, prompt, images, schema, effort, timeout, who, required):
+            seen["prompt"] = prompt
+            return judge_answer()
+        with self.fake_codex(answer), contextlib.redirect_stdout(io.StringIO()):
+            d.cmd_judge(self.judge_args(img, brief="Wedding card", copy=str(copy)))
+        self.assertIn('Agreed placeholders', seen["prompt"])
+        self.assertIn('- "০১XXX-XXXXXX"', seen["prompt"].split("Agreed placeholders")[1])
+
+    def test_a_wider_claim_needs_most_runs(self):
+        runs = []
+        for flag in (True, False, True):
+            a = json.loads(json.dumps(copy_answer()))
+            a["strings"][0].update(beyond_brief=flag, problem="wider than the brief" if flag else "")
+            runs.append(a)
+        agg = d.aggregate_copy(runs)
+        self.assertEqual((agg["strings"][0]["beyond_brief"], agg["strings"][0]["problem"]),
+                         (True, "wider than the brief"))
+        runs[2]["strings"][0]["beyond_brief"] = False
+        self.assertFalse(d.aggregate_copy(runs)["strings"][0]["beyond_brief"])
+
+    def test_print_copy_is_checked_and_read_as_print(self):
+        """2026-09-25: copylint refused --platform print, so a poster's copy was checked as web copy, and the copy
+        judge read it as a feed post."""
+        self.assertEqual(d.check_platform("print-poster"), "print-poster")
+        self.assertFalse([f for f in d.copyrules.lint_string("Scan to book", "cta", "AU", "print")
+                          if f["code"] == "cta-verb"])
+        self.assertIn("printed poster", d.reading_moment("print"))
+        self.assertIn("thumbnail", d.reading_moment("youtube-thumb"))
+        self.assertIn("in the feed", d.reading_moment("instagram"))
 
     def test_caption_may_be_text_or_a_file(self):
         ns = argparse.Namespace(copy=None, caption="Fresh sourdough every morning at our Dhanmondi shop", text=None,
@@ -2048,19 +2148,25 @@ class RenderProduction(unittest.TestCase):
         (self.tmp / "post.judge.json").write_text(json.dumps(judge))
         deck = d.deck_hash([{"role": s["role"], "text": s["text"]} for s in strings])
         cj = self.tmp / "post.copyjudge.json"
-        cj.write_text(json.dumps({"verdict": "PASS", "weighted": 3.9, "deck_sha256": deck}))
+        notes = [{"role": "headline", "text": "Fresh at 7", "natural": 3, "problem": "a little flat"},
+                 {"role": "alt", "text": "A loaf on a bench", "natural": 4, "problem": "says more than the brief",
+                  "beyond_brief": True}]
+        cj.write_text(json.dumps({"verdict": "REVISE", "weighted": 3.4, "deck_sha256": deck, "strings": notes}))
         ns = argparse.Namespace(design=[str(img)], out=str(self.tmp / "final"), copy=str(copy), caption=None,
                                 locale=None, platform=None, brand=None, level="client", ledger=None, recipe=None,
                                 client=None, name=None, force=False, dry_run=False)
-        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(io.StringIO()), \
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(io.StringIO()) as out, \
                 contextlib.redirect_stderr(io.StringIO()):
-            d.cmd_deliver(ns)                                  # client work needs PASS_NATIVE copy
+            d.cmd_deliver(ns)                                  # REVISE copy never ships
         self.assertEqual(cm.exception.code, 2)
         self.assertFalse((self.tmp / "final").exists())
-        cj.write_text(json.dumps({"verdict": "PASS_NATIVE", "weighted": 4.4, "deck_sha256": deck}))
-        with contextlib.redirect_stdout(io.StringIO()):
-            d.cmd_deliver(ns)
+        failed = " ".join(json.loads(out.getvalue())["failed"])
+        self.assertLess(failed.index("beyond the brief, alt"), failed.index("headline: a little flat"))  # decides first
+        cj.write_text(json.dumps({"verdict": "PASS", "weighted": 4.1, "deck_sha256": deck}))
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            d.cmd_deliver(ns)                                  # PASS ships at client level; PASS_NATIVE is the target
         self.assertTrue((self.tmp / "final" / "post.png").exists())
+        self.assertTrue(any("PASS_NATIVE is the target" in w for w in json.loads(out.getvalue())["warnings"]))
         md = (self.tmp / "final" / "DELIVERY-post.md").read_text()
         self.assertIn("A loaf on a bench", md)
         self.assertNotIn("—", md)
@@ -2125,6 +2231,23 @@ class RenderProduction(unittest.TestCase):
         self.assertEqual(cm.exception.code, 2)
         why = [f for f in json.loads(out.getvalue())["failed"] if f.startswith("copy judge gave no verdict")]
         self.assertTrue(why and "usage limit" in why[0], why)
+
+    def test_an_agreed_placeholder_is_a_warning_and_a_pdf_preview_is_readable(self):
+        """2026-09-25: a wedding card's client asked to hold the RSVP number (০১XXX-XXXXXX): the render called it an
+        error and the judge failed text_accuracy in every run; and its PDF preview, which the judge read, was 96 dpi
+        (492 px wide), so the judge failed its resolution."""
+        html = page("<p style='margin:40px;font:28px serif'>সাকিব: ০১XXX-XXXXXX</p>")
+        c = d.resolve_canvas(None, "5inx7in")
+        p = self.tmp / "card.html"
+        p.write_text(html, encoding="utf-8")
+        held = [{"role": "rsvp", "text": "সাকিব: ০১XXX-XXXXXX", "lang": "bn"}]
+        rep = d.produce(self.ch, p, c, self.tmp / "card.pdf", preview=True, copy=[dict(held[0])])
+        self.assertTrue(any("placeholder" in e for e in rep["checks"]["errors"]))            # not marked: an error
+        rep = d.produce(self.ch, p, c, self.tmp / "card.pdf", preview=True, copy=[dict(held[0], placeholder=True)])
+        self.assertFalse(any("placeholder" in e for e in rep["checks"]["errors"]))
+        self.assertTrue(any("agreed placeholder" in w for w in rep["checks"]["warnings"]))
+        with Image.open(self.tmp / "card.preview.png") as im:
+            self.assertGreaterEqual(im.size[0], 990)                                          # 5 in at 200 dpi
 
     def test_render_prints_a_summary_and_keeps_the_detail_in_the_report(self):
         p = self.tmp / "d.html"

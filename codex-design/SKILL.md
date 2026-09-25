@@ -44,7 +44,11 @@ while you write the HTML; wait for it to finish before you render (in a `claude 
 **Client work** (the client's final files, anything published under a client's name, or the user asks for the best
 or final version): add the gates below: the ledger, judged plates, the design judge (one run while iterating),
 copyjudge and `deliver`. The last step is one command, `deliver --judge --brief brief.md …`: it runs both final
-judges (3 runs each) at the same time, then every gate.
+judges (3 runs each) at the same time, then every gate. `brief.md` holds only what the client gave (their words,
+facts, audience, brand): the judges fail a design on anything in it, so your own photo prompts and notes stay out.
+At most two fix rounds after the first verdict; each re-judge sees the last round's fixes. PASS ships, and the
+report lists what the judges still want; still REVISE or FAIL after two rounds: stop, and show the user the design,
+the verdicts and the notes. Never copy files into the delivery folder by hand: when `deliver` stops, it stays empty.
 
 ## 0. Preflight
 
@@ -70,7 +74,8 @@ judges (3 runs each) at the same time, then every gate.
 
 - That is a whole copy.json. Every string must be on the design exactly once, except the roles that never go on it
   (`caption`, `alt`, `alt_1` and on, `hashtags`, `video_title`) and a string marked `"on_image": false`. Give a
-  string in another language its `"lang"` (`"bn"`).
+  string in another language its `"lang"` (`"bn"`). A value the client will send later (a phone number, a link) is
+  an agreed placeholder: `"placeholder": true` on its string. Print pieces take `"platform": "print"`.
 - `--brief` takes a file by its absolute path (the working folder can change between commands) or the brief's text
   in quotes. A path that does not exist stops the command; it is never judged as the brief.
 - Run times: `render` and `pack` 1 to 2 s; `judge` about 50 s a run (up to 2.5 min); `copyjudge` about 40 s (60 to 110 s for long Bengali copy or lyrics);
@@ -86,7 +91,8 @@ judges (3 runs each) at the same time, then every gate.
 **Client work: one feed post (any language).**
 1. `brief.md` + `copy.json` with `"locale"`, `"platform"`, the on-image strings, a caption and alt text (`copy.md`).
 2. `copylint --copy copy.json` (zero errors), then `copyjudge --copy copy.json --brief brief.md --goal order` while
-   drafting and `--runs 3` on the final copy (PASS_NATIVE for client work).
+   drafting and `--runs 3` on the final copy (PASS is the floor, PASS_NATIVE the target; fix `fix_first` lines
+   first).
 3. `ledger --ledger clients/<client>/ledger.jsonl --client <client> --recipe recipe.json` (no `similar`).
 4. Plate: codex-imagegen `batch` with `--strict` and the text zone reserved; then
    `analyze --src plates/x.png --zone 0,0,100,40` (calm, or plan a scrim or panel).
@@ -177,7 +183,7 @@ copy.json. `deliver --design out/<name>-strip.jpg` ships the five slides.
     so, and name the client photos that will lift it. At most 2 fix rounds, remedies in this order: deterministic fix
     (retype, respace, scrim, swap a plate), a single-scope edit, one new plate, a rebuilt region, and only then a new
     concept. A fix never changes approved copy, the logo or locked tokens. Every change to the file needs a new judge
-    run (the verdict is tied to the file's hash).
+    run (the verdict is tied to the file's hash); the new run checks last round's fixes instead of starting over.
 11. **Export and deliver.** `pack` renders every size; carousels use `--slides N` (LinkedIn gets the slides as a
     PDF); print is a `.pdf` with bleed; `sheet` makes the review sheet. Then `deliver --judge --brief brief.md` (level
     `client` by default): it runs the final judges at the same time (a verdict that already matches is reused), then

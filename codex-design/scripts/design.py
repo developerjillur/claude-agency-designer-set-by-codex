@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # no __pycache__ inside the skill folder
 import copyrules  # noqa: E402  (copy that reads human: references/copy.md)
 
-SKILL_VERSION = "2026.09.25.1"
+SKILL_VERSION = "2026.09.25.2"
 SKILL_DIR = Path(__file__).resolve().parent.parent
 PRESETS_FILE = SKILL_DIR / "scripts" / "presets.json"
 
@@ -1474,6 +1474,7 @@ def review(qa: dict, bg_png: bytes | None, c: dict, copy: list | None = None, sl
     unapproved text) are errors, so a render with errors is fixed before anyone spends a judge run on it (R6)."""
     errors, warnings = [], []
     copy = image_copy(copy)
+    agreed = [norm_text(s["text"]) for s in copy or [] if s.get("placeholder")]
     if occasion in ("solemn", "fast"):  # memorial and fast days: no greeting words, no selling
         for it in qa["items"]:
             words = SOLEMN_WORDS if occasion == "solemn" else FAST_WORDS
@@ -1560,7 +1561,11 @@ def review(qa: dict, bg_png: bytes | None, c: dict, copy: list | None = None, sl
             it.get("tag") in ("h1", "h2")  # marked as headlines (serif display faces are often weight 400)
         wt = int(it["weight"]) if str(it["weight"]).isdigit() else 400
         if PLACEHOLDER_RX.search(it["text"]):
-            errors.append(f"{tag}: placeholder text left in the design")
+            txt = norm_text(it["text"])
+            if any(a and (a in txt or txt in a) for a in agreed):
+                warnings.append(f"{tag}: an agreed placeholder ({it['text'][:40]}): replace it before print or posting")
+            else:
+                errors.append(f"{tag}: placeholder text left in the design")
         if it.get("script") in ("bengali", "devanagari", "arabic") and abs(it.get("ls_em") or 0) > 0.001:
             warnings.append(f"{tag}: letter-spacing on {it['script']} text breaks conjuncts and joins; set "
                             f"letter-spacing: normal for it")
@@ -2214,11 +2219,19 @@ def plate_notes(qa: dict | None) -> list:
             notes.append(f"the plate {f.name} is a candidate the image judge rejected ({meta.name}); use the kept "
                          f"file {Path(kept).name if kept else base + f.suffix}")
         j = m.get("judge") or {}
-        bad = [d for d in j.get("defects") or [] if d.get("severity") in ("critical", "major")]
-        if bad or j.get("computed_verdict") == "FAIL":
+        bad = [d for d in j.get("defects") or [] if d.get("severity") in ("critical", "major") and
+               not PROMPT_DETAIL.search(d.get("what", ""))]
+        if bad:
             notes.append(f"the plate {f.name} was judged {j.get('computed_verdict', '?')}: " +
                          "; ".join(f"{d.get('what', '')} ({d.get('where', '')})" for d in bad[:3]))
     return notes
+
+
+# A plate's defect that only says the photo missed the designer's own prompt ("a halved potato was requested", "the
+# backlight reads amber rather than the specified yellow", "contrary to the no-legible-letters requirement"). On
+# 2026-09-25 two of these reached the design judge as if the client had asked for them, and it failed a post and a
+# thumbnail on them in every run. Flaws a viewer can see (a rendered look, a hand, a cut-off object) still go through.
+PROMPT_DETAIL = re.compile(r"\b(?:requested|specified|requirement|reserved|asked for|the prompt)\b", re.I)
 
 
 def produce(ch: Chrome, html: Path, c: dict, out: Path, scale: float | None = None, transparent: bool = False,
@@ -2243,7 +2256,9 @@ def produce(ch: Chrome, html: Path, c: dict, out: Path, scale: float | None = No
     raster_pdf = fmt == "pdf" and slides > 1  # a carousel PDF (LinkedIn document) is one page per slide
     if cmyk and not (fmt == "pdf" and c["print"] and not raster_pdf):
         die("--cmyk works with a print preset (or a mm/in size) and a .pdf output")
-    scale = scale or (300 / 96 if c["print"] and (fmt != "pdf" or cmyk) else 1)
+    # a PDF's --preview is what the judge reads: at 96 dpi a 5x7 in card was 492 px wide, and the judge failed its
+    # "resolution" (2026-09-25); 200 dpi keeps small print readable
+    scale = scale or (300 / 96 if c["print"] and (fmt != "pdf" or cmyk) else 200 / 96 if c["print"] and preview else 1)
     want_png = fmt != "pdf" or preview or raster_pdf or bool(cmyk)
     raster_px = c["w_px"] * c["h_px"] * slides * pages * (scale if not raster_pdf else max(scale, 1)) ** 2
     if want_png and raster_px > MAX_RASTER_PX:
@@ -2651,7 +2666,7 @@ Work in this order.
    the eye travels. text_read: every piece of text exactly as it appears in Image 1.
 2. Gates (FAIL means it cannot ship; NA when it does not apply; put one line of evidence per FAIL in gate_evidence):
    - text_accuracy: any misspelling, wrong name, number, date, price or URL against the approved copy; any text that
-     is not approved; placeholder text; the wrong language. Letter case set by styling (an all-caps label) is fine.
+     is not approved; placeholder text that is not listed as an agreed placeholder; the wrong language. Letter case set by styling (an all-caps label) is fine.
      When no approved copy is listed, judge spelling, grammar, names and numbers against the brief and the design's
      own consistency only: a missing approval list is not a failure.
    - script_rendering: tofu boxes; broken or detached Bengali/Devanagari conjuncts or vowel signs; Arabic that is not
@@ -2667,7 +2682,8 @@ Work in this order.
    - rights_ethics: third-party logos or trademarks, identifiable real people who were not supplied, invented claims,
      prices, reviews, awards or badges, fake interfaces, culturally offensive or careless use of symbols, flags,
      religious or national imagery, a celebratory tone on a day of mourning.
-   - essentials_present: anything the brief requires (CTA, logo, date, time, venue, handle, disclaimer) is missing.
+   - essentials_present: anything the client's brief requires (CTA, logo, date, time, venue, handle, disclaimer) is
+     missing. The designer's own photo directions and the plate notes are not requirements.
    - technical_quality: visible pixelation, blur on the key subject, banding, JPEG blocks, halos on cut-outs.
 3. Scores 0-5 (0 broken, 1 amateur, 2 below professional, 3 competent professional, 4 strong senior work,
    5 exceptional): message_fit (one clear message, right tone, a CTA where needed), hierarchy (unmistakable entry
@@ -2958,6 +2974,39 @@ def judge_summary(data: dict, out: Path) -> dict:
     return s
 
 
+def round_history(out: Path, current: str, field: str, pick) -> dict | None:
+    """What the last round of a judge said, when this is a new version of the same design or copy. The judge sees it,
+    so it checks the fixes instead of asking for their opposite: in a 2026-09-25 test the design judge went PASS
+    3.85, PASS 3.75, REVISE 3.7 over three rounds of small fixes, and the copy judge asked for a wording one round and
+    called it formal the next. The same file or copy again reuses the history saved with its report, so its prompt,
+    and with it the saved verdict, stay the same."""
+    try:
+        prev = json.loads(out.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(prev, dict) or not prev.get("verdict"):
+        return None
+    if prev.get(field) == current:
+        return prev.get("history")
+    return pick(prev)
+
+
+def design_round(prev: dict) -> dict:
+    return {"verdict": prev.get("verdict"), "weighted": prev.get("weighted"), "fixes": (prev.get("fixes") or [])[:5],
+            "keep": (prev.get("keep") or [])[:4]}
+
+
+def design_round_text(h: dict) -> str:
+    lines = [f"This is a new version of a design judged before ({h.get('verdict')} {h.get('weighted')}). The designer "
+             f"worked on these fixes:"] + [f"- {x}" for x in h.get("fixes") or []]
+    if h.get("keep"):
+        lines += ["and was told to keep:"] + [f"- {x}" for x in h["keep"]]
+    lines.append("Check each fix: done, not done, or made it worse, and name in findings any that is not done or made "
+                 "it worse. Never ask to undo a fix that is done unless it made the design worse, and never ask for "
+                 "the opposite of a fix above. Score this version as it is.")
+    return "\n".join(lines)
+
+
 def cmd_judge(args) -> None:
     """Independent review of a rendered design by fresh Codex sessions (vision); the verdict is computed here. The
     render's own errors come first: a design with errors in its .qa.json is not judged (the judge fails those)."""
@@ -2974,6 +3023,11 @@ def cmd_judge(args) -> None:
     copy = image_copy(load_copy(args.copy)) if args.copy else None
     if copy:
         brief += "\n\nApproved copy (verbatim):\n" + "\n".join(f'- "{s["text"]}"' for s in copy)
+        agreed = [s["text"] for s in copy if s.get("placeholder")]
+        if agreed:  # a wedding card failed text_accuracy in every run on the phone number its client asked to hold
+            brief += "\n\nAgreed placeholders (the client sends the real value later; approved copy: note each as a " \
+                     "P1 finding to replace before print or posting, never a gate failure):\n" + \
+                     "\n".join(f'- "{a}"' for a in agreed)
     allowed = [a.strip() for a in (args.allow or "").split(",") if a.strip()]
     if args.brand:
         allowed += [n for n in brand_names(args.brand) if n not in allowed]
@@ -3013,8 +3067,11 @@ def cmd_judge(args) -> None:
             "checks": q.get("checks")}, ensure_ascii=False)
         plates = plate_notes(q)
         if plates:
-            brief += "\n\nWhat the image judge found in the photo plates this design uses (check whether the design " \
-                     "hides them or suffers from them):\n" + "\n".join(f"- {x}" for x in plates)
+            brief += "\n\nWhat the image judge found in the photo plates this design uses. It checked each plate " \
+                     "against the designer's own photo prompt, not the client's brief: a prompt detail that is " \
+                     "missing (a garnish, a prop, a pose) is not an essential and fails no gate; count only visible " \
+                     "flaws (artifacts, anatomy, physics, stray text) and whether the design hides them:\n" + \
+                     "\n".join(f"- {x}" for x in plates)
     for pm in args.plate_meta or []:
         try:
             m = json.loads(Path(pm).expanduser().read_text(encoding="utf-8"))
@@ -3029,9 +3086,12 @@ def cmd_judge(args) -> None:
                                    spec.get("thumb_width_px"))
     with need_pillow().open(img) as im:
         w, h = im.size
+    out = img.with_name(img.stem + ".judge.json")
+    history = round_history(out, file_sha256(img), "image_sha256", design_round)
+    if history:
+        brief += "\n\n" + design_round_text(history)
     prompt = DESIGN_JUDGE_PROMPT.format(images=view_text, kind=args.kind, canvas=args.canvas or f"{w}x{h}px",
                                         route=args.route, brief=brief.strip(), measured=measured)
-    out = img.with_name(img.stem + ".judge.json")
     key = judge_key(prompt, file_sha256(img), args.effort, max(1, args.runs))
     full = getattr(args, "json", False)
     if cached_verdict(out, key, getattr(args, "fresh", False), None if full else lambda x: judge_summary(x, out)):
@@ -3052,6 +3112,8 @@ def cmd_judge(args) -> None:
     data.update({"verdict": verdict, "weighted": round(weighted, 2), "image": str(img),
                  "image_sha256": file_sha256(img), "judged_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                  "effort": args.effort, "kind": args.kind, "seconds": round(time.time() - t0, 1), "cache_key": key})
+    if history:
+        data["history"] = history  # the same file again rebuilds the same prompt from it, and reuses this verdict
     if len(runs) > 1:
         data["runs"] = [{"verdict": r["verdict"], "weighted": round(r["weighted"], 2)} for r in per_run]
     if failed:  # the verdict stands on the runs that answered; these did not
@@ -6085,15 +6147,17 @@ COPY_SCHEMA = {
                    "properties": {k: {"type": "integer", "minimum": 0, "maximum": 5} for k in COPY_CRITERIA}},
         "ai_tells": {"type": "array", "items": {"type": "string"}},
         "strings": {"type": "array", "items": {
-            "type": "object", "additionalProperties": False, "required": ["role", "text", "natural", "problem", "rewrite"],
+            "type": "object", "additionalProperties": False,
+            "required": ["role", "text", "natural", "problem", "beyond_brief", "rewrite"],
             "properties": {"role": {"type": "string"}, "text": {"type": "string"},
                            "natural": {"type": "integer", "minimum": 0, "maximum": 5},
-                           "problem": {"type": "string"}, "rewrite": {"type": "string"}}}},
+                           "problem": {"type": "string"}, "beyond_brief": {"type": "boolean"},
+                           "rewrite": {"type": "string"}}}},
         "hooks": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
         "cta": {"type": "string"},
         "notes": {"type": "array", "items": {"type": "string"}, "maxItems": 5}}}
-COPY_JUDGE_PROMPT = """You are a senior copywriter and a native reader. Read this copy the way {reader} would meet it on
-{platform}, in the feed, on a phone, in two seconds. The copy is for:
+COPY_JUDGE_PROMPT = """You are a senior copywriter and a native reader. Read this copy the way {reader} would meet it
+{moment}. The copy is for:
 ---
 {brief}
 ---
@@ -6120,8 +6184,9 @@ Judge only how the words land with that reader:
   emotion: does it make the reader feel something. no_ai_tells: 5 means none.
 - Do not reward length: when two lines say the same, the shorter one is better.
 - Score each 0-5 (3 = acceptable, 4 = strong, 5 = a senior native writer's work).
-- For every string give natural 0-5, the problem in one line (empty if none) and a rewrite in the same language
-  (empty if it is already right). Rewrites keep every fact, name, number, date and price exactly; add no claims,
+- For every string give natural 0-5, the problem in one line (empty if none), beyond_brief (true when the line
+  claims more than the brief says: a wider promise, or a fact the brief does not give) and a rewrite in the same
+  language (empty if it is already right). Rewrites keep every fact, name, number, date and price exactly; add no claims,
   experiences or feelings; never add slang, particles, emoji or typos to sound human (more human does not mean more
   slang); never use an em dash or a spaced en dash; keep the address form the brand uses; fit the role's length (a
   headline stays a headline, a call to action stays up to 4 words in English and up to 6 in Bengali).
@@ -6274,7 +6339,7 @@ def check_platform(platform: str) -> str:
     instagram-carousel, linkedin-cover."""
     if platform and platform.split("-")[0].lower() not in copyrules.PLATFORM:
         die(f"unknown --platform {platform!r}; use one of {', '.join(copyrules.PLATFORM)} (a format may follow: "
-            f"youtube-thumb, instagram-carousel)")
+            f"youtube-thumb, instagram-carousel, print-poster)")
     return platform.lower()
 
 
@@ -6337,8 +6402,11 @@ def aggregate_copy(runs: list) -> dict:
         same = [r["strings"][i] for r in runs if i < len(r.get("strings", [])) and
                 r["strings"][i].get("text") == s0.get("text")] or [s0]
         nat = _median([x["natural"] for x in same])
-        pick = next(x for x in same if x["natural"] == nat)
-        strings.append(dict(pick, natural=nat))
+        beyond = 2 * sum(bool(x.get("beyond_brief")) for x in same) > len(same)  # most runs, like a gate
+        pick = next((x for x in same if bool(x.get("beyond_brief")) == beyond and x["natural"] == nat), None) or \
+            next((x for x in same if bool(x.get("beyond_brief")) == beyond), None) or \
+            next(x for x in same if x["natural"] == nat)
+        strings.append(dict(pick, natural=nat) | ({"beyond_brief": beyond} if "beyond_brief" in s0 else {}))
     agg["strings"] = strings
     agg["ai_tells"] = list(dict.fromkeys(t for r in runs for t in r.get("ai_tells", [])))
     agg["hooks"] = list(dict.fromkeys(h for r in runs for h in r.get("hooks", [])))[:6]
@@ -6380,15 +6448,51 @@ def copy_summary(data: dict, out: Path) -> dict:
     for x in data.get("strings") or []:
         row = {"role": x.get("role"), "natural": x.get("natural")}
         if x.get("problem") or x.get("rewrite"):
-            row.update({k: x[k] for k in ("text", "problem", "rewrite", "rewrite_lint") if x.get(k)})
+            row.update({k: x[k] for k in ("text", "problem", "beyond_brief", "rewrite", "rewrite_lint") if x.get(k)})
         rows.append(row)
     s["strings"] = rows
+    first = [f"{x.get('role') or 'text'}: {x.get('problem') or x.get('text')}" for x in data.get("strings") or []
+             if x.get("beyond_brief")]
+    if first:  # an invented or wider claim caps specificity and no_ai_tells at 1: it decides the verdict
+        s["fix_first"] = first
     for k in ("hooks", "hooks_lint", "cta", "cta_lint", "ai_tells", "notes", "advice", "runs", "runs_failed",
               "spread", "seconds"):
         if data.get(k):
             s[k] = data[k]
     s["report"] = str(out)
     return s
+
+
+def reading_moment(platform: str) -> str:
+    """Where and how the reader meets the copy. The copy judge read a printed poster as a feed post (2026-09-25)."""
+    p = (platform or "").lower()
+    base = p.split("-")[0]
+    if base == "print":
+        return "on a printed poster, flyer, card or sign: from a few steps away, or in the hand, in a few seconds"
+    if "thumb" in p:
+        return "as a video thumbnail next to its title, on a phone, in about a second"
+    if base == "web":
+        return "on a website, on a phone or a laptop, in a few seconds"
+    if base == "email":
+        return "in an email inbox and then in the email, on a phone"
+    if base in ("whatsapp", "sms"):
+        return f"as a {'WhatsApp' if base == 'whatsapp' else 'text'} message on a phone"
+    if base == "voiceover":
+        return "heard once, read aloud in a video"
+    return f"on {platform or 'social media'}, in the feed, on a phone, in two seconds"
+
+
+def copy_round(prev: dict) -> dict:
+    notes = [f"{s.get('role') or 'text'}: {s['problem']}" + (f" (suggested: {s['rewrite']})" if s.get("rewrite") else "")
+             for s in prev.get("strings") or [] if s.get("problem")]
+    return {"verdict": prev.get("verdict"), "weighted": prev.get("weighted"), "notes": notes[:8]}
+
+
+def copy_round_text(h: dict) -> str:
+    return "\n".join([f"This is a new version of copy judged before ({h.get('verdict')} {h.get('weighted')}). The writer "
+                      f"acted on these notes:"] + [f"- {x}" for x in h.get("notes") or []] +
+                     ["Do not ask to reverse a change made to follow a note unless it made the line worse, and do not "
+                      "ask for a wording suggested before that you now find worse. Judge the copy as it is now."])
 
 
 def cmd_copyjudge(args) -> None:
@@ -6419,18 +6523,19 @@ def cmd_copyjudge(args) -> None:
     found = [f"{it['role']}: {f['message']}" for it in lint["items"] for f in it["findings"]] + \
         [f["message"] for f in lint["deck"]]
     deck = "\n".join(f"- {s['role'] or 'text'}: {s['text']}" for s in strings)
-    if song:
-        prompt = LYRIC_JUDGE_PROMPT.format(reader=reader, brief=brief[:6000], goal=args.goal or "(from the brief)",
-                                           deck=deck, lint="; ".join(found[:30]) or "nothing")
-        schema, required, verdict_of = LYRIC_SCHEMA, ("scores", "strings", "ai_tells", "hooks"), _lyric_verdict
-    else:
-        prompt = COPY_JUDGE_PROMPT.format(reader=reader, platform=platform or "social media", brief=brief[:6000],
-                                          goal=args.goal or "(from the brief)", deck=deck,
-                                          lint="; ".join(found[:30]) or "nothing")
-        schema, required, verdict_of = COPY_SCHEMA, ("scores", "strings", "ai_tells", "hooks", "cta"), _copy_verdict
     base = copy_report_base(args)
     stem = base.stem[:-len(".copy")] if base.stem.endswith(".copy") else base.stem
     out = base.with_name(stem + ".copyjudge.json")
+    history = round_history(out, deck_hash(strings), "deck_sha256", copy_round)
+    lint_line = ("; ".join(found[:30]) or "nothing") + ("\n" + copy_round_text(history) if history else "")
+    if song:
+        prompt = LYRIC_JUDGE_PROMPT.format(reader=reader, brief=brief[:6000], goal=args.goal or "(from the brief)",
+                                           deck=deck, lint=lint_line)
+        schema, required, verdict_of = LYRIC_SCHEMA, ("scores", "strings", "ai_tells", "hooks"), _lyric_verdict
+    else:
+        prompt = COPY_JUDGE_PROMPT.format(reader=reader, moment=reading_moment(platform), brief=brief[:6000],
+                                          goal=args.goal or "(from the brief)", deck=deck, lint=lint_line)
+        schema, required, verdict_of = COPY_SCHEMA, ("scores", "strings", "ai_tells", "hooks", "cta"), _copy_verdict
     key = judge_key(prompt, args.effort, max(1, args.runs))
     full = getattr(args, "json", False)
     if cached_verdict(out, key, getattr(args, "fresh", False), None if full else lambda x: copy_summary(x, out)):
@@ -6450,6 +6555,8 @@ def cmd_copyjudge(args) -> None:
                               "mode": "lyric" if song else "copy", "reader": reader, "effort": args.effort,
                               "runs": len(runs)}, "cache_key": key,
                  "judged_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "seconds": round(time.time() - t0, 1)})
+    if history:
+        data["history"] = history  # the same deck again rebuilds the same prompt from it, and reuses this verdict
     if len(runs) > 1:
         ws = [w for _, w in per_run]
         data["runs"] = [{"verdict": v, "weighted": round(w, 2)} for v, w in per_run]
@@ -6803,7 +6910,7 @@ def run_judges(args, designs: list) -> list:
 def cmd_deliver(args) -> None:
     """The last gate before a client sees anything. Every design must have a render report with no errors that
     matches the file, a design-judge PASS on that exact file, and copy that passes the lint and the copy judge
-    (PASS_NATIVE at --level client). Only then are the files copied into --out with DELIVERY.md (checks, caption,
+    (PASS; PASS_NATIVE is the client target and gets a warning below it). Only then are the files copied into --out with DELIVERY.md (checks, caption,
     alt text, notes) and delivery.json; a file already there is moved to archive-<time>/, never overwritten.
     --judge runs the judges first, all at once."""
     if not args.out and not args.dry_run:
@@ -6880,7 +6987,7 @@ def cmd_deliver(args) -> None:
         base = copy_report_base(args)
         stem = base.stem[:-len(".copy")] if base.stem.endswith(".copy") else base.stem
         cj = base.with_name(stem + ".copyjudge.json")
-        need = ("PASS_NATIVE",) if level == "client" else ("PASS", "PASS_NATIVE")
+        need = ("PASS", "PASS_NATIVE")  # the floor at every level; PASS_NATIVE is the client target (a warning)
         if not cj.exists():
             fails.append(f"the copy is not judged ({cj.name}); run design.py copyjudge" +
                          (" --runs 3" if level == "client" else ""))
@@ -6891,11 +6998,20 @@ def cmd_deliver(args) -> None:
                 warns.append(f"{cj.name} predates deck hashes; judge the copy again to be sure it is this copy")
             elif d["deck_sha256"] != deck_hash(strings):
                 fails.append("the copy changed after the copy judge ran; run copyjudge again")
+            ranked = sorted((x for x in d.get("strings") or [] if x.get("problem")),
+                            key=lambda x: (not x.get("beyond_brief"), x.get("natural", 5)))
+            probs = [("beyond the brief, " if x.get("beyond_brief") else "") +
+                     f"{x.get('role') or 'text'}: {x['problem']}" for x in ranked][:3]
+            said = f"; its notes: {' | '.join(probs)}" if probs else ""
             if d.get("verdict") not in need:
-                probs = [f"{x.get('role') or 'text'}: {x['problem']}" for x in d.get("strings") or []
-                         if x.get("problem")][:3]
                 fails.append(f"the copy judge says {d.get('verdict')} {d.get('weighted')}; {level} work needs "
-                             f"{' or '.join(need)}" + (f"; its notes: {' | '.join(probs)}" if probs else ""))
+                             f"{' or '.join(need)}" + said)
+            elif level == "client" and d.get("verdict") != "PASS_NATIVE":
+                warns.append(f"the copy judge says {d.get('verdict')} {d.get('weighted')}: it ships, and "
+                             f"PASS_NATIVE is the target for client work" + said)
+        held = [s["text"] for s in load_copy(args.copy) if s.get("placeholder")] if args.copy else []
+        if held:
+            warns.append("agreed placeholders to replace before print or posting: " + "; ".join(held))
         alt = [s["text"] for s in strings if re.match(r"alt", s.get("role") or "", re.I)]
         if not alt:
             warns.append("no alt text in copy.json (role alt): screen readers get nothing; write one line per image")
@@ -7354,7 +7470,8 @@ def build_parser() -> argparse.ArgumentParser:
     dv.add_argument("--platform", help="default: copy.json's \"platform\"")
     dv.add_argument("--brand", help="brand.json: its voice words for the lint")
     dv.add_argument("--level", default="client", choices=["client", "draft"],
-                    help="client (default): copy must be PASS_NATIVE; draft: PASS is enough")
+                    help="client (default): 3 judge runs, copy required, PASS_NATIVE the copy's target; draft: "
+                         "1 run is enough")
     dv.add_argument("--judge", action="store_true", help="run the design judge on every design and the copy judge "
                                                          "first, all at the same time (a report that already matches "
                                                          "is reused); needs --brief")

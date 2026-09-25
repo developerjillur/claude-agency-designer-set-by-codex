@@ -37,6 +37,7 @@ PLATFORM = {
     "web": {"hashtags": (0, 0), "emoji_max": 1},
     "sms": {"max_chars": 160, "hashtags": (0, 0), "emoji_max": 1},          # 70 per part in Bengali (Unicode)
     "voiceover": {"hashtags": (0, 0), "emoji_max": 0, "spoken": True},      # reels, ads, explainers: read aloud
+    "print": {"hashtags": (0, 1), "emoji_max": 0},                          # posters, flyers, cards, signs, packs
 }
 SPOKEN_ROLES = re.compile(r"script|voice|narrat|\bvo\b|spoken|read_aloud", re.I)
 
@@ -293,7 +294,8 @@ EN_CTA_VERBS = {"book", "buy", "get", "shop", "order", "register", "join", "save
                 "start", "see", "visit", "download", "sign", "call", "message", "reserve", "claim", "apply", "learn",
                 "come", "taste", "listen", "follow", "comment", "tell", "grab", "pick", "subscribe", "rsvp", "text",
                 "email", "send", "find", "compare", "check", "ask", "vote", "enter", "donate", "meet", "plan", "stop",
-                "drop", "pop", "swing", "bring", "make", "switch", "choose", "upgrade", "cook", "build", "shop"}
+                "drop", "pop", "swing", "bring", "make", "switch", "choose", "upgrade", "cook", "build", "shop",
+                "scan"}
 
 BAIT_RX = re.compile(r"\b(?:like and share|like,? comment,? (?:and )?share|share (?:this|it) with everyone|tag (?:your|a) "
                      r"friends?|smash (?:that|the) like)\b|লাইক(?:,)? (?:দিন|কমেন্ট)|শেয়ার করুন সবাইকে|সবাইকে শেয়ার|"
