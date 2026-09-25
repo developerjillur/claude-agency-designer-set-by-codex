@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.09.25.1
+
+- **The self test's speech clip is checked for sound.** A CI runner's macOS `say` once wrote five seconds of silence,
+  and the offline self test failed on it (the onset check measured `[5.0]` on a clip with no speech in it). A silent
+  recording is now made once more and then left out with a log line, so the check runs only on a clip that has
+  speech; a cached silent clip is made again. `max_volume` reads a file's loudest point. 99 offline tests.
+
 ## 2026.09.24.6
 
 - SKILL.md opens with a fast path: the lightest command that answers (`ask`, `watch --depth quick`, `qa`), deeper

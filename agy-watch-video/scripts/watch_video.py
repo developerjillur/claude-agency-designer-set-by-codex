@@ -30,7 +30,7 @@ import time
 import unicodedata
 from pathlib import Path
 
-SKILL_VERSION = "2026.09.24.6"
+SKILL_VERSION = "2026.09.25.1"
 CACHE_VERSION = "2026.09.24.4"   # keys the cache: bump it only when what a pass or a measurement returns changes
 SKILL_DIR = Path(__file__).resolve().parent.parent
 CACHE = Path(os.environ.get("AGY_WATCH_CACHE") or (Path.home() / ".cache" / "agy-watch-video"))
@@ -3818,18 +3818,43 @@ def make_selftest_clips(d: Path) -> dict:
              "-map", f"[b{len(boxes)}]", "-t", "3", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", str(count)],
             timeout=300)
     out["count"] = count
-    speech = d / "speech.mp4"
-    if not speech.exists() and shutil.which("say"):
-        aiff = d / "speech.aiff"
-        try:
-            run(["say", "-o", str(aiff), SELFTEST_SPEECH], timeout=60)
-            run([ff, "-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x404040:s=640x360:r=30:d=5",
-                 "-i", str(aiff), "-filter_complex", "[1:a]adelay=1000:all=1,apad[a]", "-map", "0:v", "-map", "[a]",
-                 "-t", "5", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(speech)], timeout=300)
-        except WatchError as e:
-            log(f"self test: no speech clip ({e})")
-    out["speech"] = speech if speech.exists() else None
+    out["speech"] = make_speech_clip(d, ff)
     return out
+
+
+def max_volume(path: Path) -> float | None:
+    """The loudest point of a file's audio in dB (0 is full scale; silence reads about -91), or None without audio."""
+    r = run([need("ffmpeg"), "-hide_banner", "-nostats", "-v", "info", "-i", path, "-af", "volumedetect", "-f", "null",
+             "-"], timeout=120, check=False)
+    m = re.search(r"max_volume:\s*(-?inf|-?[0-9.]+)", r.stderr or "")
+    return float(m.group(1)) if m else None
+
+
+def make_speech_clip(d: Path, ff: str) -> Path | None:
+    """speech.mp4 for the self test: 5 s, a spoken sentence (macOS `say`) from 1 s, or None. A CI runner's `say` once
+    wrote five seconds of silence and the onset check failed on a clip with no speech in it, so a silent recording
+    is made once more and then left out, with a log line."""
+    speech, aiff = d / "speech.mp4", d / "speech.aiff"
+    if speech.exists() and (max_volume(speech) or -99) > -50:
+        return speech
+    if not shutil.which("say"):
+        return None
+    try:
+        for attempt in range(2):
+            run(["say", "-o", str(aiff), SELFTEST_SPEECH], timeout=60)
+            loud = max_volume(aiff)
+            if loud is not None and loud > -50:
+                break
+            log(f"self test: `say` wrote silence (loudest {loud} dB)" + ("; trying once more" if not attempt else
+                                                                           "; no speech clip"))
+        else:
+            return None
+        run([ff, "-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x404040:s=640x360:r=30:d=5",
+             "-i", str(aiff), "-filter_complex", "[1:a]adelay=1000:all=1,apad[a]", "-map", "0:v", "-map", "[a]",
+             "-t", "5", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(speech)], timeout=300)
+    except WatchError as e:
+        log(f"self test: no speech clip ({e})")
+    return speech if speech.exists() else None
 
 
 def _rgb_at(v: Video, t: float, x: int, y: int, w: int, h: int) -> tuple:

@@ -942,6 +942,23 @@ class FfmpegTests(unittest.TestCase):
         failed = [r for r in w.selftest_offline(clips) if not r["pass"]]
         self.assertEqual(failed, [])
 
+    def test_a_silent_say_gives_no_speech_clip(self):
+        """A CI runner's `say` once wrote five seconds of silence: the onset check then measured a clip with no speech
+        in it (onsets [5.0]) and failed. A silent recording is made once more, then left out."""
+        from unittest import mock
+        d = Path(tempfile.mkdtemp(dir=TMP))
+        (d / "bin").mkdir()
+        say = d / "bin" / "say"
+        say.write_text("#!/bin/sh\n# say -o FILE TEXT: one second of silence\necho x >> \"$(dirname \"$2\")/calls\"\n"
+                       "exec ffmpeg -v error -y -f lavfi -i anullsrc=r=22050:cl=mono -t 1 \"$2\"\n")
+        say.chmod(0o755)
+        with mock.patch.dict(os.environ, {"PATH": f"{d / 'bin'}{os.pathsep}{os.environ['PATH']}"}):
+            self.assertIsNone(w.make_speech_clip(d, w.need("ffmpeg")))
+        self.assertEqual(len((d / "calls").read_text().split()), 2)          # tried once more, then left out
+        self.assertFalse((d / "speech.mp4").exists())
+        self.assertLess(w.max_volume(d / "speech.aiff"), -50)
+        self.assertGreater(w.max_volume(self.clip), -50)                    # the 440 Hz tone of the test clip
+
     def test_audio_and_onsets(self):
         wav = w.extract_audio(self.v)
         self.assertTrue(wav and wav.exists())
