@@ -4,6 +4,18 @@ The version is `SKILL_VERSION` in `scripts/design.py`; `doctor` reports it. Afte
 `python3 -m unittest discover -s ~/.claude/skills/codex-design/tests`, and render the pattern library (every pattern
 on its presets must stay free of errors and warnings; `templates/README.md` lists them).
 
+## 2026.09.25.5 · a static image, judged as one
+
+- **The design judge judges one static image file:** working buttons, links, keyboard focus and hover states belong
+  to the page that carries it, and a brief that covers several files (sizes, slides, versions) never fails this one
+  for the others. A web hero's mobile file failed in every run for a "working booking button".
+- **Last round's fixes are checked, not obeyed:** a carried fix that asked for something the image cannot or need not
+  have (a working button, a link, another file, anything outside the brief) is dropped. The history had carried the
+  button request from a judge that had read the page's HTML into the next round.
+- **Deliveries bring the font licences** that `fonts --out design/` writes next to the HTML (three of four deliveries
+  in the test had left them behind).
+- **Tests:** 140 offline tests.
+
 ## 2026.09.25.4 · judges see only what they are given
 
 - **Every judge session starts in its own empty folder** (`-C` its temp folder) and is told to use only the message

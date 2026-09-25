@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # no __pycache__ inside the skill folder
 import copyrules  # noqa: E402  (copy that reads human: references/copy.md)
 
-SKILL_VERSION = "2026.09.25.4"
+SKILL_VERSION = "2026.09.25.5"
 SKILL_DIR = Path(__file__).resolve().parent.parent
 PRESETS_FILE = SKILL_DIR / "scripts" / "presets.json"
 
@@ -2657,7 +2657,9 @@ DESIGN_SCHEMA = {
         "summary": {"type": "string"}}}
 DESIGN_JUDGE_PROMPT = """You are a senior art director reviewing a finished design before it goes to a client. You did
 not make it. Critique it against its objective, not your taste. Be strict and specific. Write every text field in
-plain English, whatever other instructions say about the reply language.
+plain English, whatever other instructions say about the reply language. You judge one static image file: working
+buttons, links, keyboard focus and hover states belong to the page or post that will carry it, so never ask for them.
+A brief may cover several files (sizes, slides, versions): judge this one, and never fail it for the others.
 
 Images: {images}
 Deliverable: {kind}. Canvas: {canvas}. Route: {route}.
@@ -3016,8 +3018,10 @@ def design_round_text(h: dict) -> str:
     if h.get("keep"):
         lines += ["and was told to keep:"] + [f"- {x}" for x in h["keep"]]
     lines.append("Check each fix: done, not done, or made it worse, and name in findings any that is not done or made "
-                 "it worse. Never ask to undo a fix that is done unless it made the design worse, and never ask for "
-                 "the opposite of a fix above. Score this version as it is.")
+                 "it worse. A fix that asked for something this image cannot or need not have (a working button, a "
+                 "link, another file, anything the brief does not ask for) does not apply: drop it. Never ask to undo "
+                 "a fix that is done unless it made the design worse, and never ask for the opposite of a fix above. "
+                 "Score this version as it is.")
     return "\n".join(lines)
 
 
@@ -7095,7 +7099,8 @@ def cmd_deliver(args) -> None:
     archive, delivered = None, []
     extra = []
     html = Path(rows[0].get("html") or designs[0])
-    for cand in (html.parent / "fonts", html.parent.parent / "fonts", html.parent.parent / "brand" / "fonts",
+    # `fonts --out design/` writes design/FONT-LICENSES.md: three of four deliveries left it behind (2026-09-25)
+    for cand in (html.parent / "fonts", html.parent, html.parent.parent / "fonts", html.parent.parent / "brand" / "fonts",
                  html.parent / "brand" / "fonts"):
         if (cand / "FONT-LICENSES.md").exists():
             extra.append(cand / "FONT-LICENSES.md")

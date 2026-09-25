@@ -1648,6 +1648,9 @@ class SpeedAndReliability(unittest.TestCase):
             Image.new("RGB", (1080, 1350), (200, 236, 228)).save(img)          # the designer's fix
             d.cmd_judge(self.judge_args(img, brief="Launch post", fresh=False))
             self.assertIn("raise the headline to 72 px", prompts[-1])          # last round's fix, to check
+            self.assertIn("does not apply: drop it", prompts[-1])               # a bad fix is not carried on
+        self.assertIn("You judge one static image file", prompts[0])           # no working buttons asked of a PNG
+        with self.fake_codex(answer), contextlib.redirect_stdout(io.StringIO()):
             n = len(prompts)
             d.cmd_judge(self.judge_args(img, brief="Launch post", fresh=False))
         self.assertEqual(len(prompts), n)                                      # the same file again: saved verdict
@@ -2313,6 +2316,21 @@ class RenderProduction(unittest.TestCase):
             d.cmd_deliver(ns)
         self.assertTrue(json.loads(out.getvalue())["ok"])
         self.assertTrue((self.tmp / "final" / "card.pdf").exists())
+
+    def test_deliver_brings_the_font_licences_that_fonts_wrote_next_to_the_html(self):
+        rep = self.run_html(page("<h1 style='margin:60px;font:60px serif'>Fresh at 7</h1>"), size="1080x1350",
+                            out="post.png")
+        (self.tmp / "FONT-LICENSES.md").write_text("# Fonts used\n\n- Figtree: OFL\n", encoding="utf-8")
+        img = self.tmp / "post.png"
+        (self.tmp / "post.judge.json").write_text(json.dumps(
+            {"verdict": "PASS", "weighted": 3.9, "image_sha256": d.file_sha256(img)}))
+        ns = argparse.Namespace(design=[str(img)], out=str(self.tmp / "final"), copy=None, caption=None, locale=None,
+                                platform=None, brand=None, level="draft", ledger=None, recipe=None, client=None,
+                                name=None, force=False, dry_run=False)
+        self.assertEqual(rep["checks"]["errors"], [])
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            d.cmd_deliver(ns)
+        self.assertTrue((self.tmp / "final" / "FONT-LICENSES.md").exists())
 
     def test_render_prints_a_summary_and_keeps_the_detail_in_the_report(self):
         p = self.tmp / "d.html"
