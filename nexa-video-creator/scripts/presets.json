@@ -1,0 +1,611 @@
+{
+  "version": "2026.09.25",
+  "note": "Targets for nexa-video-creator. Safe zones in output pixels (x, y, w, h: where text may go). Sources: references/editing-rules.md (research 01 and 02, 2026-09-25). qa_platform is the agy-watch-video qa platform name.",
+  "targets": {
+    "youtube": {
+      "label": "YouTube long-form (16:9)",
+      "width": 1920,
+      "height": 1080,
+      "fps": 30,
+      "qa_platform": "youtube",
+      "safe": {
+        "x": 96,
+        "y": 54,
+        "w": 1728,
+        "h": 972
+      },
+      "bands": {
+        "title": {
+          "y": 90,
+          "h": 220
+        },
+        "lower": {
+          "y": 760,
+          "h": 150
+        },
+        "captions": {
+          "y": 890,
+          "h": 130
+        }
+      },
+      "captions": {
+        "style": "sentence",
+        "burn": false,
+        "font_px": 54,
+        "max_chars": 42,
+        "max_lines": 2,
+        "words_per_page": 0
+      },
+      "pacing": {
+        "median_gap_s": [
+          3.0,
+          8.0
+        ],
+        "max_static_s": 15.0
+      },
+      "silence": {
+        "trim_above_ms": 550,
+        "target_ms": 300
+      },
+      "hook": {
+        "first_word_s": 0.5,
+        "promise_s": 5.0
+      },
+      "max_s": null,
+      "min_s": null,
+      "loudness": {
+        "I": -14.0,
+        "TP": -1.0,
+        "sound_platform": "youtube"
+      },
+      "layout_map": {},
+      "pip": {
+        "corner": "br",
+        "shape": "circle",
+        "size": 0.17
+      },
+      "render": {
+        "crf": 18,
+        "concurrency": 6
+      },
+      "subtitles": {
+        "max_chars": 42,
+        "max_lines": 2
+      }
+    },
+    "shorts": {
+      "label": "YouTube Shorts (9:16)",
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "qa_platform": "shorts",
+      "safe": {
+        "x": 65,
+        "y": 270,
+        "w": 875,
+        "h": 978
+      },
+      "bands": {
+        "title": {
+          "y": 290,
+          "h": 260
+        },
+        "lower": {
+          "y": 860,
+          "h": 160
+        },
+        "captions": {
+          "y": 1040,
+          "h": 200
+        }
+      },
+      "captions": {
+        "style": "word",
+        "burn": true,
+        "font_px": 92,
+        "max_chars": 18,
+        "max_lines": 1,
+        "words_per_page": 3
+      },
+      "pacing": {
+        "median_gap_s": [
+          1.5,
+          3.0
+        ],
+        "max_static_s": 4.0
+      },
+      "silence": {
+        "trim_above_ms": 300,
+        "target_ms": 150
+      },
+      "hook": {
+        "first_word_s": 0.5,
+        "promise_s": 3.0
+      },
+      "max_s": 180,
+      "min_s": null,
+      "loudness": {
+        "I": -14.0,
+        "TP": -1.0,
+        "sound_platform": "youtube"
+      },
+      "layout_map": {
+        "screenPip": "stack",
+        "split": "stack"
+      },
+      "pip": {
+        "corner": "tl",
+        "shape": "circle",
+        "size": 0.3
+      },
+      "render": {
+        "crf": 18,
+        "concurrency": 6
+      },
+      "subtitles": {
+        "max_chars": 32,
+        "max_lines": 2
+      }
+    },
+    "reels": {
+      "label": "Instagram and Facebook Reels (9:16)",
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "qa_platform": "reels",
+      "safe": {
+        "x": 65,
+        "y": 270,
+        "w": 875,
+        "h": 978
+      },
+      "bands": {
+        "title": {
+          "y": 290,
+          "h": 260
+        },
+        "lower": {
+          "y": 860,
+          "h": 160
+        },
+        "captions": {
+          "y": 1040,
+          "h": 200
+        }
+      },
+      "captions": {
+        "style": "word",
+        "burn": true,
+        "font_px": 92,
+        "max_chars": 18,
+        "max_lines": 1,
+        "words_per_page": 3
+      },
+      "pacing": {
+        "median_gap_s": [
+          1.5,
+          3.0
+        ],
+        "max_static_s": 4.0
+      },
+      "silence": {
+        "trim_above_ms": 300,
+        "target_ms": 150
+      },
+      "hook": {
+        "first_word_s": 0.5,
+        "promise_s": 3.0
+      },
+      "max_s": 180,
+      "min_s": null,
+      "loudness": {
+        "I": -14.0,
+        "TP": -1.0,
+        "sound_platform": "reels"
+      },
+      "layout_map": {
+        "screenPip": "stack",
+        "split": "stack"
+      },
+      "pip": {
+        "corner": "tl",
+        "shape": "circle",
+        "size": 0.3
+      },
+      "render": {
+        "crf": 18,
+        "concurrency": 6
+      },
+      "subtitles": {
+        "max_chars": 32,
+        "max_lines": 2
+      }
+    },
+    "tiktok": {
+      "label": "TikTok (9:16)",
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "qa_platform": "tiktok",
+      "safe": {
+        "x": 65,
+        "y": 270,
+        "w": 875,
+        "h": 978
+      },
+      "bands": {
+        "title": {
+          "y": 290,
+          "h": 260
+        },
+        "lower": {
+          "y": 860,
+          "h": 160
+        },
+        "captions": {
+          "y": 1040,
+          "h": 200
+        }
+      },
+      "captions": {
+        "style": "word",
+        "burn": true,
+        "font_px": 92,
+        "max_chars": 18,
+        "max_lines": 1,
+        "words_per_page": 3
+      },
+      "pacing": {
+        "median_gap_s": [
+          1.5,
+          3.0
+        ],
+        "max_static_s": 4.0
+      },
+      "silence": {
+        "trim_above_ms": 300,
+        "target_ms": 150
+      },
+      "hook": {
+        "first_word_s": 0.5,
+        "promise_s": 3.0
+      },
+      "max_s": 600,
+      "min_s": null,
+      "loudness": {
+        "I": -14.0,
+        "TP": -1.0,
+        "sound_platform": "tiktok"
+      },
+      "layout_map": {
+        "screenPip": "stack",
+        "split": "stack"
+      },
+      "pip": {
+        "corner": "tl",
+        "shape": "circle",
+        "size": 0.3
+      },
+      "render": {
+        "crf": 18,
+        "concurrency": 6
+      },
+      "subtitles": {
+        "max_chars": 32,
+        "max_lines": 2
+      }
+    },
+    "story": {
+      "label": "Instagram and Facebook Stories (9:16)",
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "qa_platform": "reels",
+      "safe": {
+        "x": 65,
+        "y": 270,
+        "w": 950,
+        "h": 978
+      },
+      "bands": {
+        "title": {
+          "y": 290,
+          "h": 260
+        },
+        "lower": {
+          "y": 860,
+          "h": 160
+        },
+        "captions": {
+          "y": 1040,
+          "h": 200
+        }
+      },
+      "captions": {
+        "style": "word",
+        "burn": true,
+        "font_px": 88,
+        "max_chars": 18,
+        "max_lines": 1,
+        "words_per_page": 3
+      },
+      "pacing": {
+        "median_gap_s": [
+          1.5,
+          3.0
+        ],
+        "max_static_s": 4.0
+      },
+      "silence": {
+        "trim_above_ms": 300,
+        "target_ms": 150
+      },
+      "hook": {
+        "first_word_s": 0.5,
+        "promise_s": 2.0
+      },
+      "max_s": 60,
+      "min_s": null,
+      "loudness": {
+        "I": -14.0,
+        "TP": -1.0,
+        "sound_platform": "reels"
+      },
+      "layout_map": {
+        "screenPip": "stack",
+        "split": "stack"
+      },
+      "pip": {
+        "corner": "tl",
+        "shape": "circle",
+        "size": 0.3
+      },
+      "render": {
+        "crf": 18,
+        "concurrency": 6
+      },
+      "subtitles": {
+        "max_chars": 32,
+        "max_lines": 2
+      }
+    },
+    "feed": {
+      "label": "Instagram and Facebook feed (4:5)",
+      "width": 1080,
+      "height": 1350,
+      "fps": 30,
+      "qa_platform": "facebook",
+      "safe": {
+        "x": 54,
+        "y": 68,
+        "w": 972,
+        "h": 1215
+      },
+      "bands": {
+        "title": {
+          "y": 90,
+          "h": 220
+        },
+        "lower": {
+          "y": 930,
+          "h": 150
+        },
+        "captions": {
+          "y": 1040,
+          "h": 180
+        }
+      },
+      "captions": {
+        "style": "word",
+        "burn": true,
+        "font_px": 76,
+        "max_chars": 20,
+        "max_lines": 1,
+        "words_per_page": 3
+      },
+      "pacing": {
+        "median_gap_s": [
+          2.0,
+          4.0
+        ],
+        "max_static_s": 6.0
+      },
+      "silence": {
+        "trim_above_ms": 300,
+        "target_ms": 150
+      },
+      "hook": {
+        "first_word_s": 0.5,
+        "promise_s": 3.0
+      },
+      "max_s": null,
+      "min_s": null,
+      "loudness": {
+        "I": -14.0,
+        "TP": -1.0,
+        "sound_platform": "facebook"
+      },
+      "layout_map": {
+        "split": "stack"
+      },
+      "pip": {
+        "corner": "br",
+        "shape": "circle",
+        "size": 0.26
+      },
+      "render": {
+        "crf": 18,
+        "concurrency": 6
+      },
+      "subtitles": {
+        "max_chars": 32,
+        "max_lines": 2
+      }
+    },
+    "square": {
+      "label": "Square (1:1)",
+      "width": 1080,
+      "height": 1080,
+      "fps": 30,
+      "qa_platform": "generic",
+      "safe": {
+        "x": 54,
+        "y": 54,
+        "w": 972,
+        "h": 972
+      },
+      "bands": {
+        "title": {
+          "y": 80,
+          "h": 200
+        },
+        "lower": {
+          "y": 720,
+          "h": 140
+        },
+        "captions": {
+          "y": 800,
+          "h": 170
+        }
+      },
+      "captions": {
+        "style": "word",
+        "burn": true,
+        "font_px": 72,
+        "max_chars": 20,
+        "max_lines": 1,
+        "words_per_page": 3
+      },
+      "pacing": {
+        "median_gap_s": [
+          2.0,
+          4.0
+        ],
+        "max_static_s": 6.0
+      },
+      "silence": {
+        "trim_above_ms": 300,
+        "target_ms": 150
+      },
+      "hook": {
+        "first_word_s": 0.5,
+        "promise_s": 3.0
+      },
+      "max_s": null,
+      "min_s": null,
+      "loudness": {
+        "I": -14.0,
+        "TP": -1.0,
+        "sound_platform": "web"
+      },
+      "layout_map": {
+        "split": "stack"
+      },
+      "pip": {
+        "corner": "br",
+        "shape": "circle",
+        "size": 0.26
+      },
+      "render": {
+        "crf": 18,
+        "concurrency": 6
+      },
+      "subtitles": {
+        "max_chars": 32,
+        "max_lines": 2
+      }
+    }
+  },
+  "overlays": {
+    "hook": {
+      "slot": "title",
+      "min_s": 1.2,
+      "max_s": 6.0
+    },
+    "keyword": {
+      "slot": "centre",
+      "min_s": 0.6,
+      "max_s": 3.0
+    },
+    "stat": {
+      "slot": "card",
+      "min_s": 2.0,
+      "max_s": 7.0
+    },
+    "list": {
+      "slot": "card",
+      "min_s": 2.5,
+      "max_s": 12.0
+    },
+    "compare": {
+      "slot": "card",
+      "min_s": 2.5,
+      "max_s": 8.0
+    },
+    "quote": {
+      "slot": "full",
+      "min_s": 2.5,
+      "max_s": 8.0
+    },
+    "chapter": {
+      "slot": "title",
+      "min_s": 1.5,
+      "max_s": 3.5
+    },
+    "lowerThird": {
+      "slot": "lower",
+      "min_s": 3.0,
+      "max_s": 7.0
+    },
+    "callout": {
+      "slot": "screen",
+      "min_s": 1.5,
+      "max_s": 8.0
+    },
+    "redact": {
+      "slot": "redact",
+      "min_s": 0.1,
+      "max_s": null
+    },
+    "broll": {
+      "slot": "full",
+      "min_s": 1.5,
+      "max_s": 6.0
+    },
+    "image": {
+      "slot": "full",
+      "min_s": 1.5,
+      "max_s": 6.0
+    },
+    "segment": {
+      "slot": "full",
+      "min_s": 1.0,
+      "max_s": 30.0
+    },
+    "cta": {
+      "slot": "lower",
+      "min_s": 2.0,
+      "max_s": 8.0
+    },
+    "progress": {
+      "slot": "bar",
+      "min_s": 1.0,
+      "max_s": null
+    }
+  },
+  "sfx_defaults": {
+    "hook": "whoosh-short",
+    "keyword": "pop",
+    "stat": "impact",
+    "list": "pop",
+    "compare": "whoosh-short",
+    "quote": "whoosh",
+    "chapter": "whoosh",
+    "lowerThird": "swipe",
+    "callout": "click",
+    "broll": "whoosh",
+    "image": "whoosh",
+    "segment": "whoosh",
+    "cta": "ding"
+  }
+}

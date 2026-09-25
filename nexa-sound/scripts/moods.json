@@ -1,0 +1,141 @@
+{
+  "schema": "nexa-sound/moods-1",
+  "about": "Prompt templates for Lyria 3.5, one per video mood. They follow Google's Lyria prompt structure (genre and era, mood, 3 to 5 named instruments, tempo and key, timestamped sections with an intensity, an explicit ending, and 'Instrumental.' last). Written for nexa-sound; not yet tried against the live model. RealTime prompts marked derived were made from the template's genre and instruments; the others are the starting sets from the research.",
+  "placeholders": {
+    "{DUR}": "the video length plus 2 s of headroom, whole seconds",
+    "{SECTIONS}": "one line per section from the cut list: [m:ss - m:ss] Label: what changes. Intensity: n/10",
+    "{DROP}": "the time of the heaviest cut (the key reveal), whole seconds",
+    "{BPM}": "the tempo (the mood's default unless the brief sets one)",
+    "{KEY}": "the key (the mood's default unless the brief sets one)"
+  },
+  "moods": [
+    {
+      "id": "corporate",
+      "name": "Corporate clean",
+      "use_for": "explainer, about-us, B2B",
+      "bpm": 104,
+      "key": "C major",
+      "ending": "ring_out",
+      "template": "Create a {DUR}-second instrumental modern corporate pop track as background music under a voice-over. Optimistic, confident and warm. {BPM} BPM, {KEY}. Clean muted electric guitar plucks, soft felt piano, light claps, gentle kick, warm synth pad, subtle bass. Simple, sparse melody that leaves room for narration; steady energy with gentle lifts at section changes. {SECTIONS} End on a clean final chord that rings out naturally by {DUR} seconds. Polished, uncluttered mix. Instrumental.",
+      "realtime": {"prompts": [["Uplifting corporate pop", 1.0], ["clean guitar plucks", 0.6], ["soft piano", 0.5]], "density": 0.45, "brightness": 0.6}
+    },
+    {
+      "id": "tech",
+      "name": "Tech explainer",
+      "use_for": "SaaS, app demo, product walkthrough",
+      "bpm": 112,
+      "key": "A minor",
+      "ending": "final_hit",
+      "template": "Create a {DUR}-second instrumental electronic tech track for an app walkthrough. Curious, focused, forward-moving. {BPM} BPM, {KEY} with bright lifts. Crisp digital plucks, arpeggiated analog synth, tight electronic drums with soft hi-hats, deep sub bass, airy pads. Rhythmic and minimal, no busy lead melody. {SECTIONS} Finish with a short filtered sweep into one final synth hit at {DUR} seconds with a short tail. Instrumental.",
+      "realtime": {"prompts": [["Minimal electronic tech", 1.0], ["arpeggiated analog synth", 0.6], ["crisp digital plucks", 0.5]], "derived": true, "density": 0.5, "brightness": 0.65}
+    },
+    {
+      "id": "cinematic",
+      "name": "Cinematic epic",
+      "use_for": "launch reveal, trailer",
+      "bpm": 92,
+      "key": "D minor",
+      "ending": "final_hit",
+      "template": "Create a {DUR}-second instrumental cinematic orchestral trailer cue. Epic, determined, rising. {BPM} BPM, {KEY}. Low string ostinato, taiko and orchestral percussion, brass swells, choir pad, deep sub hits. Quiet tension at the start, a steady build, and a massive impact at {DROP} seconds, then full orchestra. {SECTIONS} End on one huge final hit that decays naturally until {DUR} seconds. Instrumental.",
+      "realtime": {"prompts": [["Epic orchestral score", 1.0], ["low string ostinato", 0.6], ["taiko drums", 0.5]], "derived": true, "density": 0.55, "brightness": 0.45}
+    },
+    {
+      "id": "inspirational",
+      "name": "Inspirational",
+      "use_for": "NGO, documentary, founder story, testimonial",
+      "bpm": 76,
+      "key": "G major",
+      "ending": "ring_out",
+      "template": "Create a {DUR}-second instrumental inspirational piano and strings piece. Hopeful, heartfelt, gently uplifting. {BPM} BPM, {KEY}. A soft piano motif, warm cello, violin section swells, and a light muted pulse that joins later. Grows slowly, never loud under speech. {SECTIONS} End on a sustained major chord that rings out by {DUR} seconds. Instrumental.",
+      "realtime": {"prompts": [["Hopeful piano and strings", 1.0], ["warm cello", 0.6], ["soft piano motif", 0.5]], "derived": true, "density": 0.35, "brightness": 0.5}
+    },
+    {
+      "id": "lofi",
+      "name": "Lo-fi chill",
+      "use_for": "study, cafe, cosy vlog, B-roll",
+      "bpm": 82,
+      "key": "F major",
+      "ending": "ring_out",
+      "template": "Create a {DUR}-second instrumental lo-fi hip hop beat. Relaxed, warm, nostalgic. {BPM} BPM, {KEY} seventh chords. Dusty swung drum break, mellow Rhodes chords, warm upright bass, soft vinyl crackle. One steady groove with consistent energy, no build-up. {SECTIONS} End with the Rhodes playing the last chord alone. Instrumental.",
+      "realtime": {"prompts": [["Lo-Fi Hip Hop", 1.0], ["Rhodes Piano", 0.7], ["vinyl crackle", 0.3]], "density": 0.4, "brightness": 0.4}
+    },
+    {
+      "id": "vlog",
+      "name": "Upbeat vlog",
+      "use_for": "travel, lifestyle",
+      "bpm": 118,
+      "key": "D major",
+      "ending": "final_hit",
+      "template": "Create a {DUR}-second instrumental sunny acoustic indie pop track. Carefree, bright, adventurous. {BPM} BPM, {KEY}. Strummed acoustic guitar, ukulele, hand claps, tambourine, bouncy bass, a catchy glockenspiel hook. {SECTIONS} End with a final strum and clap at {DUR} seconds. Instrumental.",
+      "realtime": {"prompts": [["Sunny acoustic indie pop", 1.0], ["strummed acoustic guitar", 0.6], ["hand claps", 0.4]], "derived": true, "density": 0.55, "brightness": 0.7}
+    },
+    {
+      "id": "ad",
+      "name": "Energetic ad",
+      "use_for": "sale, promo, 15 to 30 s ads",
+      "bpm": 126,
+      "key": "E minor",
+      "ending": "final_hit",
+      "template": "Create a {DUR}-second instrumental punchy electro-pop ad track. Bold, exciting, high energy from the first second. {BPM} BPM, {KEY}. Driving kick, snappy snare, bright synth stabs, pumping pads, a rising riser into a beat drop at {DROP} seconds. {SECTIONS} End on one hard final stab at {DUR} seconds. Instrumental.",
+      "realtime": {"prompts": [["Punchy electro pop", 1.0], ["bright synth stabs", 0.6], ["driving kick", 0.5]], "derived": true, "density": 0.7, "brightness": 0.75}
+    },
+    {
+      "id": "luxury",
+      "name": "Luxury elegant",
+      "use_for": "fashion, real estate, premium brands",
+      "bpm": 120,
+      "key": "A minor",
+      "ending": "ring_out",
+      "template": "Create a {DUR}-second instrumental minimal deep house track. Elegant, sophisticated, understated. {BPM} BPM, {KEY}. Soft kick, brushed hi-hats, round sub bass, lush Rhodes chords, subtle string pad. Smooth and restrained throughout. {SECTIONS} End with the pad and Rhodes ringing out by {DUR} seconds. Instrumental.",
+      "realtime": {"prompts": [["Minimal deep house", 1.0], ["lush Rhodes chords", 0.6], ["round sub bass", 0.5]], "derived": true, "density": 0.4, "brightness": 0.5}
+    },
+    {
+      "id": "suspense",
+      "name": "Suspense",
+      "use_for": "problem statement, true crime, teaser",
+      "bpm": 70,
+      "key": "C minor",
+      "ending": "cut",
+      "template": "Create a {DUR}-second instrumental dark cinematic suspense cue. Tense, mysterious, slowly rising. {BPM} BPM, {KEY}. Low drones, a pulsing synth bass, ticking percussion, distant piano notes, bowed metal textures. {SECTIONS} End on a low sustained drone that cuts to a short silence at {DUR} seconds. Instrumental.",
+      "realtime": {"prompts": [["Ominous Drone", 1.0], ["pulsing synth bass", 0.6], ["ticking percussion", 0.4]], "density": 0.3, "brightness": 0.3}
+    },
+    {
+      "id": "playful",
+      "name": "Playful",
+      "use_for": "kids, food, fun explainer",
+      "bpm": 124,
+      "key": "C major",
+      "ending": "final_hit",
+      "template": "Create a {DUR}-second instrumental cheerful whimsical track. Playful, bouncy, friendly. {BPM} BPM, {KEY}. Ukulele, glockenspiel, pizzicato strings, hand claps, light marimba, bouncy bass. {SECTIONS} End with a cute final glockenspiel and pizzicato hit at {DUR} seconds. Instrumental.",
+      "realtime": {"prompts": [["Whimsical playful", 1.0], ["pizzicato strings", 0.6], ["glockenspiel", 0.5]], "derived": true, "density": 0.55, "brightness": 0.7}
+    },
+    {
+      "id": "wellness",
+      "name": "Calm wellness",
+      "use_for": "health, spa, meditation, nature",
+      "bpm": 60,
+      "key": "F major",
+      "ending": "fade",
+      "template": "Create a {DUR}-second instrumental ambient piece. Calm, spacious, soothing. Slow, around {BPM} BPM, {KEY}. Warm evolving synth pads, soft piano notes with long reverb, gentle singing bowl tones, light natural ambience; floating and percussion-free. {SECTIONS} Let the final pad fade naturally by {DUR} seconds. Instrumental.",
+      "realtime": {"prompts": [["Ambient", 1.0], ["warm evolving pads", 0.6], ["singing bowls", 0.4]], "derived": true, "density": 0.2, "brightness": 0.4}
+    },
+    {
+      "id": "bangla-folk",
+      "name": "Bangladeshi festive or folk-fusion",
+      "use_for": "Boishakh, Eid, wedding, local brands",
+      "bpm": 100,
+      "key": "D major",
+      "ending": "final_hit",
+      "template": "Create a {DUR}-second instrumental festive Bangladeshi folk-fusion track. Joyful, colourful, celebratory. {BPM} BPM, {KEY} with a pentatonic folk melody. Dhol and dhak rhythm, a dotara riff, ektara drone, bansuri flute lead, harmonium chords, mandira and khol percussion, with modern bass and light electronic drums underneath. {SECTIONS} End on a big dhol hit and a held harmonium chord at {DUR} seconds. Instrumental.",
+      "realtime": {"prompts": [["Bengal Baul", 1.0], ["Tabla", 0.6], ["bansuri flute", 0.5]], "density": 0.55, "brightness": 0.6},
+      "variants": {
+        "calm": {
+          "bpm": 88,
+          "ending": "ring_out",
+          "template": "Create a {DUR}-second instrumental Bengal Baul inspired acoustic folk piece. Warm and earthy. {BPM} BPM, {KEY}. Ektara and dotara, bansuri, khamak, soft tabla. {SECTIONS} End on a held dotara chord that rings out by {DUR} seconds. Instrumental.",
+          "realtime": {"prompts": [["Bengal Baul", 1.0], ["Tabla", 0.6], ["bansuri flute", 0.5]], "density": 0.35, "brightness": 0.5}
+        }
+      }
+    }
+  ]
+}

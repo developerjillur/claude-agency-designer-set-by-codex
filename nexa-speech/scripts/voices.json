@@ -1,0 +1,40 @@
+{
+  "schema": "nexa-speech/voices-1",
+  "sources": [
+    "Character words: Gemini API text-to-speech guide, https://ai.google.dev/gemini-api/docs/speech-generation (updated 2026-09-24)",
+    "Genders: Cloud Text-to-Speech Chirp 3 HD voice list, which uses the same 30 names, https://docs.cloud.google.com/text-to-speech/docs/chirp3-hd (updated 2026-09-18)"
+  ],
+  "note": "The same 30 names exist on every Gemini TTS model, but each model renders a name differently: audition before you pick, and keep one model per video.",
+  "voices": [
+    {"name": "Achernar", "gender": "female", "character": "Soft"},
+    {"name": "Aoede", "gender": "female", "character": "Breezy"},
+    {"name": "Autonoe", "gender": "female", "character": "Bright"},
+    {"name": "Callirrhoe", "gender": "female", "character": "Easy-going"},
+    {"name": "Despina", "gender": "female", "character": "Smooth"},
+    {"name": "Erinome", "gender": "female", "character": "Clear"},
+    {"name": "Gacrux", "gender": "female", "character": "Mature"},
+    {"name": "Kore", "gender": "female", "character": "Firm"},
+    {"name": "Laomedeia", "gender": "female", "character": "Upbeat"},
+    {"name": "Leda", "gender": "female", "character": "Youthful"},
+    {"name": "Pulcherrima", "gender": "female", "character": "Forward"},
+    {"name": "Sulafat", "gender": "female", "character": "Warm"},
+    {"name": "Vindemiatrix", "gender": "female", "character": "Gentle"},
+    {"name": "Zephyr", "gender": "female", "character": "Bright"},
+    {"name": "Achird", "gender": "male", "character": "Friendly"},
+    {"name": "Algenib", "gender": "male", "character": "Gravelly"},
+    {"name": "Algieba", "gender": "male", "character": "Smooth"},
+    {"name": "Alnilam", "gender": "male", "character": "Firm"},
+    {"name": "Charon", "gender": "male", "character": "Informative"},
+    {"name": "Enceladus", "gender": "male", "character": "Breathy"},
+    {"name": "Fenrir", "gender": "male", "character": "Excitable"},
+    {"name": "Iapetus", "gender": "male", "character": "Clear"},
+    {"name": "Orus", "gender": "male", "character": "Firm"},
+    {"name": "Puck", "gender": "male", "character": "Upbeat"},
+    {"name": "Rasalgethi", "gender": "male", "character": "Informative"},
+    {"name": "Sadachbia", "gender": "male", "character": "Lively"},
+    {"name": "Sadaltager", "gender": "male", "character": "Knowledgeable"},
+    {"name": "Schedar", "gender": "male", "character": "Even"},
+    {"name": "Umbriel", "gender": "male", "character": "Easy-going"},
+    {"name": "Zubenelgenubi", "gender": "male", "character": "Casual"}
+  ]
+}

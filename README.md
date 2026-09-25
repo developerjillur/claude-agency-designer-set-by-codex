@@ -1,9 +1,10 @@
 # claude-agency-designer-set-by-codex
 
-Five Claude Code skills that work as a small design agency: they design finished graphics at each platform's exact
-size with real typography, write copy that sounds like the audience instead of a machine, make and check the images
-with the Codex CLI on a ChatGPT plan, animate explainer B-roll in Remotion from a ready kit, and watch, transcribe and
-check videos with Gemini through the Antigravity CLI (no API keys needed).
+Eight Claude Code skills that work as a small design and video agency: they design finished graphics at each
+platform's exact size with real typography, write copy that sounds like the audience instead of a machine, make and
+check the images with the Codex CLI on a ChatGPT plan, edit real footage into finished videos for every platform with
+Remotion, voice scripts with Gemini text-to-speech, score them with Google Lyria, animate explainer B-roll from a ready
+kit, and watch, transcribe and check videos with Gemini through the Antigravity CLI.
 
 | Skill | What it does |
 |---|---|
@@ -11,6 +12,9 @@ check videos with Gemini through the Antigravity CLI (no API keys needed).
 | [`natural-copy`](natural-copy/SKILL.md) | Writes and fixes any text an audience reads or hears (captions, ads, banner lines, product and web text, emails, WhatsApp and SMS, scripts, replies) so it sounds like a person from that audience: casual everyday words, no AI tone, no bookish, poetic or translated feel. English, Bangla and Banglish for Bangladesh first-class, and 18 more languages. Song lyrics, jingles and poems get their own rules and a lyricist's judge. |
 | [`agy-watch-video`](agy-watch-video/SKILL.md) | Gives Claude eyes and ears for video: summaries, shot lists, frame-by-frame reports at full resolution, timestamped transcripts and subtitles (Bengali included), on-screen text, zoomed answers about any moment or detail, measured QA (cuts, black and frozen frames, flicker, loudness, platform specs and safe zones) and version comparisons. ffmpeg prepares and measures; Gemini 3.1 Pro and 3.8 Flash look and listen through the Antigravity CLI; two models are compared and Claude checks the evidence frames. |
 | [`remotion-broll`](remotion-broll/SKILL.md) | Explainer-video B-roll in Remotion from a ready kit: code-drawn 2D caricature characters (a guitarist and a runner, rigged), split screens, a round presenter picture-in-picture, a timeline editor, a stat card and bar chart that compute from one growth rate, kinetic captions, step cards, a finish line and a subscribe end card, with sound effects. Every word on screen lives in one file; a minute renders in about 45 s and is checked by the video skill. |
+| [`nexa-video-creator`](nexa-video-creator/SKILL.md) | Edits real footage and makes finished videos like a professional editor: YouTube long-form, Shorts, Reels, TikTok, feed and Stories, ads, promos, tutorials, talking-head and faceless explainers. Syncs a separately recorded camera and screen by their sound (offset and drift), transcribes with word timings (Bangla included), cuts pauses, fillers and retakes on the frame grid, and places layouts, zooms, punch-ins, hook titles, stat and list cards, b-roll, 2D explainer animation, captions, music and effects. Claude writes the edit as a plan grounded to the transcript's words; a compiler checks it against the editing rules; Remotion renders it; the video skill checks the result. |
+| [`nexa-sound`](nexa-sound/SKILL.md) | Music, sound effects and the final mix: Google Lyria scores (cheap drafts, structured finals, exact-length beds), a built-in synthesiser for effects the skill owns outright, music fitted to the edit on whole bars with hits on cuts, dialogue clean-up, ducking under speech with a gain envelope, mastering to each platform's loudness, measured QC and licence notes for clients. |
+| [`nexa-speech`](nexa-speech/SKILL.md) | Human-sounding voice-overs and character voices with Gemini text-to-speech, one consistent voice from the first line to the last: voice profiles, Bangla and English number handling, chunking, a cache so no line is paid for twice, measured QA of every take, a mastered 48 kHz track with sentence and word timings and subtitles, and scenes fitted to a length. |
 | [`codex-imagegen`](codex-imagegen/SKILL.md) | Generates and edits the images a project needs through the logged-in Codex CLI: photos, illustrations, cutouts, logo concepts, favicons, OG cards and web exports, in parallel with a style lock, each one judged independently. Photos look like unretouched camera photos, and place and people come from the client, never the requester. |
 
 ## Fast for everyday work, strict for client finals
@@ -30,6 +34,8 @@ that:
 - Any graphic with text or layout: load `codex-design` first and follow its fast path.
 - Any image to generate or edit: `codex-imagegen`. Any video or audio: `agy-watch-video`.
 - Animated explainer B-roll or motion graphics: `remotion-broll`.
+- Editing or making a video from footage, a voice-over or assets: `nexa-video-creator`.
+- Music, sound effects, voice clean-up or a mix: `nexa-sound`. A voice-over or character voice: `nexa-speech`.
 ```
 
 ## Why it holds up
@@ -60,7 +66,14 @@ that:
 - For `agy-watch-video`: [ffmpeg](https://ffmpeg.org) (`brew install ffmpeg`) and the
   [Antigravity CLI](https://antigravity.google/download#antigravity-cli), signed in once with `agy`. See the note on
   Antigravity's terms below.
-- For `remotion-broll`: [Node.js](https://nodejs.org) 22.6 or newer (npm installs Remotion into each project).
+- For `remotion-broll` and `nexa-video-creator`: [Node.js](https://nodejs.org) 22.6 or newer (npm installs Remotion
+  4.0.528; `nvc.py doctor --setup --link-modules PATH` reuses an installed kit's packages instead).
+- For `nexa-video-creator`: [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`brew install whisper-cpp`) and a
+  large-v3-turbo model for English transcripts; numpy is installed into the skill's own environment by
+  `doctor --setup`.
+- For `nexa-speech`, `nexa-sound` and Bangla transcripts: a Gemini API key from a Google Cloud project with billing
+  turned on, in `GEMINI_API_KEY` or in the macOS keychain (`security add-generic-password -a "$USER" -s GEMINI_API_KEY -w`
+  asks for it at a prompt). The skills never ask for a key, print it or write it to a file.
 - [Claude Code](https://docs.claude.com/en/docs/claude-code).
 
 ## Install
@@ -71,7 +84,7 @@ cd claude-agency-designer-set-by-codex
 ./install.sh
 ```
 
-`install.sh` links the five skills into `~/.claude/skills` (so `git pull` updates them; `--copy` copies them
+`install.sh` links the eight skills into `~/.claude/skills` (so `git pull` updates them; `--copy` copies them
 instead), sets up each skill's Python environment and checks the machine. It never overwrites an existing folder.
 Restart Claude Code afterwards. `./install.sh --test` also runs the offline test suites.
 
@@ -86,6 +99,8 @@ Ask Claude Code in plain words, in any language; the skills load by themselves:
 - "What happens in this video?", "Check this reel before I post it", "Transcribe this and give me subtitles",
   "Why does the app crash at 0:12 in this recording?"
 - "Explainer B-roll for our course launch, one minute" or "remotion diye 2D caricature video banao"
+- "Edit my face cam and screen recording for YouTube", "ei video theke 3 ta reels cut koro"
+- "Bangla voice over banao ei script diye", "corporate background music lagbe 45 second"
 
 Or call the tools directly:
 
@@ -100,6 +115,10 @@ python3 ~/.claude/skills/agy-watch-video/scripts/watch_video.py ask clip.mp4 "Wh
 python3 ~/.claude/skills/agy-watch-video/scripts/watch_video.py verify clip.mp4 "the logo appears before the title" --from 0 --to 5
 python3 ~/.claude/skills/remotion-broll/scripts/broll.py new ~/videos/launch-broll
 python3 ~/.claude/skills/remotion-broll/scripts/broll.py render ~/videos/launch-broll
+python3 ~/.claude/skills/nexa-video-creator/scripts/nvc.py new ~/videos/launch --target youtube
+python3 ~/.claude/skills/nexa-speech/scripts/speech.py profile new bn-yt --preset bn-yt-explainer-m
+python3 ~/.claude/skills/nexa-speech/scripts/speech.py plan script.md --profile bn-yt --out vo
+python3 ~/.claude/skills/nexa-sound/scripts/sound.py sfx list
 ```
 
 Every command, flag and output is documented in the `references/cli.md` of each skill.
@@ -111,6 +130,9 @@ python3 -m unittest discover -s ~/.claude/skills/codex-design/tests
 python3 -m unittest discover -s ~/.claude/skills/codex-imagegen/tests
 python3 -m unittest discover -s ~/.claude/skills/agy-watch-video/tests
 python3 -m unittest discover -s ~/.claude/skills/remotion-broll/tests
+python3 -m unittest discover -s ~/.claude/skills/nexa-video-creator/tests
+python3 -m unittest discover -s ~/.claude/skills/nexa-sound/tests
+python3 -m unittest discover -s ~/.claude/skills/nexa-speech/tests
 CODEX_DESIGN_PATTERNS=1 python3 -m unittest discover -s ~/.claude/skills/codex-design/tests -p "test_patterns.py"
 ```
 
@@ -130,6 +152,10 @@ agy-watch-video/  the video skill: scripts/watch_video.py (and ocr.swift), refer
                   platforms, research notes), tests/
 remotion-broll/   the B-roll kit: template/ (the Remotion project), scripts/broll.py, references/ (scenes, picture
                   briefs), tests/
+nexa-video-creator/ the editor: scripts/nvc.py (pipeline), nvc_plan.py (plan checks and compile), template/ (the
+                  Remotion renderer), references/ (plan, cli, editing rules, engines), tests/
+nexa-sound/       music, effects and mix: scripts/sound.py, sfx_synth.py, beats.py, references/, tests/
+nexa-speech/      voice-overs: scripts/speech.py, voices and presets, references/, tests/
 ```
 
 ## Notes
@@ -147,6 +173,14 @@ remotion-broll/   the B-roll kit: template/ (the Remotion project), scripts/brol
 - The sample photos in `codex-design/templates/patterns/assets/photos/` were generated with `codex-imagegen` for the
   fictional sample brand and say so in their metadata (IPTC DigitalSourceType trainedAlgorithmicMedia).
 - The sample brand's fonts are open-licensed (SIL OFL 1.1); see `codex-design/templates/sample-brand/fonts/`.
+- `nexa-speech` and `nexa-sound` call the Gemini API with your key and cost money per call (a 10-minute voice-over is
+  about $0.14 to $0.24 on Gemini 3.8 Flash TTS, a Lyria 3.5 track $0.08; September 2026 prices). Every call is
+  estimated first, logged in the job's `ledger.jsonl`, and stopped by a budget guard. Use a key from a project with
+  billing turned on: on the free tier Google may use what you send to improve its products.
+- Lyria music and Gemini voices carry Google's SynthID watermark; the tools keep it and never try to remove it. Lyria
+  music is not exclusive, so it is never registered with Content ID.
+- Remotion is free for individuals and companies of up to 3 people; above that, code that renders counts as an
+  automation under Remotion's company licence.
 
 ## License
 

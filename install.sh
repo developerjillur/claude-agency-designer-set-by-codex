@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the five skills for Claude Code: link them into ~/.claude/skills (so `git pull` updates them), set up each
+# Install the eight skills for Claude Code: link them into ~/.claude/skills (so `git pull` updates them), set up each
 # skill's Python environment, and check the machine. Nothing is deleted or overwritten: an existing folder with the
 # same name stops the install.
 #
@@ -28,7 +28,7 @@ if sys.version_info < (3, 9):
 PY
 
 mkdir -p "$dest"
-for skill in codex-imagegen codex-design natural-copy agy-watch-video remotion-broll; do
+for skill in codex-imagegen codex-design natural-copy agy-watch-video remotion-broll nexa-video-creator nexa-sound nexa-speech; do
   target="$dest/$skill"
   if [ -L "$target" ]; then
     if [ "$(cd "$target" && pwd -P)" = "$(cd "$here/$skill" && pwd -P)" ]; then
@@ -61,6 +61,9 @@ python3 "$dest/codex-design/scripts/design.py" doctor --setup || \
 python3 "$dest/agy-watch-video/scripts/watch_video.py" doctor --setup || \
   echo "note    agy-watch-video is set up; its doctor lists what is still missing above (usually ffmpeg or the Antigravity CLI)"
 
+python3 "$dest/nexa-video-creator/scripts/nvc.py" doctor --setup || \
+  echo "note    nexa-video-creator is set up; its doctor lists what is still missing above (the renderer: nvc.py doctor --setup --link-modules PATH or --npm)"
+
 echo "checking the machine"
 python3 "$dest/codex-design/scripts/design.py" doctor || true
 command -v codex >/dev/null || echo "note    the Codex CLI is not installed: image generation and the judges need it (then run: codex login)"
@@ -70,12 +73,18 @@ command -v swiftc >/dev/null || echo "note    swiftc was not found: install the 
 command -v ffmpeg >/dev/null || echo "note    ffmpeg was not found: agy-watch-video needs it (brew install ffmpeg)"
 command -v agy >/dev/null || [ -x "$HOME/.local/bin/agy" ] || \
   echo "note    the Antigravity CLI (agy) is not installed: agy-watch-video needs it (https://antigravity.google/download#antigravity-cli, then run agy once to sign in)"
-command -v node >/dev/null || echo "note    Node.js was not found: remotion-broll needs Node 22.6 or newer (https://nodejs.org)"
+command -v node >/dev/null || echo "note    Node.js was not found: remotion-broll and nexa-video-creator need Node 22.6 or newer (https://nodejs.org)"
+command -v whisper-cli >/dev/null || echo "note    whisper.cpp was not found: nexa-video-creator uses it for English transcripts (brew install whisper-cpp)"
+[ -n "${GEMINI_API_KEY:-}" ] || security find-generic-password -s GEMINI_API_KEY >/dev/null 2>&1 || \
+  echo "note    no Gemini API key: nexa-speech, nexa-sound and Bangla transcripts need one (set GEMINI_API_KEY, or: security add-generic-password -a \"\$USER\" -s GEMINI_API_KEY -w)"
 
 if [ "$run_tests" = 1 ]; then
   python3 -m unittest discover -s "$dest/codex-design/tests"
   python3 -m unittest discover -s "$dest/codex-imagegen/tests"
   python3 -m unittest discover -s "$dest/agy-watch-video/tests"
   python3 -m unittest discover -s "$dest/remotion-broll/tests"
+  python3 -m unittest discover -s "$dest/nexa-video-creator/tests"
+  python3 -m unittest discover -s "$dest/nexa-sound/tests"
+  python3 -m unittest discover -s "$dest/nexa-speech/tests"
 fi
 echo "done: restart Claude Code so it picks up the skills"
