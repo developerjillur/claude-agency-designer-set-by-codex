@@ -234,6 +234,12 @@ BN_PATTERNS = [
     (re.compile("দাম জানতে ইনবক্স|দাম জানতে মেসেজ|মূল্য জানতে ইনবক্স"),
      "the price hidden behind the inbox (buyers dislike it; Bangladesh's Digital Commerce Guideline 2021 §3.1.2 asks "
      "for clear prices)", "দামটা লিখে দিন: ৳১,২৯০"),
+    # found by the copy judge in every run of a fast-path post (2026-09-25): "৮৫০ টাকা প্রতি কেজি" reads translated
+    (re.compile(f"(?:[০-৯0-9][০-৯0-9,.]*\\s*টাকা|৳\\s*[০-৯0-9][০-৯0-9,.]*)\\s+প্রতি\\s*(?:কেজি|পিস|লিটার|গ্রাম|ডজন|"
+                f"হালি|বক্স|প্যাকেট|প্লেট|কাপ|জন|রাত|মাস|ঘণ্টা|দিন|সপ্তাহ|বছর|সেট|কপি|ইউনিট|মিটার|গজ|টিকিট|"
+                f"টি|টা)[{BN}]*"),
+     "the price before প্রতি and its unit is English word order ('850 taka per kg')",
+     "the unit first, the way shops say it: প্রতি কেজি ৮৫০ টাকা, or কেজি ৮৫০ টাকা"),
     (re.compile(f"[{BN}]{{2,}}ঃ(?=\\s|$)"), "a visarga (ঃ) used as a colon (বিস্তারিতঃ)", "কোলন লিখুন: বিস্তারিত:"),
     (re.compile(f"[{BN}]{{3,}}\\.(?=\\s|$)"), "an English full stop at the end of a Bengali sentence",
      "দাঁড়ি (।) লিখুন; '.' শুধু সংক্ষেপে (ড., লি.)"),

@@ -219,6 +219,16 @@ class Units(unittest.TestCase):
         self.assertNotIn("bn-urgency", codes("অফার শুক্রবার পর্যন্ত, স্টক সীমিত"))
         self.assertNotIn("bn-urgency", codes("আর মাত্র ১০টা বাকি, শেষ হয়ে যেতে পারে"))
 
+    def test_a_price_before_its_unit_reads_translated(self):
+        """The copy judge flagged "৮৫০ টাকা প্রতি কেজি" in all three runs on a fast-path post: English word order."""
+        order = lambda t: [f for f in d.copyrules.lint_string(t, "key_fact", "BD") if "English word order" in
+                           f["message"]]
+        for bad in ("৮৫০ টাকা প্রতি কেজি", "৳৮৫০ প্রতি কেজি", "২০০ টাকা প্রতিজন", "মাত্র ৫০০ টাকা প্রতি মাসে"):
+            self.assertTrue(order(bad), bad)
+        for good in ("প্রতি কেজি ৮৫০ টাকা", "কেজি ৮৫০ টাকা", "৮৫০ টাকা কেজি", "জনপ্রতি ২০০ টাকা",
+                     "১০ লাখ টাকা প্রতিশ্রুতি দিয়েছেন", "৮৫০ টাকা (প্রতি কেজি)"):
+            self.assertFalse(order(good), good)
+
     def test_inline_brief_is_text_not_a_path(self):
         """Found in use: a long --brief given inline crashed with 'File name too long', and a mistyped path was judged
         as if it were the brief."""
@@ -2058,6 +2068,63 @@ class RenderProduction(unittest.TestCase):
         with self.assertRaises(SystemExit), contextlib.redirect_stdout(io.StringIO()), \
                 contextlib.redirect_stderr(io.StringIO()):
             d.cmd_deliver(ns)
+
+    @unittest.skipUnless(hasattr(os, "killpg"), "needs POSIX process groups")
+    def test_deliver_judge_runs_both_judges_at_once_then_the_gates(self):
+        """Client finals took two long Codex runs in two model turns (design judge about 50 s, copy judge 40 to 110 s)
+        and then deliver. With --judge they run together: every fake session below waits until all six have started,
+        so judges run one after the other would time out here instead of passing."""
+        from unittest import mock
+        rep = self.run_html(page("<h1 style='margin:60px;font:60px serif'>Fresh at 7</h1>"), size="1080x1350",
+                            out="post.png")
+        self.assertEqual(rep["checks"]["errors"], [])
+        img, copy = self.tmp / "post.png", self.tmp / "post.copy.json"
+        copy.write_text(json.dumps({"locale": "US", "strings": [{"role": "headline", "text": "Fresh at 7"},
+                                                                 {"role": "alt", "text": "A loaf on a bench"}]}))
+        answers = {"design": dict(judge_answer(5), text_read=["Fresh at 7"]),
+                   "copy": dict(copy_answer(), scores=dict.fromkeys(d.COPY_CRITERIA, 5))}
+        fake = self.tmp / "codex"
+        fake.write_text(
+            "#!/usr/bin/env python3\nimport json, os, sys, time\nsys.stdin.read()\na = sys.argv\n"
+            "kind = 'design' if 'gates' in json.load(open(a[a.index('--output-schema') + 1]))['required'] else 'copy'\n"
+            "if kind in os.environ.get('FAKE_FAIL', ''):\n"
+            "    print(json.dumps({'type': 'error', 'message': \"You've hit your usage limit\"}))\n"
+            "    sys.exit(1)\n"
+            "starts = os.environ['STARTS']\n"
+            "open(starts, 'a').write(kind + '\\n')\n"
+            "end = time.time() + 20\n"
+            "while time.time() < end and len(open(starts).read().split()) < 6:\n"
+            "    time.sleep(0.05)\n"
+            "open(os.environ['SEEN'], 'a').write(str(len(open(starts).read().split())) + '\\n')\n"
+            f"json.dump(json.loads({json.dumps(answers)!r})[kind], open(a[a.index('-o') + 1], 'w'))\n")
+        fake.chmod(0o755)
+        ci = self.tmp / "codex_image.py"
+        ci.write_text("import os\nLEAN_FLAGS = []\n\n\ndef codex_bin():\n    return os.environ['FAKE_CODEX']\n\n\n"
+                      "def codex_env():\n    return dict(os.environ)\n")
+        starts, seen = self.tmp / "starts.txt", self.tmp / "seen.txt"
+        env = {"CODEX_IMAGEGEN_SCRIPT": str(ci), "FAKE_CODEX": str(fake), "STARTS": str(starts), "SEEN": str(seen)}
+        ns = d.build_parser().parse_args(["deliver", "--design", str(img), "--copy", str(copy), "--judge",
+                                          "--brief=-20% on the 7 am loaf this week",   # a brief may start with "-"
+                                          "--out", str(self.tmp / "final")])
+        with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(io.StringIO()) as out, \
+                contextlib.redirect_stderr(io.StringIO()):
+            d.cmd_deliver(ns)
+        res = json.loads(out.getvalue())
+        self.assertTrue(res["ok"], res["failed"])
+        self.assertEqual(sorted(starts.read_text().split()), ["copy"] * 3 + ["design"] * 3)   # client level: 3 runs
+        self.assertEqual(seen.read_text().split(), ["6"] * 6)          # every session saw all six running at once
+        self.assertTrue((self.tmp / "final" / "post.png").exists())
+        with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            d.cmd_deliver(ns)                                           # unchanged: both verdicts are reused
+        self.assertEqual(len(starts.read_text().split()), 6)
+        (self.tmp / "post.copyjudge.json").unlink()
+        with mock.patch.dict(os.environ, dict(env, FAKE_FAIL="copy")), self.assertRaises(SystemExit) as cm, \
+                contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+            d.cmd_deliver(ns)                                           # a judge with no verdict stops it, with why
+        self.assertEqual(cm.exception.code, 2)
+        why = [f for f in json.loads(out.getvalue())["failed"] if f.startswith("copy judge gave no verdict")]
+        self.assertTrue(why and "usage limit" in why[0], why)
 
     def test_render_prints_a_summary_and_keeps_the_detail_in_the_report(self):
         p = self.tmp / "d.html"

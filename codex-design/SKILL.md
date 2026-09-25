@@ -42,8 +42,9 @@ A photo in a draft: one codex-imagegen `generate --no-judge` for the plate (abou
 while you write the HTML; wait for it to finish before you render (in a `claude -p` run, run it in the foreground). Never run `doctor`, read cli.md or open design.py unless a command fails.
 
 **Client work** (the client's final files, anything published under a client's name, or the user asks for the best
-or final version): add the gates below: the ledger, judged plates, the design judge (one run while iterating,
-`--runs 3` on the file you ship), copyjudge and `deliver`.
+or final version): add the gates below: the ledger, judged plates, the design judge (one run while iterating),
+copyjudge and `deliver`. The last step is one command, `deliver --judge --brief brief.md …`: it runs both final
+judges (3 runs each) at the same time, then every gate.
 
 ## 0. Preflight
 
@@ -75,7 +76,8 @@ or final version): add the gates below: the ledger, judged plates, the design ju
 - Run times: `render` and `pack` 1 to 2 s; `judge` about 50 s a run (up to 2.5 min); `copyjudge` about 40 s (60 to 110 s for long Bengali copy or lyrics);
   `--runs 3` about 100 s; `direct` 2 to 7 min. Start judge, copyjudge, pairwise and direct with Bash
   `run_in_background` and keep working (plates, HTML) while they run: a foreground call can hit the Bash tool's
-  2 minute limit.
+  2 minute limit. `deliver --judge` runs both final judges together (a short Bengali post: 43 s, where the two
+  took 43 s and 32 s); it is the last step, so run it in the foreground with a Bash timeout of 600000.
 - One run while iterating, three to confirm: judge a draft with one run, and the version you ship with `--runs 3`.
   The same file, brief and settings reuse the saved verdict at no cost.
 - The judges and `render` print a short summary. The whole report is in the file named by `report` (or `qa_json`),
@@ -91,8 +93,10 @@ or final version): add the gates below: the ledger, judged plates, the design ju
 5. HTML from `templates/patterns/post-photo.html`; `render --html design/post.html --preset ig-portrait --copy
    copy.json --out out/post.png --overlay` until the checks are clean.
 6. `judge --image out/post.png --brief brief.md --copy copy.json --brand brand/brand.json --kind "Instagram post"`,
-   fix, re-render, re-judge; `--runs 3` on the final file.
-7. `deliver --design out/post.png --copy copy.json --out final/ --ledger … --recipe recipe.json --client <client>`.
+   fix, re-render, re-judge.
+7. `deliver --judge --brief brief.md --kind "Instagram post" --design out/post.png --copy copy.json --brand
+   brand/brand.json --out final/ --ledger … --recipe recipe.json --client <client>`: the final design judge and copy
+   judge (3 runs each) at the same time, then the gates. When it stops, its `failed` lines carry the judges' fixes.
 
 **A Bengali carousel.** The same, with `--slides 5` on `render`, the judge on `out/<name>-strip.jpg` (it judges
 slide by slide), a varied anchor per slide, Bengali at 12 px or more at viewing size, and `alt_1` … `alt_5` in
@@ -175,8 +179,9 @@ copy.json. `deliver --design out/<name>-strip.jpg` ships the five slides.
     concept. A fix never changes approved copy, the logo or locked tokens. Every change to the file needs a new judge
     run (the verdict is tied to the file's hash).
 11. **Export and deliver.** `pack` renders every size; carousels use `--slides N` (LinkedIn gets the slides as a
-    PDF); print is a `.pdf` with bleed; `sheet` makes the review sheet. Then `deliver` (level `client` by default):
-    it refuses anything whose render report, judge verdict or copy judge does not match the current files, copies the
+    PDF); print is a `.pdf` with bleed; `sheet` makes the review sheet. Then `deliver --judge --brief brief.md` (level
+    `client` by default): it runs the final judges at the same time (a verdict that already matches is reused), then
+    refuses anything whose render report, judge verdict or copy judge does not match the current files, copies the
     finals and the font licences into the delivery folder (an older file there moves to `archive-<time>/`), adds the
     design to the ledger, and writes `DELIVERY.md` with the checks, caption, alt text and notes. Tell the client which
     images are AI, what their real photos will replace, and the AI-label decision.

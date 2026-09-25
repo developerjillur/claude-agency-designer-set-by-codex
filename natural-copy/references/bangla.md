@@ -98,6 +98,7 @@ The test from `SKILL.md` holds: could a reader check, taste or count it? "মন
 | "Welcome to the world of X" | খাবারের জগতে স্বাগতম (ফুডপ্যান্ডায় স্বাগতম is fine) | note |
 | Essay importance | অপরিহার্য অংশ, গুরুত্বপূর্ণ ভূমিকা পালন করে | note |
 | English order "make X more Y" | ...কে করে তুলুন আরও সুন্দর | note |
+| English price order, the price before প্রতি and its unit | ৮৫০ টাকা প্রতি কেজি (say প্রতি কেজি ৮৫০ টাকা, or কেজি ৮৫০ টাকা) | warning |
 | "In every bite, sip, drop" | প্রতিটি কামড়ে, চুমুকে, ফোঁটায় | note |
 | "Next level", "unlock a world of" | নিয়ে যান নেক্সট লেভেলে; আনলক করুন... দুনিয়া | note (Robi writes them, so never a warning) |
 | Coaching cliches | স্বপ্নকে বাস্তবে রূপ দিন, সাফল্যের চাবিকাঠি | note |
@@ -232,7 +233,8 @@ Robotic (poetic, translated, bookish, sadhu, forced casual, Banglish):
 ## 12. What the lint checks for Bangla
 
 `copylint --locale BD` runs, on any line with Bengali in it: formal and bookish words (`bn-formal`), sadhu forms and
-notice passives (`bn-pattern`), calques (`bn-calque`), West Bengal words (`bn-locale`), repeated আপনি, mixed
+notice passives and a price written before প্রতি and its unit (`bn-pattern`), scarcity or a deadline without
+its date or count (`bn-urgency`), calques (`bn-calque`), West Bengal words (`bn-locale`), repeated আপনি, mixed
 address forms, Latin words in Bengali, the stacked-praise rule (`bn-poetic`), slang piles (`bn-slang-pile`), stacked
 reactions and particles, এবং with no ও or আর (`bn-ebong`), repeated এটি, essay scaffolding, উপভোগ করুন as the call to
 action or twice in a piece, English Gen Z slang, Banglish, and the 92 research rules for Bangla in

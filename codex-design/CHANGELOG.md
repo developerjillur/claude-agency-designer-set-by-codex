@@ -4,6 +4,25 @@ The version is `SKILL_VERSION` in `scripts/design.py`; `doctor` reports it. Afte
 `python3 -m unittest discover -s ~/.claude/skills/codex-design/tests`, and render the pattern library (every pattern
 on its presets must stay free of errors and warnings; `templates/README.md` lists them).
 
+## 2026.09.25.1 · the client final in one command
+
+- **`deliver --judge --brief B`** runs the design judge on every design and the copy judge on the copy at the same
+  time, then every gate. Before, a client final was two long Codex runs in two model turns and then `deliver`. Live
+  on a short Bengali post, both judges with 3 runs each took 43 s together (the two took 43 s and 32 s). A verdict
+  that already matches its file, brief and settings is reused; a design whose render failed and copy with lint
+  errors are not sent (the gates stop them, and a judge run costs plan quota); a judge that gives no verdict (a
+  usage limit, a timeout) stops the delivery with Codex's reason. The test holds six fake sessions until all have
+  started, so judges run one after the other fail it.
+- **A failed gate brings the fixes:** the design judge's first three fixes and the copy judge's first three notes are
+  in `deliver`'s `failed` lines, so no second call has to open the reports.
+- **Alt text is judged on its words.** The copy judge cannot see the picture, and in all three runs it called the
+  alt text's "yellow background" an invented claim. The prompt now says an alt text's colours, objects and layout
+  describe the picture.
+- **A price before প্রতি and its unit** is a Bengali warning now (`bn-pattern`): "৮৫০ টাকা প্রতি কেজি" is English
+  word order, and the copy judge named it in all three runs of that post; shops say প্রতি কেজি ৮৫০ টাকা or কেজি
+  ৮৫০ টাকা. The calibration lines stay clean (0 of 287 natural lines flagged).
+- **Tests:** 128 offline tests.
+
 ## 2026.09.24.6 · a fast path for everyday work
 
 Measured with headless Claude Code runs of two everyday tasks (a Bangla Facebook caption, an Instagram post):

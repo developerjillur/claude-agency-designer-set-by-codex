@@ -17,7 +17,8 @@ with the Codex CLI on a ChatGPT plan, and watch, transcribe and check videos wit
 Every skill opens with a fast path for drafts (a caption, a post, a placeholder image, a quick look at a video): a
 few tool calls, offline checks only, no judges. Client finals take each skill's client level: the independent judges,
 `--runs 3` and the delivery gate. Measured on two everyday tasks: a Bangla caption in 15 s and an Instagram post in
-39 s, down from 202 s and 447 s.
+39 s, down from 202 s and 447 s. A design's final check is one command, `deliver --judge`, which runs the design judge
+and the copy judge at the same time before the gates (43 s for a Bengali post, 3 runs each).
 
 At a low effort setting Claude Code may not load a skill unless told to. A few lines in your global `CLAUDE.md` fix
 that:

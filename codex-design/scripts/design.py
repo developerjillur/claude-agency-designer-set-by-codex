@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # no __pycache__ inside the skill folder
 import copyrules  # noqa: E402  (copy that reads human: references/copy.md)
 
-SKILL_VERSION = "2026.09.24.6"
+SKILL_VERSION = "2026.09.25.1"
 SKILL_DIR = Path(__file__).resolve().parent.parent
 PRESETS_FILE = SKILL_DIR / "scripts" / "presets.json"
 
@@ -6104,7 +6104,9 @@ An automatic lint already found: {lint}
 Judge only how the words land with that reader:
 - First, fidelity: every fact, number, name, feeling and experience in the copy must come from the brief. A line
   that invents one (a customer, a quote, "we tasted it at dawn", a result) is a defect however human it sounds;
-  score specificity and no_ai_tells 1 or lower for it and say so in the string's problem.
+  score specificity and no_ai_tells 1 or lower for it and say so in the string's problem. Alt text (role alt, alt_1
+  and on) describes the picture, which you do not see: its colours, objects and layout are not invented facts, so
+  judge only its words there (plain, short, everyday, no "image of").
 - naturalness: the friend test. Would someone from this audience say it this way to a friend, or to a shopkeeper
   they like, on social media today? Score it down for anything else: translated, robotic, bookish or textbook,
   poetic, flowery or literary, old-fashioned, government or notice-like, corporate, and forced casual (a pile of
@@ -6749,15 +6751,69 @@ def deck_hash(strings: list) -> str:
                                      ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
+def run_judges(args, designs: list) -> list:
+    """deliver --judge: the design judge on each design and the copy judge on the copy, all at the same time, before
+    the gates. Run one after the other they took two model turns and 1.5 to 4 minutes; together they take as long as
+    the slowest. A report that already matches its file, brief and settings is reused (no Codex session). A design
+    whose render failed and copy that fails the lint are not sent: the gates stop them anyway, and a judge run costs
+    plan quota. -> one line for each judge that gave no verdict"""
+    import concurrent.futures as cf
+    runs = str(args.runs or (3 if args.level == "client" else 1))
+    waves = -(-int(runs) // 3)  # a judge runs up to 3 sessions at a time
+    me = [sys.executable, str(Path(__file__).resolve())]
+
+    def given(flags: tuple) -> list:  # --flag=value: a brief that starts with "-" ("-20% this week") stays a value
+        return [f"--{f}={getattr(args, f)}" for f in flags if getattr(args, f, None)]
+
+    jobs = []
+    for img in designs:
+        qp = qa_for(img)
+        q = json.loads(qp.read_text(encoding="utf-8")) if img.exists() and qp.exists() else {}
+        made = {o.get("sha256") for o in (q.get("source") or {}).get("outputs") or []}
+        if not q or (q.get("checks") or {}).get("errors") or file_sha256(img) not in made:
+            continue  # the render gate stops it below, with the reason
+        cmd = me + ["judge", f"--image={img}"] + given(("brief", "kind", "copy", "brand", "allow")) + \
+            [f"--runs={runs}"]
+        jobs.append((f"design judge ({img.name})", cmd, waves * child_budget(240)))
+    if args.copy or args.caption:
+        strings = _copy_strings(args)
+        meta = copy_meta(args.copy) if args.copy else {}
+        lint = copyrules.lint_deck(strings, norm_locale(args.locale or meta.get("locale")),
+                                   check_platform(args.platform or meta.get("platform") or ""), _brand_voice(args))
+        if not lint["errors"]:  # else the lint gate stops it below
+            cmd = me + ["copyjudge"] + given(("brief", "copy", "caption", "locale", "platform", "brand", "goal")) + \
+                [f"--runs={runs}"]
+            jobs.append(("copy judge", cmd, waves * child_budget(150)))
+    if not jobs:
+        return []
+    log(f"judging at the same time: {', '.join(j[0] for j in jobs)} ({runs} run{'s' * (runs != '1')} each)")
+    t0 = time.time()
+    with cf.ThreadPoolExecutor(max_workers=len(jobs)) as ex:
+        results = list(ex.map(lambda j: run_session(j[1], None, j[2]), jobs))
+    problems = []
+    for (who, _, _), r in zip(jobs, results):
+        if r["error"] or r["returncode"]:
+            said = [x for x in (r["stderr"] or "").splitlines() if x.strip() and not x.startswith("[codex-design ")]
+            why = r["error"] or (said[-1].removeprefix("codex-design: ") if said else f"exit {r['returncode']}")
+            problems.append(f"{who} gave no verdict: {one_line(why, 240)}")
+    log(f"judged in {time.time() - t0:.0f} s")
+    return problems
+
+
 def cmd_deliver(args) -> None:
     """The last gate before a client sees anything. Every design must have a render report with no errors that
     matches the file, a design-judge PASS on that exact file, and copy that passes the lint and the copy judge
     (PASS_NATIVE at --level client). Only then are the files copied into --out with DELIVERY.md (checks, caption,
-    alt text, notes) and delivery.json; a file already there is moved to archive-<time>/, never overwritten."""
+    alt text, notes) and delivery.json; a file already there is moved to archive-<time>/, never overwritten.
+    --judge runs the judges first, all at once."""
     if not args.out and not args.dry_run:
         die("give --out (the delivery folder), or --dry-run to only run the gates")
     level = args.level
     fails, warns, rows, files, notes = [], [], [], [], []
+    if getattr(args, "judge", False):
+        if not args.brief:
+            die("--judge needs --brief (a file or the text): the judges check the work against it")
+        fails += run_judges(args, [Path(d).expanduser() for d in args.design])
     generated = False
     designs = [Path(d).expanduser() for d in args.design]
     for img in designs:
@@ -6795,7 +6851,9 @@ def cmd_deliver(args) -> None:
             elif j["image_sha256"] != h:
                 fails.append(f"{img.name}: the judge saw an earlier version of this file; judge it again")
             if j.get("verdict") not in ("PASS", "PASS_SENIOR"):
-                fails.append(f"{img.name}: the design judge says {j.get('verdict')} {j.get('weighted')}")
+                fix = "; ".join((j.get("fixes") or [])[:3])  # what to change, so no second call reads the report
+                fails.append(f"{img.name}: the design judge says {j.get('verdict')} {j.get('weighted')}" +
+                             (f"; its fixes: {fix}" if fix else ""))
             if level == "client" and len(j.get("runs") or [0]) < 3:
                 n_runs = len(j.get("runs") or [0])
                 warns.append(f"{img.name}: judged in {n_runs} run{'s' * (n_runs != 1)}; client work uses judge --runs 3 "
@@ -6834,8 +6892,10 @@ def cmd_deliver(args) -> None:
             elif d["deck_sha256"] != deck_hash(strings):
                 fails.append("the copy changed after the copy judge ran; run copyjudge again")
             if d.get("verdict") not in need:
+                probs = [f"{x.get('role') or 'text'}: {x['problem']}" for x in d.get("strings") or []
+                         if x.get("problem")][:3]
                 fails.append(f"the copy judge says {d.get('verdict')} {d.get('weighted')}; {level} work needs "
-                             f"{' or '.join(need)}")
+                             f"{' or '.join(need)}" + (f"; its notes: {' | '.join(probs)}" if probs else ""))
         alt = [s["text"] for s in strings if re.match(r"alt", s.get("role") or "", re.I)]
         if not alt:
             warns.append("no alt text in copy.json (role alt): screen readers get nothing; write one line per image")
@@ -7295,6 +7355,14 @@ def build_parser() -> argparse.ArgumentParser:
     dv.add_argument("--brand", help="brand.json: its voice words for the lint")
     dv.add_argument("--level", default="client", choices=["client", "draft"],
                     help="client (default): copy must be PASS_NATIVE; draft: PASS is enough")
+    dv.add_argument("--judge", action="store_true", help="run the design judge on every design and the copy judge "
+                                                         "first, all at the same time (a report that already matches "
+                                                         "is reused); needs --brief")
+    dv.add_argument("--brief", help="with --judge: the brief (a file, or its text)")
+    dv.add_argument("--kind", default="social post", help="with --judge: what the design is (default: social post)")
+    dv.add_argument("--allow", help="with --judge: the logo's wordmark or fixed marks, comma separated")
+    dv.add_argument("--goal", help="with --judge: what the copy should make the reader do")
+    dv.add_argument("--runs", type=int, help="with --judge: runs per judge (default 3 at client level, 1 at draft)")
     dv.add_argument("--facts", help="facts.json: [{\"claim\", \"status\": verified | client_supplied | unverified | "
                                     "refuted | needs_client}]; refuted or needs_client stops the delivery")
     dv.add_argument("--ledger", help="add the delivered design to this ledger (needs --recipe, --client)")
