@@ -1016,7 +1016,8 @@ class Pipeline(unittest.TestCase):
         repo = SCRIPTS.parent.parent
         for module in ("gemini_api.py", "elevenlabs_api.py"):
             copies = [p for p in (repo / "nexa-speech" / "scripts" / module,
-                                  repo / "nexa-sound" / "scripts" / module) if p.exists()]
+                                  repo / "nexa-sound" / "scripts" / module,
+                                  repo / "agy-watch-video" / "scripts" / module) if p.exists()]
             mine = (SCRIPTS / module).read_bytes()
             for p in copies:
                 self.assertEqual(p.read_bytes(), mine, "%s differs from nexa-video-creator's copy" % p)

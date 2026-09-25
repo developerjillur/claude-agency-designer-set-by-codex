@@ -15,6 +15,7 @@ How agy delivers media (measured 2026-09-24, agy 1.2.10, see references/engine.m
 from __future__ import annotations
 
 import argparse
+import base64
 import concurrent.futures as cf
 import hashlib
 import json
@@ -30,7 +31,7 @@ import time
 import unicodedata
 from pathlib import Path
 
-SKILL_VERSION = "2026.09.25.3"
+SKILL_VERSION = "2026.09.26.1"
 CACHE_VERSION = "2026.09.24.4"   # keys the cache: bump it only when what a pass or a measurement returns changes
 SKILL_DIR = Path(__file__).resolve().parent.parent
 CACHE = Path(os.environ.get("AGY_WATCH_CACHE") or (Path.home() / ".cache" / "agy-watch-video"))
@@ -1411,8 +1412,272 @@ def call_timeout(name: str, media: list) -> float:
     return 420 if media else 240
 
 
+
+# ------------------------------------------------------------------------------------------------ engines
+
+# Model calls go through the Antigravity CLI (agy) by default. With `--engine auto` (the default), a call that agy
+# cannot make (agy missing or signed out, the account not eligible, its quota used up, or any failed run) is made
+# through the Gemini API instead, with the key the nexa skills use (GEMINI_API_KEY in the environment or the macOS
+# keychain): the same prompts, the same media and the same answers. An account-level failure switches the rest of
+# the run to the API. `--engine api` uses the API from the first call; `--engine agy` never leaves agy.
+ENGINES = ("auto", "agy", "api")
+ENGINE = {"mode": (os.environ.get("AWV_ENGINE") or "auto").lower(), "switched": None}
+# the API models behind agy's names (the suffix is the thinking level)
+API_MODELS = {"gemini-3.1-pro": "gemini-3.1-pro-preview", "gemini-3.8-flash": "gemini-3.8-flash",
+              "gemini-3.7-flash": "gemini-3.7-flash"}
+API_TRANSCRIBE_MODEL = os.environ.get("AWV_TRANSCRIBE_MODEL", "gemini-3.5-transcribe")
+AGY_UNAVAILABLE = re.compile(r"not eligible|verify your account|sign ?in|log ?in|unauthenticated|unauthori[sz]ed|"
+                             r"permission denied|quota|RESOURCE_EXHAUSTED|\b429\b|agy is missing", re.I)
+API_INLINE_LIMIT = 14 * 1024 * 1024   # raw bytes inline in one request (base64 adds a third; the limit is 20 MB)
+IMAGE_MIME = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+_GAPI: list = []
+
+
+def gemini():
+    """The shared Gemini API module (scripts/gemini_api.py, byte for byte the nexa skills' copy)."""
+    if not _GAPI:
+        here = str(Path(__file__).resolve().parent)
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import gemini_api  # noqa: E402
+        _GAPI.append(gemini_api)
+    return _GAPI[0]
+
+
+def api_ready() -> bool:
+    """A Gemini API key is available (its value is never read out, only whether there is one)."""
+    try:
+        return bool(gemini().keys())
+    except Exception:  # noqa: BLE001 (an unreadable keychain means no key)
+        return False
+
+
+def api_model(model: str) -> tuple:
+    """(API model id, thinking level) for an agy model name such as gemini-3.8-flash-high."""
+    m = re.match(r"^(gemini-[\d.]+-(?:pro|flash(?:-lite)?))(?:-(minimal|low|medium|high))?$", model or "")
+    if not m:
+        return model, None
+    return API_MODELS.get(m.group(1), m.group(1)), m.group(2)
+
+
+def api_prompt(prompt: str, media: list) -> tuple:
+    """The prompt for the API: every media path becomes a label ([file 3: f_00012500.jpg]) and the agent's tool
+    wording becomes plain attachment wording. Returns (text, labels in media order)."""
+    labels = []
+    for i, m in enumerate(media):
+        label = f"[file {i + 1}: {Path(m).name}]"
+        labels.append(label)
+        prompt = prompt.replace(str(m), label)
+    prompt = prompt.replace("Call view_file on every one of these files, all of them in a single step (parallel calls), "
+                            "before you answer:", "Look at every one of these attached files before you answer:")
+    prompt = re.sub(r"Call view_file on ", "Look at ", prompt)
+    prompt = re.sub(r"\n\nUse no tool except view_file[^\n]*", "", prompt)
+    if media:
+        prompt += "\n\nThe files are attached after this text, in the order listed, each right after its label."
+    return prompt, labels
+
+
+def api_upload(g, path: Path, mime: str, wait_s: float = 900) -> dict:
+    """Upload through the Files API and wait until the file can be used (videos take a while to process)."""
+    try:
+        return g.upload_file(str(path), mime)
+    except g.GeminiError as e:
+        if e.kind != "timeout":
+            raise
+    # still processing after two minutes: keep asking, up to wait_s
+    t_end = time.time() + wait_s
+    files, _ = g.request("GET", "/v1beta/files?pageSize=100", timeout=60)
+    res = next((f for f in files.get("files") or [] if f.get("displayName") == path.name), None)
+    while res and res.get("state") == "PROCESSING" and time.time() < t_end:
+        time.sleep(5)
+        res, _ = g.request("GET", f"/v1beta/{res['name']}", timeout=60)
+    if not res or res.get("state") != "ACTIVE":
+        raise g.GeminiError("timeout", f"{path.name} was not ready on the Files API in time")
+    return res
+
+
+def api_parts(g, text: str, labels: list, media: list) -> tuple:
+    """The request parts: the prompt, then each file after its label. Images go inline; audio goes inline while the
+    request stays small; videos and anything past the inline budget go through the Files API. Returns (parts, uploaded
+    file names to delete afterwards)."""
+    parts, uploaded, inline = [{"text": text}], [], 0
+    for label, m in zip(labels, media):
+        path = Path(m)
+        mime = IMAGE_MIME.get(path.suffix.lower()) or g.mime_for(str(path))
+        size = path.stat().st_size
+        parts.append({"text": label})
+        if not mime.startswith("video/") and inline + size <= API_INLINE_LIMIT:
+            inline += size
+            parts.append({"inlineData": {"mimeType": mime, "data": base64.b64encode(path.read_bytes()).decode("ascii")}})
+        else:
+            res = api_upload(g, path, mime)
+            uploaded.append(res.get("name"))
+            parts.append({"fileData": {"mimeType": mime, "fileUri": res.get("uri")}})
+    return parts, uploaded
+
+
+def api_call(v: Video | None, name: str, prompt: str, schema: dict | None, model: str, media: list,
+             timeout: float | None = None, fresh: bool = False) -> dict:
+    """One call through the Gemini API with the same prompt, media and schema as the agy call, and the same answer
+    shape: {"ok", "data", "model", "seconds", "usage", "cache", "error"}. Pro falls back to Flash like on agy; a daily
+    quota, billing or key problem stops at once (another model draws on the same project)."""
+    g = gemini()
+    timeout = timeout or call_timeout(name, media)
+    fps = [(Path(m).name, Path(m).stat().st_size) for m in media]
+    key = key_of(CACHE_VERSION, "api", name, model, prompt, schema, fps)
+    cache_file = (v.dir if v else CACHE / "misc") / "passes" / f"{name}-api-{key}.json"
+    if not fresh:
+        hit = read_json(cache_file)
+        if hit and hit.get("ok"):
+            hit["cache"] = True
+            USAGE.add({"pass": name, "model": hit.get("model"), "cache": True})
+            return hit
+    text, labels = api_prompt(prompt, media)
+    queue = [model] + ([FALLBACK[model]] if FALLBACK.get(model) and FALLBACK[model] != model else [])
+    uploaded: list = []
+    last_err = None
+    try:
+        parts, uploaded = api_parts(g, text, labels, media)
+        images_only = bool(media) and all(Path(m).suffix.lower() in IMAGE_MIME for m in media)
+        for m in queue:
+            api_id, level = api_model(m)
+            # the full request first, then without the optional settings a model may not take, then with the schema
+            # asked for in words (older models reject responseJsonSchema)
+            for attempt in range(3):
+                cfg: dict = {}
+                body_parts = parts
+                if schema and attempt < 2:
+                    cfg["responseMimeType"] = "application/json"
+                    cfg["responseJsonSchema"] = schema
+                elif schema:
+                    body_parts = [{"text": parts[0]["text"] + "\n\nReply with only a JSON object that follows this JSON "
+                                   "schema:\n" + json.dumps(schema)}] + parts[1:]
+                if attempt == 0 and level:
+                    cfg["thinkingConfig"] = {"thinkingLevel": level}
+                if attempt == 0 and images_only:
+                    cfg["mediaResolution"] = "MEDIA_RESOLUTION_HIGH"
+                body = {"contents": [{"role": "user", "parts": body_parts}], "generationConfig": cfg}
+                t0 = time.time()
+                try:
+                    resp, info = g.request("POST", f"/v1beta/models/{api_id}:generateContent", body, timeout=int(timeout))
+                except g.GeminiError as e:
+                    last_err = f"Gemini API {e.kind}: {e}"
+                    if e.kind == "bad_request" and attempt < 2:
+                        continue
+                    break
+                wall = round(time.time() - t0, 1)
+                um = g.usage(resp)
+                USAGE.add({"pass": name, "model": api_id, "engine": "api", "seconds": wall, "wall": wall,
+                           "input_tokens": um.get("promptTokenCount"),
+                           "output_tokens": (um.get("candidatesTokenCount") or 0) + (um.get("thoughtsTokenCount") or 0),
+                           "cache_read_tokens": um.get("cachedContentTokenCount")})
+                out = "".join(g.text_parts(resp))
+                data = json_from_text(out) if schema else (json_from_text(out) if out.strip().startswith(("{", "```")) else out)
+                if schema and not isinstance(data, dict):
+                    last_err = f"{api_id} did not return the requested JSON ({g.status(resp).get('finish_reason')})"
+                    break
+                log(f"{name}: done with {api_id} (Gemini API) in {wall:.0f}s")
+                res = {"ok": True, "data": data, "model": f"{api_id} (api)", "engine": "api", "seconds": wall,
+                       "wall": wall, "usage": um, "cache": False, "media": [str(x) for x in media]}
+                write_json(cache_file, res)
+                return res
+            if last_err and re.search(r"quota_day|billing|auth|no_key", last_err):
+                break
+    except Exception as e:  # noqa: BLE001 (an upload or a network failure is this call's error, not the run's)
+        last_err = f"Gemini API: {g.scrub(str(e))}"
+    finally:
+        for fname in uploaded:
+            if fname:
+                g.delete_file(fname)
+    log(f"{name}: {last_err}")
+    return {"ok": False, "error": last_err or "Gemini API failed", "model": model, "engine": "api", "cache": False}
+
+
 def agy_call(v: Video | None, name: str, prompt: str, schema: dict | None, model: str, media: list,
              timeout: float | None = None, fresh: bool = False, extra_dirs: list | None = None) -> dict:
+    """Every model call of the skill: agy (agy_engine_call) or the Gemini API (api_call), by ENGINE."""
+    mode = ENGINE["mode"]
+    if mode == "api" or (mode == "auto" and ENGINE["switched"]):
+        return api_call(v, name, prompt, schema, model, media, timeout, fresh)
+    try:
+        res = agy_engine_call(v, name, prompt, schema, model, media, timeout, fresh, extra_dirs)
+    except WatchError as e:
+        res = {"ok": False, "error": str(e), "model": model, "cache": False}
+    if res.get("ok") or mode != "auto" or not api_ready():
+        return res
+    err = str(res.get("error") or "agy failed")
+    if AGY_UNAVAILABLE.search(err):
+        ENGINE["switched"] = err[:200]
+        log(f"agy is unavailable ({err[:140]}); the rest of this run uses the Gemini API")
+    else:
+        log(f"{name}: agy failed ({err[:140]}); trying the Gemini API")
+    api = api_call(v, name, prompt, schema, model, media, timeout, fresh)
+    if api.get("ok"):
+        return dict(api, engine_note=f"agy: {err[:200]}")
+    return dict(res, error=f"{err}; then {api.get('error')}")
+
+
+def words_to_segments(words: list, gap: float = 0.8) -> list:
+    """Word timings grouped into sentences: a segment ends after sentence punctuation (. ! ? । ॥ …) or before a pause
+    of `gap` seconds."""
+    segs, cur = [], []
+
+    def close():
+        if cur:
+            segs.append({"start": round(cur[0]["start"], 2), "end": round(cur[-1]["end"], 2),
+                         "text": " ".join(w["text"] for w in cur), "speaker": cur[0].get("speaker"),
+                         "words": [dict(w) for w in cur]})
+    for i, w in enumerate(words):
+        if w.get("start") is None or w.get("end") is None or not str(w.get("text") or "").strip():
+            continue
+        w = {"text": str(w["text"]).strip(), "start": float(w["start"]), "end": float(w["end"]), "speaker": w.get("speaker")}
+        if cur and w["start"] - cur[-1]["end"] >= gap:
+            close()
+            cur = []
+        cur.append(w)
+        if re.search(r"[.!?।॥…]['\"”’)]*$", w["text"]):
+            close()
+            cur = []
+    close()
+    return segs
+
+
+def api_transcribe_words(v: Video, lang: str | None, fresh: bool) -> dict:
+    """The transcript from Gemini's transcription model (gemini-3.5-transcribe) through the API: verbatim words with
+    their own times, grouped into sentences. The best choice to check what a voice really says (a mispronounced word
+    comes back as heard)."""
+    g = gemini()
+    wav = extract_audio(v)
+    if not wav:
+        return {"ok": False, "error": "no audio stream"}
+    key = key_of(CACHE_VERSION, "words", API_TRANSCRIBE_MODEL, lang, Path(wav).stat().st_size)
+    cache_file = v.dir / "passes" / f"words-{key}.json"
+    if not fresh:
+        hit = read_json(cache_file)
+        if hit and hit.get("ok"):
+            return dict(hit, cache=True)
+    codes = [lang] if lang else None
+    t0 = time.time()
+    try:
+        try:
+            r = g.transcribe(str(wav), language_codes=codes, words=True, mode="verbatim", model=API_TRANSCRIBE_MODEL)
+        except g.GeminiError as e:
+            if e.kind != "bad_request" or not codes:
+                raise
+            r = g.transcribe(str(wav), language_codes=None, words=True, mode="verbatim", model=API_TRANSCRIBE_MODEL)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"Gemini transcription: {g.scrub(str(e))}"}
+    words = [w for w in r.get("words") or [] if w.get("start") is not None]
+    segs = words_to_segments(words)
+    USAGE.add({"pass": "words", "model": API_TRANSCRIBE_MODEL, "engine": "api", "seconds": round(time.time() - t0, 1)})
+    res = {"ok": True, "model": f"{API_TRANSCRIBE_MODEL} (api)", "cache": False,
+           "data": {"language": lang, "transcript": segs, "words": words, "text": r.get("text")}}
+    write_json(cache_file, res)
+    return res
+
+
+def agy_engine_call(v: Video | None, name: str, prompt: str, schema: dict | None, model: str, media: list,
+                    timeout: float | None = None, fresh: bool = False, extra_dirs: list | None = None) -> dict:
     """One headless Antigravity run. The media are hardlinked into a fresh staging folder, which is the only folder
     agy may read (--add-dir): the rest of the cache (the source path, older frames and passes) stays out of reach even
     if text in the video tells the agent to look around. The prompt's paths are rewritten to the staged copies.
@@ -3429,13 +3694,18 @@ def cmd_transcribe(args) -> None:
         die("no audio stream in this file")
     plan = {"window": (0.0, pr.get("duration") or 0), "duration": pr.get("duration") or 0,
             "audio_model": args.model or MODELS["fast"]}
-    res = pass_audio(v, plan, args.lang, args.fresh)
+    if args.words:
+        if not api_ready():
+            die("--words needs a Gemini API key: GEMINI_API_KEY in the environment or the macOS keychain")
+        res = api_transcribe_words(v, args.lang, args.fresh)
+    else:
+        res = pass_audio(v, plan, args.lang, args.fresh)
     if not res.get("ok"):
         die(f"transcription failed: {res.get('error')}")
     data = res["data"]
     out_dir = Path(args.out).expanduser() if args.out else v.dir / "reports"
     out_dir.mkdir(parents=True, exist_ok=True)
-    stem = out_dir / f"transcript-{key_of(args.lang, args.model)}"
+    stem = out_dir / f"transcript-{key_of(args.lang, args.model, 'words' if args.words else '')}"
     segs = data.get("transcript") or []
     for i, s in enumerate(segs):
         nxt = segs[i + 1].get("start") if i + 1 < len(segs) else None
@@ -3457,7 +3727,8 @@ def cmd_transcribe(args) -> None:
         for c in cues))
     emit({"ok": True, "language": data.get("language"), "segments": len(segs), "json": str(stem.with_suffix(".json")),
           "txt": str(stem.with_suffix(".txt")), "srt": str(stem.with_suffix(".srt")), "vtt": str(stem.with_suffix(".vtt")),
-          "preview": [f"{fmt_ts(s.get('start'))} {s.get('text')}" for s in segs[:12]], "cost": USAGE.total()})
+          "preview": [f"{fmt_ts(s.get('start'))} {s.get('text')}" for s in segs[:12]], "model": res.get("model"),
+          "words": len(data.get("words") or []) or None, "cost": USAGE.total()})
 
 
 def srt_cues(segs: list, max_chars: int = 42, max_lines: int = 2, min_dur: float = 5 / 6, max_dur: float = 7.0) -> list:
@@ -3750,8 +4021,14 @@ def cmd_doctor(args) -> None:
     rep["labelled_sheets"] = "ok (Pillow)" if venv_python() else "plain (run doctor --setup for time labels)"
     rep["yt_dlp"] = shutil.which("yt-dlp") or "missing (only needed for `fetch URL`)"
     missing_models = [m for m, ok_ in ((x["model"], x["available"]) for x in (rep.get("models_used") or {}).values()) if not ok_]
-    ready = bool(tool("ffmpeg") and tool("ffprobe") and agy and rep.get("agy_signed_in")
-                 and not rep.get("ffmpeg_filters_missing") and not missing_models)
+    rep["gemini_api"] = api_doctor()
+    agy_ok = bool(agy and rep.get("agy_signed_in") and not missing_models)
+    api_ok = bool(rep["gemini_api"].get("ok"))
+    mode = ENGINE["mode"]
+    rep["engine"] = {"mode": mode, "in_use": ("agy" if mode != "api" and agy_ok else "api" if mode != "agy" and api_ok else None),
+                     "fallback": "Gemini API" if mode == "auto" and api_ok else None}
+    ready = bool(tool("ffmpeg") and tool("ffprobe") and not rep.get("ffmpeg_filters_missing")
+                 and ((mode == "agy" and agy_ok) or (mode == "api" and api_ok) or (mode == "auto" and (agy_ok or api_ok))))
     rep["ready"] = ready
     if missing_models:
         rep["models_missing"] = missing_models
@@ -3760,6 +4037,28 @@ def cmd_doctor(args) -> None:
     emit(rep)
     if not ready:
         sys.exit(1)
+
+
+def api_doctor() -> dict:
+    """The Gemini API engine: where the key comes from (never the key) and whether the models this skill maps to exist."""
+    try:
+        g = gemini()
+        sources = g.key_sources()
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e)}
+    if not sources:
+        return {"ok": False, "key": None,
+                "note": "no key: GEMINI_API_KEY in the environment or the macOS keychain (only needed when agy fails)"}
+    rep = {"key": sources[0], "keys": len(sources)}
+    try:
+        names = set(g.list_models(timeout=30))
+        want = sorted({api_model(m)[0] for m in list(MODELS.values()) + list(FALLBACK.values())} | {API_TRANSCRIBE_MODEL})
+        rep["models"] = {m: m in names for m in want}
+        rep["ok"] = all(rep["models"].get(api_model(m)[0]) for m in MODELS.values())
+    except Exception as e:  # noqa: BLE001
+        rep["ok"] = False
+        rep["error"] = g.scrub(str(e))
+    return rep
 
 
 def smoke_test() -> dict:
@@ -4127,6 +4426,8 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--model")
     t.add_argument("--out")
     t.add_argument("--fresh", action="store_true")
+    t.add_argument("--words", action="store_true", help="verbatim words with their own times from Gemini's transcription "
+                                                        "model through the API (needs the API key)")
 
     f = sub.add_parser("frames", help="sharp frames, zoom crops and a labelled contact sheet")
     f.add_argument("video")
@@ -4169,11 +4470,16 @@ def build_parser() -> argparse.ArgumentParser:
     ca = sub.add_parser("cache", help="list the cache, or --clear VIDEO (or a cache id from the list)")
     ca.add_argument("--clear")
     ca.add_argument("--older-than", type=float, metavar="DAYS", help="delete the cache of videos not used for DAYS days")
+    for sp in (d, w, a, vf, t, st):
+        sp.add_argument("--engine", choices=ENGINES, help="auto (default: agy, then the Gemini API when agy cannot), "
+                                                          "agy only, or the Gemini API only (env AWV_ENGINE)")
     return p
 
 
 def main(argv=None) -> None:
     args = build_parser().parse_args(argv)
+    if getattr(args, "engine", None):
+        ENGINE["mode"] = args.engine
     handlers = {"doctor": cmd_doctor, "watch": cmd_watch, "ask": cmd_ask, "verify": cmd_verify, "transcribe": cmd_transcribe,
                 "frames": cmd_frames, "qa": cmd_qa, "compare": cmd_compare, "probe": cmd_probe, "usage": cmd_usage,
                 "fetch": cmd_fetch, "cache": cmd_cache, "selftest": cmd_selftest}

@@ -1,13 +1,14 @@
 ---
 name: agy-watch-video
-description: Gives Claude eyes and ears for video. Watches, analyses, debugs and answers questions about any video or audio file through Gemini models in the logged-in Google Antigravity CLI (agy, no API key) combined with ffmpeg: summaries, shot lists, frame-by-frame reports at full resolution, timestamped transcripts and subtitles in any language (Bengali included), on-screen text, people and object tracking, zoomed answers about small details, measured QA (cuts, black and frozen frames, flicker, blur, loudness, platform specs and safe zones) and before/after comparisons. Use automatically whenever the user shares, names or asks about a video, reel, short, ad, promo, screen recording, bug recording, tutorial, lecture, drone or camera footage, AI-generated clip, motion-graphics or HyperFrames/Remotion render, or an audio recording ("what happens in this video", "check this reel", "transcribe", "why does my app break at 0:12", "is this clip usable", "compare v1 and v2"). Also the video judge for the codex-design, codex-imagegen and natural-copy skills.
+description: Gives Claude eyes and ears for video. Watches, analyses, debugs and answers questions about any video or audio file through Gemini (the Antigravity CLI, or the Gemini API key when agy cannot) and ffmpeg: summaries, shot lists, frame-by-frame reports at full resolution, timestamped transcripts and subtitles in any language (Bengali included), on-screen text, people and object tracking, zoomed answers about small details, measured QA (cuts, black and frozen frames, flicker, blur, loudness, platform specs and safe zones) and before/after comparisons. Use automatically whenever the user shares, names or asks about a video, reel, short, ad, promo, screen recording, bug recording, tutorial, lecture, drone or camera footage, AI-generated clip, motion-graphics or HyperFrames/Remotion render, or an audio recording ("what happens in this video", "check this reel", "transcribe", "why does my app break at 0:12", "compare v1 and v2"). Also the video judge for the codex-design, codex-imagegen and natural-copy skills.
 allowed-tools: Bash(python3 ~/.claude/skills/agy-watch-video/scripts/watch_video.py:*), Read
 ---
 
 # agy-watch-video
 
 Claude cannot take video input. This skill lets it watch anyway. ffmpeg cuts, measures and prepares the media. Gemini
-models, reached through the official Antigravity CLI in headless mode, look and listen. Claude asks the questions,
+models, reached through the official Antigravity CLI in headless mode (or the Gemini API when agy cannot, see §1),
+look and listen. Claude asks the questions,
 reads a compact report and checks the frames that matter with its own eyes. The command prefix is always
 `python3 ~/.claude/skills/agy-watch-video/scripts/watch_video.py`. Every command, flag and output field is in
 `references/cli.md`.
@@ -40,7 +41,13 @@ own and a close-up.
 
 ## 1. Preflight (once per machine, and after an agy update)
 
-1. `doctor`: needs `ready: true` (ffmpeg with its analysis filters, agy signed in, the three models available).
+1. `doctor`: needs `ready: true` (ffmpeg with its analysis filters, and an engine: agy signed in with its three
+   models, or the Gemini API key with the models it maps to). `engine` says which one runs and which one takes over.
+   **Engines:** calls go through agy first; with `--engine auto` (the default) a call agy cannot make (agy missing or
+   signed out, the account "not eligible", its quota used up, a failed run) is made through the Gemini API with the
+   key the nexa skills use (`GEMINI_API_KEY` in the environment or the macOS keychain): same prompts, same media, same
+   answers, and an account-level failure moves the rest of the run to the API. `--engine api` starts there;
+   `--engine agy` never leaves agy. The key is read by the script and never printed; never ask for a key in chat.
 2. `doctor --setup`: installs Pillow into the skill's own `.venv` for time labels on the contact sheets.
 3. `doctor --smoke`: one real call with a 4 s clip that must see the picture and hear "Seven blue boxes".
 4. `selftest --live` (after installing or updating agy, about 20 calls): synthetic clips with known answers (a red square
@@ -60,6 +67,7 @@ own and a close-up.
 | One question about a moment, range or detail | `ask VIDEO "question" [--at 12.5 | --from 10 --to 20] [--region auto|x,y,w,h]` |
 | Is this claim true? (a defect, an action, a text, an order of events) | `verify VIDEO "claim" --at 12.5` (a neutral question that hides the claim, two models, a judge: supported, contradicted or unclear) |
 | A transcript, subtitles or captions | `transcribe VIDEO [--lang bn]` (JSON, TXT, SRT, VTT) |
+| What a voice really says, word by word (a mispronounced word, exact word times) | `transcribe VIDEO --words --lang bn` (Gemini 3.5 Transcribe through the API, verbatim, with word times; far better than whisper on Bangla) |
 | Technical checks, platform fit | `qa VIDEO --platform reels|tiktok|shorts|youtube|facebook` (no model, seconds; `--strict` exits 2 on any failed check, for delivery gates) |
 | Is the approved copy on screen, spelled right? | `watch VIDEO --expect approved.txt` (one line per text; each is reported found, different or not found) |
 | What changed between two versions | `compare A.mp4 B.mp4` |
@@ -160,7 +168,8 @@ quickly, then go deep on the parts that matter with `--from/--to` or `ask`.
 
 ## 7. Safety, privacy and terms
 
-- The video (or its frames and audio) is sent to Google through the user's Antigravity account. Before sending a video
+- The video (or its frames and audio) is sent to Google through the user's Antigravity account, or through the Gemini
+  API key when that engine runs (uploaded files are deleted after the call). Before sending a video
   with private people, documents, screens with personal data or client material that has not been cleared, confirm
   with the user.
 - Describe people by clothes, position and action. Never identify a real person from their face, and never guess
@@ -175,8 +184,8 @@ quickly, then go deep on the parts that matter with `--from/--to` or `ask`.
 - Google's Antigravity FAQ calls "using third party software, tools, or services to access Antigravity" a violation of
   its terms and recommends a Gemini Enterprise or AI Studio API key for third-party coding agents. This skill runs the
   official `agy` binary in its documented headless mode. The user decides whether that is acceptable for their
-  account. To run on an API key instead, the user sets it up in agy themselves (`references/engine.md`); never ask
-  for a key in chat.
+  account. The Gemini API engine (`--engine api`, and the automatic fallback) is the route Google recommends, on the
+  key the user already keeps in the keychain; never ask for a key in chat.
 
 ## 8. Other skills use this one
 
@@ -195,7 +204,8 @@ quickly, then go deep on the parts that matter with `--from/--to` or `ask`.
 |---|---|
 | `agy denied ViewFile: the media must sit inside the added folder` | the media was outside the shared folder: always pass files through the skill, never raw paths in a prompt |
 | `agy denied RunCommand: the agent tried a tool outside the task` | the agent reached for a tool it may not use; the skill never keeps that run, retries once with a stricter prompt, then uses the sibling model |
-| `status ... 429` or `quota` | run `usage`; wait for the five-hour reset or use `--depth quick` |
+| `status ... 429` or `quota` | with the API key present the run moves to the Gemini API by itself; otherwise run `usage` and wait for the five-hour reset or use `--depth quick` |
+| `account not eligible, verify your account` | the Antigravity account needs verifying in a browser (the user's step); until then `--engine auto` runs on the Gemini API |
 | `the model did not return the requested JSON` | agy sometimes ends with an empty reply; the skill retries once, then falls back to a sibling model |
 | an m4a or AAC file | agy refuses `audio/mp4a-latm`; the skill always converts to WAV |
 | a file over 100 MB | agy refuses it; the skill sends a proxy, so pass the original path to the skill |

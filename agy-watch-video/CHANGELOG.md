@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026.09.26.1
+
+- **A second engine: the Gemini API.** The Antigravity account stopped with "not eligible, verify your account" in the
+  middle of a review. Model calls now go through agy first and, with `--engine auto` (the default), a call agy cannot
+  make is made through the Gemini API with the key the nexa skills keep in the keychain: the same prompts (paths
+  become labels, tool wording becomes attachment wording), the same media, the same answer shape and cache. An
+  account-level error (not eligible, sign-in, quota) moves the rest of the run to the API. `--engine api` and
+  `--engine agy` pin one. `doctor` reports both engines; the key is never printed. Smoke test on the API: 3.0 s.
+- **`transcribe --words`:** Gemini 3.5 Transcribe through the API, verbatim, with each word's own times, grouped into
+  sentences. On a Bangla voice-over it agreed with a listener about one mispronounced word, where whisper misheard
+  four correct ones.
+- `scripts/gemini_api.py` is now a fourth copy of the shared module (the nexa-video-creator test checks it matches).
+- **Tests:** 111 offline tests; the suite pins the fake agy (`AWV_ENGINE=agy`, no keychain) so a failing fake can never
+  reach the real API.
+
 ## 2026.09.25.3
 
 A live rerun of the same 10 s review with 2026.09.25.2 took 289 s instead of 422 s (the text check's second reader:

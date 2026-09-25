@@ -19,6 +19,9 @@ or clock form (`0:12.5`, `1:02:03`). A path can be any video or audio file ffmpe
 | `AWV_CALL_TIMEOUT` | by kind of call | one time limit in seconds for every agy call (defaults: 900 for a proxy video, 600 for audio, 420 for frames, 360 for the review, 240 for other text) |
 | `AWV_TIME_BARS` | off | `1` writes each frame's time in a bar above the frames sent to Gemini (the research favours plain text times, which the prompts always give) |
 | `AGY_BIN`, `FFMPEG`, `FFPROBE` | found on PATH (`~/.local/bin/agy` for agy) | tool paths |
+| `AWV_ENGINE` | `auto` | `auto` (agy, then the Gemini API when agy cannot), `agy` or `api`; the `--engine` flag wins |
+| `AWV_TRANSCRIBE_MODEL` | `gemini-3.5-transcribe` | the model of `transcribe --words` |
+| `GEMINI_API_KEY` (or the keychain item of that name) | none | the API engine's key (`GEMINI_API_KEY_1`, `_2` ... are failover keys); read, never printed |
 
 ## Cache layout
 
@@ -31,7 +34,7 @@ A file is recognised again by path, size and modification time (`index.json`), t
 
 ## doctor
 
-`doctor [--setup] [--smoke] [--quota]`
+`doctor [--setup] [--smoke] [--quota] [--engine auto|agy|api]`
 
 Checks ffmpeg (and the filters scdet, blackdetect, freezedetect, signalstats, blurdetect, blockdetect, silencedetect,
 ebur128, astats, ssim, tile, volumedetect), ffprobe, agy, sign-in (via `agy models`), the three models, OCR (Apple
@@ -42,7 +45,14 @@ measurements still run.
 - `--smoke` makes a 4 s test clip (test pattern plus the spoken words "Seven blue boxes" on macOS) and runs one real
   call that must describe the picture and hear the words: `smoke: {ok, heard, image, seconds}`.
 - `--quota` adds the agy quota.
-Output: `ready` (bool) and one field per check. Exit 1 when not ready.
+`gemini_api` names the key's source (never the key) and whether the mapped models exist (a free `models` call);
+`engine` gives the mode, the engine in use and the fallback. Output: `ready` (bool: ffmpeg plus at least one engine
+the mode allows) and one field per check. Exit 1 when not ready.
+
+`--engine` is also taken by watch, ask, verify, transcribe and selftest. The API engine sends the same prompts with
+each file after a label (`[file 3: f_00012500.jpg]`): images inline at high media resolution, audio inline while a
+request stays under 14 MB, videos through the Files API (deleted after the call). agy's model names map to
+`gemini-3.1-pro-preview`, `gemini-3.8-flash` and `gemini-3.7-flash`, and the suffix sets the thinking level.
 
 ## watch
 
@@ -183,13 +193,18 @@ cannot settle their agreement.
 
 ## transcribe
 
-`transcribe VIDEO_OR_AUDIO [--lang CODE] [--model M] [--out DIR] [--fresh]`
+`transcribe VIDEO_OR_AUDIO [--lang CODE] [--model M] [--words] [--out DIR] [--fresh]`
 
 The soundtrack as 16 kHz mono WAV, cut into parts of about 5 minutes at pauses, transcribed in parallel. Each part's
 sentence starts are aligned to measured speech onsets: a global shift first, then each sentence to the nearest later
 onset within 0.8 s. Writes `transcript-*.json`, `.txt`, `.srt` and `.vtt`; subtitle cues have at most 2 lines of 42
 characters and last 5/6 s to 7 s (a short cue is stretched to 5/6 s when the next one leaves room). Output: `language`, `segments`, the four
 paths, `preview` (the first 12 lines) and `cost`.
+
+`--words` uses Gemini's transcription model through the API instead: a verbatim transcript with every word's own
+start and end, grouped into sentences at sentence punctuation or a pause of 0.8 s, and the words in the JSON. It is
+the one to use to check what a voice really says: on a Bangla voice-over it heard হিসাব said as "হিসেব" exactly
+where a listener did, while whisper also misheard four correct words (2026-09-26).
 
 ## frames
 

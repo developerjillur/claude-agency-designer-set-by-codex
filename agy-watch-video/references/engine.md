@@ -161,9 +161,13 @@ the login in another client. Claude Code still orchestrates it, so the account o
 acceptable. The safer route for heavy or commercial use is an API key:
 - agy can run on a Gemini API key instead of the sign-in (the install docs describe `GEMINI_API_KEY` with the Gemini
   model provider). The user sets this up in agy themselves, and the skill works unchanged. Never ask for a key in chat.
-- The Gemini API itself (not used by the skill yet) accepts native video with its audio. It supports a custom frame
-  rate up to 24 fps, clipping by offsets, high media resolution (280 tokens a frame), and, since 2026-09-01, an
-  "agentic" video mode for long videos. That would be the next engine to add.
+- The skill's own Gemini API engine (2026.09.26.1): with a key in the environment or the keychain, `--engine auto`
+  moves a call to the API when agy cannot make it, and `--engine api` uses it from the start. It runs the same
+  prompts with each file attached after a label, images at high media resolution, audio inline, videos through the
+  Files API, JSON answers through `responseJsonSchema` (the request is retried without the optional settings a
+  model rejects). `scripts/gemini_api.py` is the nexa skills' shared module, byte for byte. Measured: the smoke
+  test heard "Seven blue boxes." and described the frame in 3.0 s. Not used yet: native video with its audio,
+  a custom frame rate up to 24 fps, clipping by offsets, and the "agentic" video mode for long videos.
 
 ## 9. Things not to rely on
 

@@ -15,6 +15,11 @@ from pathlib import Path
 
 TMP = tempfile.mkdtemp(prefix="awv-test-")
 os.environ["AGY_WATCH_CACHE"] = str(Path(TMP) / "cache")
+# hermetic: the fake agy is the only engine (no fallback to the real Gemini API, no keychain read)
+os.environ["AWV_ENGINE"] = "agy"
+os.environ["NEXA_NO_KEYCHAIN"] = "1"
+for _k in [k for k in os.environ if k.startswith("GEMINI_API_KEY")]:
+    del os.environ[_k]
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import watch_video as w  # noqa: E402
 
@@ -1031,6 +1036,106 @@ class FfmpegTests(unittest.TestCase):
 
 def tearDownModule():
     shutil.rmtree(TMP, ignore_errors=True)
+
+
+class EngineTests(unittest.TestCase):
+    """The Gemini API engine and the auto fallback, with the API faked (no network)."""
+
+    def setUp(self):
+        self.saved = dict(w.ENGINE)
+        self.img = Path(TMP) / "eng-frame.jpg"
+        self.img.write_bytes(b"\xff\xd8\xff\xe0fakejpeg")
+
+    def tearDown(self):
+        w.ENGINE.clear()
+        w.ENGINE.update(self.saved)
+
+    def test_api_model_names(self):
+        self.assertEqual(w.api_model("gemini-3.8-flash-high"), ("gemini-3.8-flash", "high"))
+        self.assertEqual(w.api_model("gemini-3.1-pro-low"), ("gemini-3.1-pro-preview", "low"))
+        self.assertEqual(w.api_model("gemini-3.7-flash-medium"), ("gemini-3.7-flash", "medium"))
+        self.assertEqual(w.api_model("gemini-3.5-transcribe"), ("gemini-3.5-transcribe", None))
+
+    def test_prompt_paths_become_labels(self):
+        prompt = w.view_block([(1.0, str(self.img))]) + "\n\nUse no tool except view_file on the files listed above."
+        text, labels = w.api_prompt(prompt, [str(self.img)])
+        self.assertEqual(labels, ["[file 1: eng-frame.jpg]"])
+        self.assertNotIn(str(self.img), text)
+        self.assertNotIn("view_file", text)
+        self.assertIn("[file 1: eng-frame.jpg]", text)
+
+    def test_api_request_shape_and_answer(self):
+        g = w.gemini()
+        seen = {}
+
+        def fake_request(method, path, body=None, timeout=600, headers=None, raw=None, max_waits=3):
+            seen.update(method=method, path=path, body=body)
+            return ({"candidates": [{"content": {"parts": [{"text": '{"answer": "a red square", "confidence": 0.9}'}]},
+                                     "finishReason": "STOP"}],
+                     "usageMetadata": {"promptTokenCount": 300, "candidatesTokenCount": 12}}, {"key": "test"})
+        old = g.request
+        g.request = fake_request
+        try:
+            r = w.api_call(None, "t-api", w.view_block([(1.0, str(self.img))]), w.SCHEMA_ASK, "gemini-3.8-flash-high",
+                           [str(self.img)], timeout=30, fresh=True)
+        finally:
+            g.request = old
+        self.assertTrue(r["ok"], r.get("error"))
+        self.assertEqual(r["data"]["answer"], "a red square")
+        self.assertEqual(seen["path"], "/v1beta/models/gemini-3.8-flash:generateContent")
+        cfg = seen["body"]["generationConfig"]
+        self.assertEqual(cfg["thinkingConfig"], {"thinkingLevel": "high"})
+        self.assertEqual(cfg["responseMimeType"], "application/json")
+        self.assertIn("responseJsonSchema", cfg)
+        self.assertEqual(cfg["mediaResolution"], "MEDIA_RESOLUTION_HIGH")
+        parts = seen["body"]["contents"][0]["parts"]
+        self.assertEqual(parts[1], {"text": "[file 1: eng-frame.jpg]"})
+        self.assertEqual(parts[2]["inlineData"]["mimeType"], "image/jpeg")
+
+    def test_auto_moves_to_the_api_when_agy_is_not_eligible(self):
+        calls = {"agy": 0, "api": 0}
+
+        def fake_agy(*a, **k):
+            calls["agy"] += 1
+            return {"ok": False, "error": "status ERROR: account not eligible, verify your account", "cache": False}
+
+        def fake_api(*a, **k):
+            calls["api"] += 1
+            return {"ok": True, "data": {"answer": "x"}, "model": "gemini-3.8-flash (api)", "cache": False}
+        saved = (w.agy_engine_call, w.api_call, w.api_ready)
+        w.agy_engine_call, w.api_call, w.api_ready = fake_agy, fake_api, (lambda: True)
+        w.ENGINE.update(mode="auto", switched=None)
+        try:
+            r1 = w.agy_call(None, "t-auto", "prompt", None, "gemini-3.8-flash-high", [])
+            r2 = w.agy_call(None, "t-auto2", "prompt", None, "gemini-3.8-flash-high", [])
+        finally:
+            w.agy_engine_call, w.api_call, w.api_ready = saved
+        self.assertTrue(r1["ok"] and r2["ok"])
+        self.assertIn("not eligible", r1["engine_note"])
+        self.assertEqual(calls, {"agy": 1, "api": 2})   # the account error switched the rest of the run
+        self.assertTrue(w.ENGINE["switched"])
+
+    def test_agy_only_never_uses_the_api(self):
+        saved = (w.agy_engine_call, w.api_call, w.api_ready)
+        w.agy_engine_call = lambda *a, **k: {"ok": False, "error": "quota", "cache": False}
+        w.api_call = lambda *a, **k: self.fail("the API was called")
+        w.api_ready = lambda: True
+        w.ENGINE.update(mode="agy", switched=None)
+        try:
+            r = w.agy_call(None, "t-agy", "prompt", None, "gemini-3.8-flash-high", [])
+        finally:
+            w.agy_engine_call, w.api_call, w.api_ready = saved
+        self.assertFalse(r["ok"])
+
+    def test_words_become_sentences(self):
+        words = [{"text": "দোকানের", "start": 0.1, "end": 0.6}, {"text": "হিসাব", "start": 0.6, "end": 0.9},
+                 {"text": "খাতায়?", "start": 1.5, "end": 2.0}, {"text": "ফোনেই", "start": 3.2, "end": 3.5},
+                 {"text": "রাখুন,", "start": 3.5, "end": 4.0}, {"text": "নিয়মে।", "start": 4.3, "end": 4.8}, {"text": "এক,", "start": 6.2, "end": 6.4}]
+        segs = w.words_to_segments(words)
+        # a sentence end closes a segment, and so does a pause of 0.8 s or more
+        self.assertEqual([s["text"] for s in segs], ["দোকানের হিসাব খাতায়?", "ফোনেই রাখুন, নিয়মে।", "এক,"])
+        self.assertEqual((segs[1]["start"], segs[1]["end"]), (3.2, 4.8))
+        self.assertEqual(len(segs[0]["words"]), 3)
 
 
 if __name__ == "__main__":
