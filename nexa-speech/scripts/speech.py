@@ -1739,6 +1739,10 @@ def synth_take(ch: dict, take: int, project: Path, command: str, ledger_dir: Pat
     rec = {"take": take, "key": key, "finish": st.get("finish_reason"), "status": st.get("status"),
            "finish_class": fc, "riff": bool(parts) and G.is_riff(parts[0]["bytes"]), "source": "api",
            "created": now_iso(), "usage": G.usage(resp), "key_source": info.get("key")}
+    # the paid call goes into the ledger before any file is written: a save that fails must not hide it
+    ledger(ledger_dir, dict(base, est_usd=round(est, 6), key_source=info.get("key"), usage=rec["usage"],
+                            status=st.get("status"), finish=st.get("finish_reason"), result=fc,
+                            attempts=info.get("attempts"), seconds=round(time.time() - t0, 2)))
     if parts:
         path = save_master(parts, key)
         rec["nested_riff"] = nested_riff(path)
@@ -1753,9 +1757,6 @@ def synth_take(ch: dict, take: int, project: Path, command: str, ledger_dir: Pat
         link_or_copy(path, project / "masters" / f"{key}.wav")
         write_json(project / "masters" / f"{key}.json", side)     # the project carries its own provenance
         rec["file"] = f"masters/{key}.wav"
-    ledger(ledger_dir, dict(base, est_usd=round(est, 6), key_source=info.get("key"), usage=rec["usage"],
-                            status=st.get("status"), finish=st.get("finish_reason"), result=fc,
-                            attempts=info.get("attempts"), seconds=round(time.time() - t0, 2)))
     return rec
 
 

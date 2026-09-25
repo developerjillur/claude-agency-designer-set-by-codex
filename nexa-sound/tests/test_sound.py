@@ -991,6 +991,26 @@ class H_GenerateTests(unittest.TestCase):
         self.assertIn("blocked the finished track 2 time(s)", r.stdout + r.stderr)
         self.assertEqual(len(self.interactions_since(before)), 2)
 
+    def test_a_paid_take_is_in_the_ledger_even_when_saving_fails(self):
+        # a take whose file could not be written once went unlogged: its $0.08 vanished from the ledger
+        out = os.path.dirname(tmp("gen", "savefail", "x"))
+        ledger = os.path.join(out, "ledger.jsonl")
+        resp = {"status": "completed", "steps": [{"type": "model_output", "content": [
+            {"type": "audio", "mime_type": "audio/mpeg", "data": base64.b64encode(b"ID3" + bytes(64)).decode()}]}]}
+
+        def fail(*args, **kwargs):
+            raise OSError("disk full")
+        saved = sound.G.interactions, sound.G.save_audio
+        sound.G.interactions = lambda body, timeout=600: (resp, {"key": "GEMINI_API_KEY"})
+        sound.G.save_audio = fail
+        try:
+            with self.assertRaises(OSError):
+                sound.run_take({"prompt": "p", "mood": "tech"}, {"model": "lyria-3.5", "input": "p", "store": False},
+                               "lyria-3.5", out, "ns_x_a", ledger, None, [])
+        finally:
+            sound.G.interactions, sound.G.save_audio = saved
+        self.assertEqual([(x["status"], x["est_usd"]) for x in load_jsonl(ledger)], [("ok", 0.08)])
+
     def test_two_runs_in_the_same_minute_never_share_a_name(self):
         # a draft and a final run side by side once got the same id; the second paid take could not be saved
         brief = make_brief("race", 12.0, notes="fake:slow")

@@ -15,6 +15,8 @@ on what came back. What the real answers changed:
 - **A paid take is never lost to a name clash.** A draft and a final started in the same minute took the same id;
   the final's paid audio could not be written over the draft's read-only original and the run crashed. Every id
   is now reserved at once with a lock file, and a take never saves over another's original.
+- **The ledger before the file.** The lost take above never reached the ledger either, since the line was written
+  after the file; a paid call is now logged as soon as the answer arrives.
 - **A track blocked after generation is made once more.** The same prompt passed at 17:26, came back as "Request
   blocked for an unspecified policy reason" after 22 s of generation at 17:33, and passed at 17:34. A block that
   arrives after seconds of work is retried once (logged at $0); a prompt blocked at once is still never retried.
@@ -27,7 +29,7 @@ on what came back. What the real answers changed:
 - **Measured on the live answers:** the Clip draft was 25.6 s (not 30 s) and the final 64.0 s for an 18 s request;
   Lyria answered in 13.7 s (Clip) and 24.5 s (3.5); the judge heard no vocals and scored the fitted bed 10/10.
 - **Docs:** `mix` follows the dialogue's length unless `--duration` says otherwise (the help said the longest input).
-- **Tests:** 56 (a race between two runs, blocked tracks, the DC warning and fit, dotted eighths, the fake answering
+- **Tests:** 57 (a race between two runs, a failed save still in the ledger, blocked tracks, the DC warning and fit, dotted eighths, the fake answering
   as the live API does).
 
 ## 2026.09.25.1 · first release

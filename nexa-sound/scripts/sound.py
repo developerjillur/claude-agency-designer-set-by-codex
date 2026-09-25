@@ -1069,8 +1069,9 @@ def _run_take(brief, body, model, out_dir, tid, ledger, project, images_meta):
     ext = G.audio_extension(part["bytes"], part.get("mime_type"))
     if os.path.exists(os.path.join(out_dir, tid + "_orig" + (".wav" if ext == ".pcm" else ext))):
         tid = next_ids(out_dir, brief.get("mood") or "track", 1)[0]   # never over another take's original
-    path = G.save_audio(part, os.path.join(out_dir, tid + "_orig"), default_rate=48000, default_channels=2)
+    # the paid call goes into the ledger before the file is written: a save that fails must not hide it
     ledger_add(ledger, "generate", model, 1, PRICES[model], info.get("key"), "ok", id=tid)
+    path = G.save_audio(part, os.path.join(out_dir, tid + "_orig"), default_rate=48000, default_channels=2)
     with open(path, "rb") as fh:
         raw = fh.read()
     os.chmod(path, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)

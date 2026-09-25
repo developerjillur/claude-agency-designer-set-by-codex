@@ -1244,6 +1244,29 @@ class EndToEndTests(unittest.TestCase):
         r = self.cli("pick", self.main, hero["id"], "9", ok=False)
         self.assertNotEqual(r.returncode, 0)
 
+    def test_a_paid_take_is_in_the_ledger_even_when_saving_fails(self):
+        plan = json.loads((self.main / "plan.json").read_text())
+        ch = dict(plan["chunks"][0])
+        resp = {"status": "completed", "steps": [{"type": "model_output", "content": [
+            {"type": "audio", "data": base64.b64encode(bytes(4800)).decode(),
+             "mime_type": "audio/l16; rate=24000; channels=1", "sample_rate": 24000, "channels": 1}]}],
+            "usage": {"total_output_tokens": 3}}
+        out = self.tmp / "savefail"
+        out.mkdir(exist_ok=True)
+
+        def fail(parts, key):
+            raise OSError("disk full")
+        saved = S.G.interactions, S.save_master
+        S.G.interactions = lambda body, timeout=None: (resp, {"key": "GEMINI_API_KEY", "attempts": 1})
+        S.save_master = fail
+        try:
+            with self.assertRaises(OSError):
+                S.synth_take(ch, 9, out, "render")
+        finally:
+            S.G.interactions, S.save_master = saved
+        led = [json.loads(x) for x in (out / "ledger.jsonl").read_text().splitlines()]
+        self.assertEqual((led[-1]["take"], led[-1]["result"]), (9, "ok"))
+
     def test_cost_estimate_and_actual(self):
         est = self.js(self.cli("cost", "--minutes", "10", "--model", "gemini-3.8-flash-tts", "--json"))
         row = est["rows"][0]

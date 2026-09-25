@@ -21,11 +21,13 @@ An English line (`say`), a Bangla voice-over (`render`, `master`) and `align --e
   পাঁচশো, and কিভাবে for কীভাবে: 86 % of the script matched. Digits are now read in the language around them,
   ী and ি, ূ and ু and a final ো are folded for matching, joined or split words share the heard time by length, and
   alike words between two matches pair up: 100 %.
+- **The ledger before the file.** A paid take is logged as soon as the answer arrives, so a save that fails
+  (a full disk) cannot hide it.
 - **What the live answers look like:** raw 16-bit PCM (`audio/l16; rate=24000; channels=1`, with `sample_rate`
   and `channels` fields), `status: completed`, no finish reason at all, no interaction id with `store: false`;
   word timings as `word_info` annotations in 0.1 s steps (`"3s"`, `"0.100s"`); transcription bills audio input
   at 25 tokens a second and reports no output tokens. The fake server in the tests now answers the same way.
-- **Tests:** 71 (the gate 2 windows, the live Bangla transcript's joins, digits and spellings, the new prices).
+- **Tests:** 72 (a failed save still in the ledger, the gate 2 windows, the live Bangla transcript's joins, digits and spellings, the new prices).
 
 ## 2026.09.25.1 · first release
 
