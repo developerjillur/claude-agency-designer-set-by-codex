@@ -24,5 +24,7 @@ jobs:
         run: python3 -m unittest discover -s ~/.claude/skills/codex-design/tests
       - name: agy-watch-video tests
         run: python3 -m unittest discover -s ~/.claude/skills/agy-watch-video/tests
+      - name: remotion-broll tests
+        run: python3 -m unittest discover -s ~/.claude/skills/remotion-broll/tests
       - name: Pattern library renders clean
         run: CODEX_DESIGN_PATTERNS=1 python3 -m unittest discover -s ~/.claude/skills/codex-design/tests -p "test_patterns.py"

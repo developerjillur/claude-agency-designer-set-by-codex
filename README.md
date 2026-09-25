@@ -1,15 +1,16 @@
 # claude-agency-designer-set-by-codex
 
-Four Claude Code skills that work as a small design agency: they design finished graphics at each platform's exact
+Five Claude Code skills that work as a small design agency: they design finished graphics at each platform's exact
 size with real typography, write copy that sounds like the audience instead of a machine, make and check the images
-with the Codex CLI on a ChatGPT plan, and watch, transcribe and check videos with Gemini through the Antigravity CLI
-(no API keys needed).
+with the Codex CLI on a ChatGPT plan, animate explainer B-roll in Remotion from a ready kit, and watch, transcribe and
+check videos with Gemini through the Antigravity CLI (no API keys needed).
 
 | Skill | What it does |
 |---|---|
 | [`codex-design`](codex-design/SKILL.md) | Designs social posts, stories, carousels, thumbnails, covers, banners, ads, posters, flyers, brochures, book covers, certificates, invitations, signs and more: 526 researched formats, and a method for any size or kind it has never seen. Real type in HTML and CSS over generated plates, rendered by headless Chrome and measured (contrast on real pixels, safe zones, text sizes, folds), then judged by an independent senior-art-director review and gated before delivery. |
 | [`natural-copy`](natural-copy/SKILL.md) | Writes and fixes any text an audience reads or hears (captions, ads, banner lines, product and web text, emails, WhatsApp and SMS, scripts, replies) so it sounds like a person from that audience: casual everyday words, no AI tone, no bookish, poetic or translated feel. English, Bangla and Banglish for Bangladesh first-class, and 18 more languages. Song lyrics, jingles and poems get their own rules and a lyricist's judge. |
 | [`agy-watch-video`](agy-watch-video/SKILL.md) | Gives Claude eyes and ears for video: summaries, shot lists, frame-by-frame reports at full resolution, timestamped transcripts and subtitles (Bengali included), on-screen text, zoomed answers about any moment or detail, measured QA (cuts, black and frozen frames, flicker, loudness, platform specs and safe zones) and version comparisons. ffmpeg prepares and measures; Gemini 3.1 Pro and 3.8 Flash look and listen through the Antigravity CLI; two models are compared and Claude checks the evidence frames. |
+| [`remotion-broll`](remotion-broll/SKILL.md) | Explainer-video B-roll in Remotion from a ready kit: code-drawn 2D caricature characters (a guitarist and a runner, rigged), split screens, a round presenter picture-in-picture, a timeline editor, a stat card and bar chart that compute from one growth rate, kinetic captions, step cards, a finish line and a subscribe end card, with sound effects. Every word on screen lives in one file; a minute renders in about 45 s and is checked by the video skill. |
 | [`codex-imagegen`](codex-imagegen/SKILL.md) | Generates and edits the images a project needs through the logged-in Codex CLI: photos, illustrations, cutouts, logo concepts, favicons, OG cards and web exports, in parallel with a style lock, each one judged independently. Photos look like unretouched camera photos, and place and people come from the client, never the requester. |
 
 ## Fast for everyday work, strict for client finals
@@ -28,6 +29,7 @@ that:
 - Any copy people will read, in any language: load `natural-copy` first and follow its fast path.
 - Any graphic with text or layout: load `codex-design` first and follow its fast path.
 - Any image to generate or edit: `codex-imagegen`. Any video or audio: `agy-watch-video`.
+- Animated explainer B-roll or motion graphics: `remotion-broll`.
 ```
 
 ## Why it holds up
@@ -58,6 +60,7 @@ that:
 - For `agy-watch-video`: [ffmpeg](https://ffmpeg.org) (`brew install ffmpeg`) and the
   [Antigravity CLI](https://antigravity.google/download#antigravity-cli), signed in once with `agy`. See the note on
   Antigravity's terms below.
+- For `remotion-broll`: [Node.js](https://nodejs.org) 22.6 or newer (npm installs Remotion into each project).
 - [Claude Code](https://docs.claude.com/en/docs/claude-code).
 
 ## Install
@@ -68,7 +71,7 @@ cd claude-agency-designer-set-by-codex
 ./install.sh
 ```
 
-`install.sh` links the four skills into `~/.claude/skills` (so `git pull` updates them; `--copy` copies them
+`install.sh` links the five skills into `~/.claude/skills` (so `git pull` updates them; `--copy` copies them
 instead), sets up each skill's Python environment and checks the machine. It never overwrites an existing folder.
 Restart Claude Code afterwards. `./install.sh --test` also runs the offline test suites.
 
@@ -82,6 +85,7 @@ Ask Claude Code in plain words, in any language; the skills load by themselves:
 - "Make a KDP paperback cover, 6x9, 240 pages, cream paper."
 - "What happens in this video?", "Check this reel before I post it", "Transcribe this and give me subtitles",
   "Why does the app crash at 0:12 in this recording?"
+- "Explainer B-roll for our course launch, one minute" or "remotion diye 2D caricature video banao"
 
 Or call the tools directly:
 
@@ -94,6 +98,8 @@ python3 ~/.claude/skills/codex-imagegen/scripts/codex_image.py doctor --smoke
 python3 ~/.claude/skills/agy-watch-video/scripts/watch_video.py watch clip.mp4 --goal promo --platform reels
 python3 ~/.claude/skills/agy-watch-video/scripts/watch_video.py ask clip.mp4 "What is on the sign?" --at 0:12
 python3 ~/.claude/skills/agy-watch-video/scripts/watch_video.py verify clip.mp4 "the logo appears before the title" --from 0 --to 5
+python3 ~/.claude/skills/remotion-broll/scripts/broll.py new ~/videos/launch-broll
+python3 ~/.claude/skills/remotion-broll/scripts/broll.py render ~/videos/launch-broll
 ```
 
 Every command, flag and output is documented in the `references/cli.md` of each skill.
@@ -104,6 +110,7 @@ Every command, flag and output is documented in the `references/cli.md` of each 
 python3 -m unittest discover -s ~/.claude/skills/codex-design/tests
 python3 -m unittest discover -s ~/.claude/skills/codex-imagegen/tests
 python3 -m unittest discover -s ~/.claude/skills/agy-watch-video/tests
+python3 -m unittest discover -s ~/.claude/skills/remotion-broll/tests
 CODEX_DESIGN_PATTERNS=1 python3 -m unittest discover -s ~/.claude/skills/codex-design/tests -p "test_patterns.py"
 ```
 
@@ -121,6 +128,8 @@ natural-copy/     the voice skill: SKILL.md and references/ (English, Bangla, 18
 codex-imagegen/   the image skill: scripts/codex_image.py, references/, tests/
 agy-watch-video/  the video skill: scripts/watch_video.py (and ocr.swift), references/ (engine, cli, playbooks,
                   platforms, research notes), tests/
+remotion-broll/   the B-roll kit: template/ (the Remotion project), scripts/broll.py, references/ (scenes, picture
+                  briefs), tests/
 ```
 
 ## Notes

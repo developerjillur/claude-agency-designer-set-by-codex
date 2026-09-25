@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the four skills for Claude Code: link them into ~/.claude/skills (so `git pull` updates them), set up each
+# Install the five skills for Claude Code: link them into ~/.claude/skills (so `git pull` updates them), set up each
 # skill's Python environment, and check the machine. Nothing is deleted or overwritten: an existing folder with the
 # same name stops the install.
 #
@@ -28,7 +28,7 @@ if sys.version_info < (3, 9):
 PY
 
 mkdir -p "$dest"
-for skill in codex-imagegen codex-design natural-copy agy-watch-video; do
+for skill in codex-imagegen codex-design natural-copy agy-watch-video remotion-broll; do
   target="$dest/$skill"
   if [ -L "$target" ]; then
     if [ "$(cd "$target" && pwd -P)" = "$(cd "$here/$skill" && pwd -P)" ]; then
@@ -70,10 +70,12 @@ command -v swiftc >/dev/null || echo "note    swiftc was not found: install the 
 command -v ffmpeg >/dev/null || echo "note    ffmpeg was not found: agy-watch-video needs it (brew install ffmpeg)"
 command -v agy >/dev/null || [ -x "$HOME/.local/bin/agy" ] || \
   echo "note    the Antigravity CLI (agy) is not installed: agy-watch-video needs it (https://antigravity.google/download#antigravity-cli, then run agy once to sign in)"
+command -v node >/dev/null || echo "note    Node.js was not found: remotion-broll needs Node 22.6 or newer (https://nodejs.org)"
 
 if [ "$run_tests" = 1 ]; then
   python3 -m unittest discover -s "$dest/codex-design/tests"
   python3 -m unittest discover -s "$dest/codex-imagegen/tests"
   python3 -m unittest discover -s "$dest/agy-watch-video/tests"
+  python3 -m unittest discover -s "$dest/remotion-broll/tests"
 fi
 echo "done: restart Claude Code so it picks up the skills"

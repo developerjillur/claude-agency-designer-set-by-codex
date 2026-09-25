@@ -1,0 +1,17 @@
+{
+  "locale": "global",
+  "jobs": [
+    {
+      "name": "presenter-pip",
+      "aspect": "1:1",
+      "brief": "Intent: Head-and-shoulders photo of a YouTube presenter talking to camera, used as a small round picture-in-picture over explainer graphics. It must read as a real, unretouched camera photo, not stock.\nSubject: One fictional presenter in their early 40s, short dark curly hair, a plain navy crew-neck knit sweater, mid-sentence explaining a point to the viewer, mouth slightly open, eyebrows lightly raised, eyes on the lens.\nScene: A home studio corner, softly defocused behind the presenter: a plain wooden shelf with two ceramic pots and a trailing plant, and a small warm table lamp glowing at frame-right.\nCamera: Eye level, 50mm-equivalent, face centred horizontally with the eyes about 40 percent from the top, head and shoulders filling the middle of the square frame so a centred circle crop keeps the whole face and some shoulder. Background blurred as at f/2.8.\nLight: Soft daylight from a large window at frame-left as the key, mixing with the warm tungsten lamp in the background.\nConstraints: Hands out of frame. No text, logos, books, screens, microphones or jewellery in frame.\nOutput: 1:1 square photo."
+    },
+    {
+      "name": "creator-cutout",
+      "aspect": "1:1",
+      "transparent": true,
+      "cast": false,
+      "brief": "Intent: Flat 2D caricature illustration for explainer-video B-roll: one character cutout on a transparent background, placed later over a warm peach backdrop in a motion-graphics shot.\nStyle: Flat vector illustration like modern YouTube explainer videos: clean dark-brown outlines of even weight, flat fills with one soft cel-shade tone per colour, gently exaggerated caricature proportions (head slightly large, expressive eyebrows), warm palette of cream, peach, burnt orange, mustard yellow and deep teal. No texture, no background.\nSubject: One young video creator in their late 20s, short dark curly hair, mustard-yellow t-shirt, deep teal trousers, plain white canvas shoes with no marks, standing in three-quarter view facing frame-right, looking at the back of the camera with a focused half-smile.\nObject anatomy: A plain black mirrorless camera with a short lens pointing frame-right; its back faces the creator, away from the viewer, mounted on a grey three-legged tripod whose pan handle sticks out backward toward the creator.\nGrip & load: The tripod stands on its three feet on the same ground line as the creator and carries the camera's full weight. One of the creator's hands rests on the pan handle; the other hand hangs relaxed at the side.\nAction mechanics: None; a still pose, nothing moves.\nConstraints: Full body and the whole tripod visible with a clear margin on every side, both feet on one flat ground line. Transparent background: no floor, no cast-shadow shape, no scenery, no frame. No text, logos or brand marks anywhere.\nOutput: 1:1 square, transparent background."
+    }
+  ]
+}
