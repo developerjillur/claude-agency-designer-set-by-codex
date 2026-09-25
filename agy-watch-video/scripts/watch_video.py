@@ -30,7 +30,7 @@ import time
 import unicodedata
 from pathlib import Path
 
-SKILL_VERSION = "2026.09.25.1"
+SKILL_VERSION = "2026.09.25.2"
 CACHE_VERSION = "2026.09.24.4"   # keys the cache: bump it only when what a pass or a measurement returns changes
 SKILL_DIR = Path(__file__).resolve().parent.parent
 CACHE = Path(os.environ.get("AGY_WATCH_CACHE") or (Path.home() / ".cache" / "agy-watch-video"))
@@ -40,6 +40,9 @@ OCR_SRC = SKILL_DIR / "scripts" / "ocr.swift"
 MODELS = {
     "fast": os.environ.get("AWV_MODEL_FAST", "gemini-3.8-flash-high"),
     "light": os.environ.get("AWV_MODEL_LIGHT", "gemini-3.8-flash-medium"),
+    # reading text off frames needs eyes, not reasoning: on 12 frames of a render Flash on high thought for 187 s
+    # (56k thinking tokens) and read the same words as Flash on low in 27 s (2026-09-25)
+    "read": os.environ.get("AWV_MODEL_READ", "gemini-3.8-flash-low"),
     "deep": os.environ.get("AWV_MODEL_DEEP", "gemini-3.1-pro-high"),
 }
 FALLBACK = {
@@ -1051,13 +1054,24 @@ def frame_path(v: Video, t: float, kind: str = "f") -> Path:
     return v.sub("frames", f"{kind}_{int(round(t * 1000)):08d}.jpg")
 
 
+def last_frame_time(pr: dict) -> float:
+    """The latest time a frame can be taken: half a frame before the video stream's last frame. The file can run
+    longer than its picture (a Remotion render's audio ran 48 ms past its 300th frame), and asking ffmpeg for a frame
+    there gave nothing, so a whole watch run stopped on the missing file (2026-09-25)."""
+    vid = pr.get("video") or {}
+    fps, frames, dur = vid.get("fps") or 0, vid.get("frames") or 0, pr.get("duration") or 0
+    if fps and frames:
+        return max(0.0, (frames - 1.5) / fps)
+    return max(0.0, dur - (1.5 / fps if fps else 0.1))
+
+
 def extract_frames(v: Video, times: list, max_side: int = 1920) -> list:
     """Sharp JPEG frames at exact times, full resolution up to max_side. Returns [(t, path)]."""
     need("ffmpeg")
     pr = v.probe()
-    dur = pr.get("duration") or 0
+    last = last_frame_time(pr)
     todo, out = [], []
-    for t in sorted(set(round(max(0.0, min(float(t), max(0.0, dur - 0.04))), 3) for t in times)):
+    for t in sorted(set(round(max(0.0, min(float(t), last)), 3) for t in times)):
         p = frame_path(v, t)
         out.append((t, p))
         if not (p.exists() and p.stat().st_size > 0):
@@ -1067,9 +1081,16 @@ def extract_frames(v: Video, times: list, max_side: int = 1920) -> list:
     def one(tp):
         t, p = tp
         tmp = tmp_name(p)
-        run([need("ffmpeg"), "-hide_banner", "-v", "error", "-y", "-ss", f"{t:.3f}", "-i", v.path, "-frames:v", "1",
-             "-vf", vf, "-q:v", "2", tmp], timeout=180)
-        os.replace(tmp, p)
+        for at in (t, max(0.0, t - 0.1), max(0.0, t - 0.5)):  # no frame that close to the end: take an earlier one
+            try:
+                run([need("ffmpeg"), "-hide_banner", "-v", "error", "-y", "-ss", f"{at:.3f}", "-i", v.path, "-frames:v",
+                     "1", "-vf", vf, "-q:v", "2", tmp], timeout=180)
+            except WatchError:
+                pass
+            if os.path.exists(tmp) and os.path.getsize(tmp) > 0:
+                os.replace(tmp, p)
+                return
+        raise WatchError(f"ffmpeg gave no frame at {t:.3f} s of {v.name}")
     if todo:
         with cf.ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 4)) as ex:
             list(ex.map(one, todo))
@@ -1720,7 +1741,10 @@ GOAL_FOCUS = {
     "ai-video": ("This may be AI-generated. Look at shapes, hands, faces, text and physics over time, and report a "
                  "defect only where a frame shows it; a smooth, natural clip is a valid finding."),
     "motion": ("This is motion graphics or an edited render. Note when each element enters and leaves, overlaps, text "
-               "size and legibility, how long text stays on screen, holds, and the end frame."),
+               "size and legibility, how long text stays on screen, holds, and the end frame. Numbers that count up, "
+               "bars and lines that grow and text that types on pass through in-between values: judge each where it "
+               "settles, never a frame in the middle of its animation, and call a design choice (a grid's columns, a "
+               "colour) a defect only when it breaks an item of the checklist."),
     "screen": ("This is a screen recording. Note every step: which app and screen, what is clicked or typed, what "
                "changes, every message or error with its exact text, and the time of each."),
     "footage": ("This is camera footage. Log shots and takes, usable ranges, the best moments, and exposure, focus, "
@@ -1744,6 +1768,7 @@ GOAL_CHECKLIST = {
     "motion": ["every element enters and leaves cleanly", "no unintended overlaps or cut-off text",
                "text large and readable on a phone", "each text stays on screen long enough to read",
                "safe zones respected", "no black or frozen frames (measured)", "motion smooth (no jumps)",
+               "counters, charts and typed text settle on the right final values (judged on the settled frame)",
                "final frame holds", "audio in sync and at a sensible level (measured)"],
     "screen": ["every user step listed with its time", "every message or error captured exactly",
                "where the behaviour goes wrong", "steps to reproduce", "environment visible (app, version, OS, browser)"],
@@ -2361,9 +2386,9 @@ def pass_text(v: Video, frames: list, fresh: bool, expect: list | None = None) -
         futs = []
         for bi, batch in enumerate(batches):
             files = [(t, str(p)) for t, p in batch]
-            for k, m in (("a", MODELS["deep"]), ("b", MODELS["fast"])):
+            for k, m in (("a", MODELS["deep"]), ("b", MODELS["read"])):
                 futs.append((k, ex.submit(agy_call, v, f"text-{k}{bi}", prompt_text(files), SCHEMA_TEXT, m,
-                                          [p for _, p in batch], 900, fresh)))
+                                          [p for _, p in batch], 300, fresh)))
         for k, f in futs:
             (runs_a if k == "a" else runs_b).append(f.result())
     la, lb = {}, {}
@@ -2379,7 +2404,7 @@ def pass_text(v: Video, frames: list, fresh: bool, expect: list | None = None) -
         ka, kb = _nearest(la, t), _nearest(lb, t)
         ta, tb = nfc(ka.get("text") or ""), nfc(kb.get("text") or "")
         o = " / ".join(l.get("text", "") for l in (ocr_res.get(str(p)) or []) if (l.get("confidence") or 0) >= 0.5)
-        agree = bool(ta) and tokens(ta) == tokens(tb)
+        agree = bool(ta) and same_words(ta, tb)
         ocr_agree = bool(o) and bool(ta) and similar(o, ta) >= 0.9 and len(" ".join(tokens(ta))) >= 3
         how = "two models agree" if agree else ("Apple Vision agrees" if ocr_agree else "unverified")
         if not agree and not ocr_agree and tess_bn and re.search(r"[\u0980-\u09FF]", ta + tb):
@@ -2406,6 +2431,13 @@ def spread_pick_pairs(pairs: list, k: int) -> list:
     if len(pairs) <= k:
         return list(pairs)
     return [pairs[round(i * (len(pairs) - 1) / (k - 1))] for i in range(k)] if k > 1 else pairs[:1]
+
+
+def same_words(a: str, b: str) -> bool:
+    """Two readings of one frame agree when they hold the same words, whatever order the lines are listed in: the
+    readers listed a stat card's labels in different orders, and four frames came back unverified (2026-09-25)."""
+    from collections import Counter
+    return Counter(tokens(a)) == Counter(tokens(b))
 
 
 def _nearest(d: dict, t: float) -> dict:

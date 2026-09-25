@@ -193,6 +193,22 @@ class Units(unittest.TestCase):
         deck = d.copyrules.lint_deck([{"role": "mukhra", "text": song}, {"role": "antara", "text": song}], "BD")
         self.assertEqual([f["code"] for f in deck["deck"]], [])                # the refrain repeats on purpose
 
+    def test_copylint_save_json_is_linted_as_a_deck(self):
+        """2026-09-25: seven on-screen lines saved as copy.json through --save were linted as one caption, JSON and
+        all; a .json is now checked as a copy.json, and broken JSON is refused before anything is written."""
+        tmp = Path(tempfile.mkdtemp(prefix="cd-savejson-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        deck = json.dumps({"locale": "US", "platform": "youtube", "strings": [
+            {"role": "headline", "text": "Get 1% better every day"}, {"role": "caption", "text": "Race day"}]})
+        ns = d.build_parser().parse_args(["copylint", "--save", str(tmp / "onscreen.json"), "--json"])
+        with mock_stdin(deck), contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+            d.cmd_copylint(ns)
+        self.assertEqual([i["role"] for i in json.loads(out.getvalue())["items"]], ["headline", "caption"])
+        ns = d.build_parser().parse_args(["copylint", "--save", str(tmp / "broken.json")])
+        with mock_stdin("{not json"), self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            d.cmd_copylint(ns)
+        self.assertFalse((tmp / "broken.json").exists())
+
     def test_copylint_save_writes_and_checks_in_one_step(self):
         """A fast run saved copy with Write and skipped the lint; --save makes saving the check."""
         with tempfile.TemporaryDirectory() as t:
@@ -1570,6 +1586,16 @@ class Production(unittest.TestCase):
         recipe.update(device="aperture", hook="নতুন কিছু বলুন আজ")
         self.assertEqual(d.repeat_check(recipe, "tok", entries, "new")[0], [])
         self.assertEqual(d.ledger_check(d.recipe_dossier(recipe, "tok", "new"), entries), [])
+
+
+@contextlib.contextmanager
+def mock_stdin(text: str):
+    old = sys.stdin
+    sys.stdin = io.StringIO(text)
+    try:
+        yield
+    finally:
+        sys.stdin = old
 
 
 def judge_answer(score: int = 4) -> dict:

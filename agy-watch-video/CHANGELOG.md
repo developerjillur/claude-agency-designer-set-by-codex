@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026.09.25.2
+
+Found in the logs of a real Remotion session (a 10 s and a 60 s motion-graphics render, reviewed with `watch --goal
+motion`, `verify` and `qa`).
+
+- **Frames at the very end of a render.** The render's audio ran 48 ms past its 300th frame, so the file was longer
+  than its picture; `extract_frames` asked ffmpeg for a frame at 9.998 s, got nothing, and the whole watch run stopped
+  on `FileNotFoundError` (the session then worked around it with `--to 9.9`). Frames are now taken at most half a frame
+  before the video stream's last frame (`last_frame_time`), a frame ffmpeg does not give is asked for again a little
+  earlier, and one that still does not come stops with its time in one line.
+- **The text check's second reader is Flash on low.** On the same 12 frames Flash on high thought for 187 s (56k
+  thinking tokens) and read the same words as Flash on low in 27 s; that one call had doubled a 10 s review (7 min).
+  `AWV_MODEL_READ` sets it, and a text call now waits at most 300 s (was 900).
+- **Readers agree on words in any order.** Pro and Flash listed a stat card's labels in different orders, and four
+  frames came back unverified although both read every word.
+- **Motion graphics are judged where they settle.** A review called a counter caught mid count-up a wrong number and a
+  streak grid's column count a defect: counters, growing charts and typed text are now judged on their settled frame,
+  and a design choice is a defect only when it breaks the checklist.
+- **Tests:** 104 offline tests.
+
 ## 2026.09.25.1
 
 - **The self test's speech clip is checked for sound.** A CI runner's macOS `say` once wrote five seconds of silence,

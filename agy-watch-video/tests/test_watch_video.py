@@ -213,6 +213,29 @@ class AgreementTests(unittest.TestCase):
                                            {"found": True, "short_answer": "a black hose"}), "disagree")
 
 
+class RenderLessonsTests(unittest.TestCase):
+    """Lessons from a Remotion session on 2026-09-25 (a 10 s and a 60 s motion-graphics render)."""
+
+    def test_the_last_frame_is_taken_inside_the_picture(self):
+        """The render's audio ran 48 ms past its 300th frame; a frame asked for there came back empty, and a whole
+        watch run stopped on the missing file."""
+        self.assertAlmostEqual(w.last_frame_time({"duration": 10.048, "video": {"fps": 30.0, "frames": 300}}),
+                               298.5 / 30)
+        self.assertAlmostEqual(w.last_frame_time({"duration": 5.0, "video": {"fps": 25.0}}), 5.0 - 1.5 / 25)
+        self.assertAlmostEqual(w.last_frame_time({"duration": 5.0}), 4.9)
+
+    def test_two_readers_agree_on_the_words_in_any_order(self):
+        """Pro and Flash listed a stat card's labels in different orders, and four frames came back unverified."""
+        self.assertTrue(w.same_words("Get 1% better / every day / 40x", "40x / Get 1% better / every day"))
+        self.assertFalse(w.same_words("Get 1% better / every day", "Get 2% better / every day"))
+
+    def test_motion_graphics_are_judged_where_they_settle(self):
+        """A review called a counter caught mid count-up a wrong number, and a streak grid's columns a defect."""
+        self.assertIn("where it settles", w.GOAL_FOCUS["motion"])
+        self.assertTrue(any("settle" in x for x in w.GOAL_CHECKLIST["motion"]))
+        self.assertEqual(w.MODELS["read"], os.environ.get("AWV_MODEL_READ", "gemini-3.8-flash-low"))
+
+
 class RegionTests(unittest.TestCase):
     def test_words(self):
         self.assertEqual(w.parse_region("left", 1000, 800), (0, 0, 500, 800))
@@ -958,6 +981,34 @@ class FfmpegTests(unittest.TestCase):
         self.assertFalse((d / "speech.mp4").exists())
         self.assertLess(w.max_volume(d / "speech.aiff"), -50)
         self.assertGreater(w.max_volume(self.clip), -50)                    # the 440 Hz tone of the test clip
+
+    def test_frames_at_the_very_end_of_a_clip_whose_audio_runs_longer(self):
+        clip = Path(TMP) / "longer-audio.mp4"
+        subprocess.run(["ffmpeg", "-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i",
+                        "testsrc2=size=320x240:rate=30:duration=2", "-f", "lavfi", "-i", "sine=frequency=440:duration=2.2",
+                        "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(clip)],
+                       check=True)
+        got = w.extract_frames(w.Video(clip), [1.99, 2.15])
+        self.assertTrue(got and all(Path(p).stat().st_size > 0 for _, p in got))
+        self.assertLess(max(t for t, _ in got), 2.0)
+
+    def test_the_text_check_uses_the_light_reader_and_any_line_order(self):
+        seen = []
+
+        def fake_agy(v, name, prompt, schema, model, media, timeout=None, fresh=False, extra_dirs=None):
+            seen.append((name, model, timeout))
+            lines = ["Get 1% better", "every day", "40x"]
+            text = " / ".join(lines if name.startswith("text-a") else list(reversed(lines)))
+            return {"ok": True, "data": {"items": [{"t": 1.0, "text": text, "unreadable": "", "language": "en"}]}}
+        old = w.agy_call, w.ocr
+        w.agy_call, w.ocr = fake_agy, (lambda paths: {})
+        try:
+            res = w.pass_text(self.v, [(1.0, self.clip)], True)
+        finally:
+            w.agy_call, w.ocr = old
+        self.assertEqual({m for n, m, _ in seen if n.startswith("text-b")}, {w.MODELS["read"]})
+        self.assertTrue(all(t <= 300 for _, _, t in seen))
+        self.assertTrue(res["items"][0]["verified"])
 
     def test_audio_and_onsets(self):
         wav = w.extract_audio(self.v)

@@ -14,6 +14,7 @@ or clock form (`0:12.5`, `1:02:03`). A path can be any video or audio file ffmpe
 | `AGY_WATCH_CACHE` | `~/.cache/agy-watch-video` | the cache |
 | `AWV_MODEL_FAST` | `gemini-3.8-flash-high` | overview, audio, second opinions |
 | `AWV_MODEL_LIGHT` | `gemini-3.8-flash-medium` | quick overview, subject boxes, smoke test |
+| `AWV_MODEL_READ` | `gemini-3.8-flash-low` | the second reader of the text check |
 | `AWV_MODEL_DEEP` | `gemini-3.1-pro-high` | frame batches, text reading, review, careful answers |
 | `AWV_CALL_TIMEOUT` | by kind of call | one time limit in seconds for every agy call (defaults: 900 for a proxy video, 600 for audio, 420 for frames, 360 for the review, 240 for other text) |
 | `AWV_TIME_BARS` | off | `1` writes each frame's time in a bar above the frames sent to Gemini (the research favours plain text times, which the prompts always give) |
@@ -90,8 +91,11 @@ an area). The skill enlarges those areas 3 times from the full-resolution video 
 answer the question (at most 4 at standard, 8 deep, 16 forensic).
 
 The text check reads one frame per distinct text on screen (Apple Vision boxes find where the text changes; up to 24
-frames), by two models, and checks each reading against Apple Vision (Latin, CJK, Cyrillic and more) or Tesseract's
-Bengali data when installed. A reading counts as `verified` only when a second reader agrees.
+frames), by two models (Pro, and Flash on low thinking: reading text needs eyes, not reasoning, and Flash on high
+thought for 187 s over the same 12 frames Flash on low read in 27 s), and checks each reading against Apple Vision
+(Latin, CJK, Cyrillic and more) or Tesseract's Bengali data when installed. A reading counts as `verified` only when a
+second reader agrees on the same words, in any order (a card's labels can be read in more than one order).
+`AWV_MODEL_READ` sets the second reader.
 
 Sampling always covers the whole range, the first and the last frame included. When the frames fit the depth's cap:
 uniform plus the first frame of every shot. Otherwise: the first frames of shots spread over the range (40% of the

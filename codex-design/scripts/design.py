@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # no __pycache__ inside the skill folder
 import copyrules  # noqa: E402  (copy that reads human: references/copy.md)
 
-SKILL_VERSION = "2026.09.25.5"
+SKILL_VERSION = "2026.09.25.6"
 SKILL_DIR = Path(__file__).resolve().parent.parent
 PRESETS_FILE = SKILL_DIR / "scripts" / "presets.json"
 
@@ -6383,10 +6383,18 @@ def cmd_copylint(args) -> None:
         if not text.strip():
             die("--save needs the copy: pipe it in (a heredoc) or give --text")
         dest = Path(args.save).expanduser()
+        if dest.suffix.lower() == ".json":  # a copy.json: one string per line with its role, linted as a deck
+            try:
+                json.loads(text)
+            except ValueError as e:
+                die(f"--save {dest.name}: not valid JSON ({e}); nothing was written")
         dest.parent.mkdir(parents=True, exist_ok=True)
         write_atomic(dest, text.strip() + "\n")
         log(f"saved {dest}")
-        args.caption, args.text = str(dest), None
+        if dest.suffix.lower() == ".json":  # it was linted as one caption, JSON and all (2026-09-25)
+            args.copy, args.caption, args.text = str(dest), None, None
+        else:
+            args.caption, args.text = str(dest), None
     strings = _copy_strings(args)
     meta = copy_meta(args.copy) if args.copy else {}
     locale = norm_locale(args.locale or meta.get("locale"))

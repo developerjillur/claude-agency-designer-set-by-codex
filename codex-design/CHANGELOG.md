@@ -4,6 +4,14 @@ The version is `SKILL_VERSION` in `scripts/design.py`; `doctor` reports it. Afte
 `python3 -m unittest discover -s ~/.claude/skills/codex-design/tests`, and render the pattern library (every pattern
 on its presets must stay free of errors and warnings; `templates/README.md` lists them).
 
+## 2026.09.25.6 · copylint --save takes a copy.json
+
+- **`copylint --save FILE.json`** now checks the JSON and lints it as a copy.json deck (one string per line, each with
+  its role); broken JSON is refused before anything is written. In a Remotion session a video's seven on-screen lines
+  were saved as one text and linted as a 28-word headline, then saved as JSON and linted as one caption, JSON and all.
+  natural-copy's fast path now says to save several separate lines as a copy.json.
+- **Tests:** 141 offline tests.
+
 ## 2026.09.25.5 · a static image, judged as one
 
 - **The design judge judges one static image file:** working buttons, links, keyboard focus and hover states belong

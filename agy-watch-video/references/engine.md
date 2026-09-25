@@ -73,9 +73,11 @@ Claude Opus 4.6 Thinking and GPT-OSS 120B. The skill uses:
 | full-resolution frame batches | gemini-3.1-pro-high | invents least: on 16 sharp frames it tracked every person, a child, a crouching mechanic standing up and leaving with a hose, and invented no text |
 | second opinion (`ask`, forensic) | gemini-3.8-flash-high | more detail, but calls a push-in static and misreads digits with confidence |
 | subject boxes for auto zoom | gemini-3.8-flash-medium | a quick, easy task |
+| text check, second reader | gemini-3.8-flash-low | reading needs eyes, not reasoning: on 12 frames of a render it read the same words as Flash on high in 27 s instead of 187 s (56k thinking tokens) |
 | review | gemini-3.1-pro-high | careful merging of the passes |
 
-Override with `AWV_MODEL_FAST`, `AWV_MODEL_LIGHT` and `AWV_MODEL_DEEP`. Fallbacks: Pro to Flash 3.8, Flash 3.8 to
+Override with `AWV_MODEL_FAST`, `AWV_MODEL_LIGHT`, `AWV_MODEL_READ` (the text check's second reader) and
+`AWV_MODEL_DEEP`. Fallbacks: Pro to Flash 3.8, Flash 3.8 to
 Flash 3.7.
 
 ## 5. What the tests showed (8 s drone clip of a workshop, checked frame by frame)

@@ -21,6 +21,10 @@ simple, specific, in their own words. Not a chatbot, a textbook, a poem, a gover
    (the copy)
    EOF
    ```
+   Several separate lines (a video's on-screen text, slides, a banner's lines) are a copy.json, one string per line
+   with its role, not one text file: saved as one caption, seven on-screen lines were linted as a 28-word headline.
+   Save it the same way (`--save onscreen.json`), then `copylint --copy onscreen.json`; the format is
+   `{"locale": "US", "platform": "youtube", "strings": [{"role": "headline", "text": "..."}]}`.
 3. **Show it**, and offer the native-reader judge in one line.
 
 **Client level** (a client's campaign or final copy, anything published under a client's name, or the user asks for
