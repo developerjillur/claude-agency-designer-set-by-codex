@@ -20,6 +20,7 @@ Every command prints a short summary; --json prints one JSON object on stdout in
 a failed QC exits 2. Every flag and file format: references/cli.md.
 """
 import argparse
+import atexit
 import base64
 import concurrent.futures
 import datetime
@@ -47,7 +48,7 @@ import beats as BT  # noqa: E402
 import gemini_api as G  # noqa: E402
 import sfx_synth as SX  # noqa: E402
 
-SKILL_VERSION = "2026.09.25.1"
+SKILL_VERSION = "2026.09.25.2"
 SR = 48000
 HQ_RESAMPLE = "aresample=48000:filter_size=64:phase_shift=10:cutoff=0.97"
 
@@ -58,6 +59,9 @@ MODEL_JUDGE = "gemini-3.8-flash"
 # USD per call. Lyria prices from Google's pricing page (2026-09-25). The judge and ElevenLabs are estimates.
 PRICES = {MODEL_FINAL: 0.08, MODEL_DRAFT: 0.04, MODEL_RT: 0.0, MODEL_JUDGE: 0.01, "elevenlabs-sfx": 0.05}
 STAGES = {MODEL_FINAL: "GA", MODEL_DRAFT: "preview", MODEL_RT: "experimental"}
+# Both Lyria models answer in MP3 only (44.1 kHz stereo, 192 kbps, with a C2PA manifest in the ID3 tag): on
+# 2026-09-25 the live API refused response_format audio/wav and audio/l16 for lyria-3.5 ("Audio MIME type AUDIO_WAV
+# is not supported for models/lyria-3.5"), so no format is asked for.
 
 PLATFORMS = {"youtube": (-14.0, -1.0), "reels": (-14.0, -1.0), "tiktok": (-14.0, -1.0), "facebook": (-14.0, -1.0),
              "web": (-14.0, -1.0), "podcast": (-16.0, -1.0), "broadcast": (-23.0, -1.0)}
@@ -901,15 +905,36 @@ def has_c2pa(data):
 
 
 def next_ids(out_dir, mood, n):
+    """Ids for n new takes, each reserved at once by a lock file created exclusively. Two runs in the same minute
+    and folder (a draft and a final side by side, two terminals) would otherwise pick the same name before either
+    had saved, and the second paid take could not be written. release_id removes the lock when the take is done."""
     base = "ns_%s_%s" % (datetime.datetime.now().strftime("%Y-%m-%d_%H%M"), re.sub(r"[^a-z0-9]+", "-", mood))
     ids, k = [], 0
     letters = "abcdefghijklmnopqrstuvwxyz"
     while len(ids) < n:
         tid = base + "_" + (letters[k] if k < 26 else "z%d" % k)
         k += 1
-        if not any(f.startswith(tid + "_orig") or f == tid + ".json" for f in os.listdir(out_dir)):
-            ids.append(tid)
+        if any(f.startswith(tid + "_orig") or f == tid + ".json" for f in os.listdir(out_dir)):
+            continue
+        try:
+            fd = os.open(id_lock(out_dir, tid), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            continue
+        os.write(fd, str(os.getpid()).encode("ascii"))
+        os.close(fd)
+        ids.append(tid)
     return ids
+
+
+def id_lock(out_dir, tid):
+    return os.path.join(out_dir, "." + tid + ".lock")
+
+
+def release_id(out_dir, tid):
+    try:
+        os.remove(id_lock(out_dir, tid))
+    except OSError:
+        pass
 
 
 def image_blocks(spec, work):
@@ -976,26 +1001,62 @@ def brief_summary(brief):
 
 
 def run_take(brief, body, model, out_dir, tid, ledger, project, images_meta):
-    t0 = time.time()
-    fallback = False
+    result = None
     try:
+        result = _run_take(brief, body, model, out_dir, tid, ledger, project, images_meta)
+        return result
+    finally:
+        release_id(out_dir, tid)
+        if result and result.get("id") != tid:
+            release_id(out_dir, result["id"])
+
+
+def output_block_s():
+    try:
+        return float(os.environ.get("NEXA_SOUND_OUTPUT_BLOCK_S", "8"))
+    except ValueError:
+        return 8.0
+
+
+def lyria_call(body, model, ledger, tid):
+    """(response, info, blocked tracks) for one take.
+
+    A track Google blocks after making it (seconds of generation, then "Request blocked for an unspecified
+    policy reason": Lyria screens its output, for likeness to existing music among other things) is made once
+    more, because a new take usually passes: on 2026-09-25 the same prompt passed at 17:26, was blocked at 17:33
+    and passed again at 17:34. The blocked take is a 400 answer and is logged at $0. A prompt blocked at once is
+    never retried: it would be blocked again."""
+    blocked = 0
+    while True:
+        started = time.time()
         try:
             resp, info = G.interactions(body, timeout=600)
+            return resp, info, blocked
         except G.GeminiError as err:
-            if (err.kind == "bad_request" and "response_format" in body
-                    and re.search(r"response_format|mime", str(err), re.I)):
-                body = dict(body)
-                body.pop("response_format")
-                fallback = True
-                ledger_add(ledger, "generate", model, 1, 0.0, None, "rejected", id=tid, error_kind="bad_request",
-                           note="the WAV format was refused; asked again for the default format")
-                resp, info = G.interactions(body, timeout=600)
-            else:
-                raise
+            if err.kind == "safety" and blocked == 0 and time.time() - started >= output_block_s():
+                blocked += 1
+                ledger_add(ledger, "generate", model, 1, 0.0, None, "blocked", id=tid, error_kind="safety",
+                           note="blocked after %.0f s of generation; made once more" % (time.time() - started))
+                log("%s: Google blocked the finished track (%s); making it once more" % (tid, scrub(str(err))[:120]))
+                continue
+            err.output_blocked = blocked + (1 if err.kind == "safety" and time.time() - started >= output_block_s()
+                                            else 0)
+            raise
+
+
+def _run_take(brief, body, model, out_dir, tid, ledger, project, images_meta):
+    t0 = time.time()
+    try:
+        resp, info, blocked = lyria_call(body, model, ledger, tid)
     except G.GeminiError as err:
         ledger_add(ledger, "generate", model, 1, PRICES[model] if err.kind == "timeout" else 0.0, None,
                    "failed", id=tid, error_kind=err.kind)
-        return {"id": tid, "ok": False, "error_kind": err.kind, "error": scrub(gemini_message(err))}
+        message = gemini_message(err)
+        if err.kind == "safety" and getattr(err, "output_blocked", 0):
+            message = ("Google blocked the finished track %d time(s) (\"an unspecified policy reason\", raised after "
+                       "generation: Lyria screens its output). Run it again later, or change the brief's instruments "
+                       "or tempo a little." % err.output_blocked)
+        return {"id": tid, "ok": False, "error_kind": err.kind, "error": scrub(message)}
     latency = round(time.time() - t0, 1)
     parts = G.audio_parts(resp)
     texts = G.text_parts(resp)
@@ -1005,6 +1066,9 @@ def run_take(brief, body, model, out_dir, tid, ledger, project, images_meta):
                 "error": "the answer had no audio (the output may have been filtered). Text parts: %s" % (
                     scrub(" | ".join(texts))[:300] or "none")}
     part = parts[-1]
+    ext = G.audio_extension(part["bytes"], part.get("mime_type"))
+    if os.path.exists(os.path.join(out_dir, tid + "_orig" + (".wav" if ext == ".pcm" else ext))):
+        tid = next_ids(out_dir, brief.get("mood") or "track", 1)[0]   # never over another take's original
     path = G.save_audio(part, os.path.join(out_dir, tid + "_orig"), default_rate=48000, default_channels=2)
     ledger_add(ledger, "generate", model, 1, PRICES[model], info.get("key"), "ok", id=tid)
     with open(path, "rb") as fh:
@@ -1021,11 +1085,12 @@ def run_take(brief, body, model, out_dir, tid, ledger, project, images_meta):
                      "stage": STAGES.get(model), "interaction_id": resp.get("id"), "store": False,
                      "key_var_used": info.get("key")},
         "request": {"prompt": brief["prompt"], "lyrics": None, "images": images_meta,
-                    "response_format": body.get("response_format"), "response_format_fallback": fallback or None,
+                    "response_format": None,
                     "realtime": None, "seed": None, "requested_duration_s": brief.get("prompt_duration_s"),
                     "brief": brief_summary(brief)},
         "response": {"text_parts": texts, "timed_lines": timed, "section_labels": section_tags(texts),
-                     "vocals_suspected": vocals_suspected, "filtered": False, "latency_s": latency,
+                     "vocals_suspected": vocals_suspected, "filtered": False, "blocked_before": blocked or None,
+                     "latency_s": latency,
                      "cost_usd_est": PRICES[model], "status": G.status(resp), "usage": G.usage(resp) or None},
         "original": {"file": os.path.abspath(path), "sha256": hashlib.sha256(raw).hexdigest(),
                      "format": os.path.splitext(path)[1].lstrip("."), "bytes": len(raw),
@@ -1085,8 +1150,6 @@ def cmd_generate(args):
         prompt = brief["prompt"]
         body = {"model": model, "input": ([{"type": "text", "text": prompt}] + imgs) if imgs else prompt,
                 "store": False}
-        if model == MODEL_FINAL:
-            body["response_format"] = {"type": "audio", "mime_type": "audio/wav"}
         ids = next_ids(args.out, brief.get("mood") or "track", takes)
         log("%d call%s to %s (about $%.2f)" % (takes, "s" if takes > 1 else "", model, est))
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(3, takes)) as pool:
@@ -1153,6 +1216,7 @@ def generate_realtime(args, brief, ledger):
         die(G.MISSING_KEY_HELP)
     py = venv_python(create=True)
     tid = next_ids(args.out, brief.get("mood") or "bed", 1)[0]
+    atexit.register(release_id, args.out, tid)     # also after die(): one recording per run
     orig = os.path.join(args.out, tid + "_orig.wav")
     with Work() as work:
         cfg_path = work.path("realtime.json")
@@ -1640,8 +1704,18 @@ def describe_op(op):
 
 
 def prepare_master(src, work):
+    """The working copy that fit and loop cut: 48 kHz stereo in 32-bit float, through a 5 Hz high-pass, with a
+    gain that leaves 1 dB of headroom when the peaks need it. Lyria MP3s decode with peaks up to +0.8 dBFS, which a
+    24-bit copy would clip, and carry a 0.5 to 0.7 % DC offset, which clicks at every cut."""
     master = work.path("master48k.wav")
-    info = to_wav(src, master, channels=2, codec="pcm_s24le")
+    info = to_wav(src, master, channels=2, codec="pcm_f32le", pre="highpass=f=5")
+    peak = astats(master)["peak_db"]
+    if peak is not None and peak > -1.0:
+        quieter = work.path("master48k_headroom.wav")
+        run_ff(["-y", "-v", "error", "-i", master, "-af", "volume=%.3fdB" % (-1.0 - peak), "-c:a", "pcm_f32le",
+                quieter], what="making headroom")
+        master = quieter
+        info = dict(info, headroom_gain_db=round(-1.0 - peak, 2))
     return master, info
 
 
@@ -1686,7 +1760,10 @@ def cmd_fit(args):
                  "weighted_hits_after": round(ha, 3), "soft_before": round(sb, 3), "soft_after": round(sa, 3),
                  "cuts": detail}
     ops = [{"op": "resample", "to_hz": SR, "bits": 24, "from_hz": info["sample_rate"],
-            "filter": HQ_RESAMPLE}]
+            "filter": HQ_RESAMPLE}, {"op": "dc_block", "filter": "highpass=f=5"}]
+    if info.get("headroom_gain_db") is not None:
+        ops.append({"op": "gain", "db": info["headroom_gain_db"], "reason": "1 dB of headroom (the source peaked "
+                    "above -1 dBFS)"})
     if plan["skip_s"] > 0 or plan["delay_s"] > 0:
         ops.append({"op": "offset", "s": plan["offset_s"], "skip_head_s": plan["skip_s"],
                     "delay_s": plan["delay_s"], "reason": "hits on cuts" if cuts else "length"})
@@ -2965,7 +3042,13 @@ def measured_checks(path, kind, brief=None, sidecar=None, fit=None, mix=None, ta
         check(checks, "loudness_range", lo["LRA"] is None or lo["LRA"] <= 8.0 or kind == "sfx", lo["LRA"], "8 LU",
               "loudness range for a bed under speech", severity="fail" if bed and kind == "music" else "warn")
     dc = abs(st["dc_offset"] or 0.0)
-    check(checks, "dc_offset", dc <= 0.005, round(dc, 6), "0.5 %", "mean of all samples")
+    original = bool(sidecar) and os.path.abspath(path) == os.path.abspath(
+        ((sidecar or {}).get("original") or {}).get("file") or "")
+    if original and dc <= 0.02:     # Lyria takes carry 0.5 to 0.7 %; fit and loop take it out, the original stays
+        check(checks, "dc_offset", dc <= 0.005, round(dc, 6), "0.5 %",
+              "mean of all samples; fit and loop remove it (5 Hz high-pass)", severity="warn")
+    else:
+        check(checks, "dc_offset", dc <= 0.005, round(dc, 6), "0.5 %", "mean of all samples")
     if kind in ("music", "mix"):
         fold = loudness(path, af="pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1")
         drop = (lo["I"] - fold["I"]) if lo["I"] is not None and fold["I"] is not None else None
@@ -2992,7 +3075,7 @@ def measured_checks(path, kind, brief=None, sidecar=None, fit=None, mix=None, ta
             if fit and fit.get("tempo_factor"):
                 want = want * fit["tempo_factor"]
             try:
-                g = BT.analyze(path)
+                g = BT.analyze(path, want)
                 got = g["bpm"]
                 ratios = [got / want, got * 2 / want, got / 2 / want]
                 err = min(abs(r - 1.0) for r in ratios)
@@ -3511,7 +3594,8 @@ def build_parser():
     p.add_argument("--platform", required=True, help=", ".join(PLATFORMS))
     p.add_argument("--duck", type=float, default=-14.0)
     p.add_argument("--music-under", type=float, default=20.0, help="dB the music sits under speech (18 to 25)")
-    p.add_argument("--duration", type=float, help="length in seconds (default: the longest input)")
+    p.add_argument("--duration", type=float, help="length in seconds (default: the dialogue or voice, else the "
+                   "longest input; give the video length when music runs on after the last word)")
     p.add_argument("--out", required=True)
     p.set_defaults(func=cmd_mix)
 

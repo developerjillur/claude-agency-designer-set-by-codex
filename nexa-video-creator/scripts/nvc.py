@@ -41,7 +41,7 @@ sys.path.insert(0, str(HERE))
 import gemini_api  # noqa: E402
 import nvc_plan as P  # noqa: E402
 
-SKILL_VERSION = "2026.09.25.1"
+SKILL_VERSION = "2026.09.25.2"
 REMOTION_VERSION = "4.0.528"
 SKILL_DIR = HERE.parent
 TEMPLATE = SKILL_DIR / "template"
@@ -361,7 +361,7 @@ def cmd_add(args):
         if args.role == "dialogue" or (args.role == "voice" and not job.get("dialogue")):
             job["dialogue"] = sid
         if args.role == "voice":
-            imported = import_speech_words(d, src, sid)
+            imported = import_speech_words(d, src, sid, job.get("language"))
             if imported:
                 added.append("%d words imported from nexa-speech" % imported)
         added.append("%s (%s, %s)" % (sid, kind, fmt_dur(info.get("duration"))))
@@ -370,9 +370,10 @@ def cmd_add(args):
     print("next: nvc.py ingest %s" % args.job)
 
 
-def import_speech_words(d, vo_path, sid):
+def import_speech_words(d, vo_path, sid, job_language=None):
     """A nexa-speech voice-over comes with its own word timings (words.json next to vo_48k.wav): use them as the
-    transcript, so a faceless edit needs no transcription."""
+    transcript, so a faceless edit needs no transcription. The language is the main voice profile's (the manifest
+    keeps it per profile, "bn-BD"), else the job's."""
     words_file = vo_path.parent / "words.json"
     data = read_json(words_file)
     if not isinstance(data, list) or not data or "start" not in data[0]:
@@ -384,8 +385,10 @@ def import_speech_words(d, vo_path, sid):
             words.append({"id": "w%04d" % (len(words) + 1), "text": text, "start": round(float(w["start"]), 3),
                           "end": round(float(w["end"]), 3)})
     manifest = read_json(vo_path.parent / "vo.manifest.json") or {}
+    profile = (manifest.get("profiles") or {}).get(manifest.get("main_profile")) or {}
+    lang = str(manifest.get("language") or profile.get("language") or job_language or "en").split("-")[0].lower()
     write_json(d / "analysis" / "words.json", {"schema": "nvc-words/1", "source": sid,
-                                               "language": manifest.get("language") or "en",
+                                               "language": lang,
                                                "engine": "nexa-speech", "snapping": "script timings from nexa-speech",
                                                "created": now(), "words": words})
     (d / "analysis" / "transcript.txt").write_text("\n".join(P.pack_transcript(words)) + "\n", encoding="utf-8")
@@ -747,6 +750,29 @@ def spread_words(sentences):
     return words
 
 
+BN_DIGIT_MAP = str.maketrans("0123456789", "০১২৩৪৫৬৭৮৯")
+
+
+def bangla_digits(words):
+    """Counts, prices and times in Bengali digits inside Bangla speech, as the house rule for Bangla copy asks:
+    Gemini writes "10" and "500" where the speaker said দশ and পাঁচশো. A number after a Latin word stays in Latin
+    digits (a model name such as iPhone 15), and so does one with no Bangla word beside it."""
+    def bangla(i):
+        return 0 <= i < len(words) and re.search(r"[ঀ-৿]", words[i]["text"] or "")
+
+    def latin(i):
+        return 0 <= i < len(words) and re.search(r"[A-Za-z]", words[i]["text"] or "")
+
+    out = []
+    for i, w in enumerate(words):
+        text = w["text"] or ""
+        if (re.search(r"[0-9]", text) and not re.search(r"[A-Za-z]", text) and not latin(i - 1)
+                and (bangla(i - 1) or bangla(i + 1))):
+            w = dict(w, text=text.translate(BN_DIGIT_MAP))
+        out.append(w)
+    return out
+
+
 def cmd_transcribe(args):
     d = job_dir(args.job)
     job = load_job(d)
@@ -800,6 +826,8 @@ def cmd_transcribe(args):
     if not raw_words:
         raise NvcError("no words came back: is there speech in %s?" % audio)
     raw_words.sort(key=lambda w: w["start"])
+    if bn:
+        raw_words = bangla_digits(raw_words)
     snapped = raw_words
     note = "edges from the engine"
     if numpy_python():

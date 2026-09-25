@@ -10,9 +10,11 @@ measured instead of assumed. Command prefix: `python3 ~/.claude/skills/nexa-spee
 flag and file format is in `references/cli.md`; writing for the ear, the tags, pronunciation, drift and platform rules
 are in `references/craft.md`; the sourced facts are in `references/research-notes.md`.
 
-Untested against the real service: this release was built and tested offline against a fake server, with no key.
-The request and answer shapes follow Google's documentation of 2026-09-24; the first real run of each command should
-be watched (`references/research-notes.md` lists what is unverified).
+Checked on the live API (2026-09-25): `say`, `render`, `master` and `align --engine gemini` in English and Bangla
+with gemini-3.8-flash-tts and gemini-3.5-transcribe (every word spoken, the numbers read right, 100 % of the words
+aligned). Not yet run live: `design` (it stores voices in the key's project), `voices --library`, the 3.1 and 2.5
+models and `send_language_code`; watch their first real run (`references/research-notes.md` lists what is
+unverified).
 
 ## Fast path (do exactly this)
 
@@ -72,7 +74,8 @@ A single line (a hook, an outro, a sting): `say "TEXT" --profile NAME --out line
 ## QA gates (every take, `references/cli.md` has the numbers)
 
 1. Audio present, finish reason fine (truncated audio is billed and fails), WAV header handled.
-2. Voiced duration against the words at the calibrated pace: outside 0.80 to 1.25 fails.
+2. Voiced duration against the words at the voice's pace: outside 0.80 to 1.25 fails once the pace is measured (3
+   chunks), outside 0.65 to 1.50 before (3.8 Flash speaks up to 39 % faster than a preset guesses).
 3. Lead-in under 20 ms, a click at the start, noise after the last word: flagged and fixed in `master`.
 4. `--asr`: WER over 3% (English) or CER over 5% (Bangla), words missing or extra at the end, direction words heard,
    a lexicon term not heard: fails.
@@ -85,18 +88,20 @@ requests go to the user and are never retried in a loop. `@takes N` chunks keep 
 
 ## Money
 
-Prices as of 2026-09-25 (USD per 1M tokens, audio out and text in; 25 audio tokens a second):
+Prices as of 2026-09-25 (USD per 1M tokens, audio out and text in; 32 audio tokens a second, as the live API's usage
+showed):
 
 | Model | Audio out | Text in | 10 min, one take each |
 |---|---|---|---|
-| `gemini-3.8-flash-tts` (default) | $9.00 to 2026-12-31, then $18.00 | $0.50, then $1.00 | about $0.14 |
-| `gemini-3.8-flash-lite-tts` | $6.00, then $12.00 | $0.50, then $1.00 | about $0.09 |
-| `gemini-3.1-flash-tts-preview` (legacy) | $20.00 | $1.00 | about $0.30 |
-| `gemini-2.5-flash-preview-tts` (legacy) | $10.00 | $0.50 | about $0.15 |
-| `gemini-2.5-pro-preview-tts` (legacy) | $20.00 | $1.00 | about $0.30 |
+| `gemini-3.8-flash-tts` (default) | $9.00 to 2026-12-31, then $18.00 | $0.50, then $1.00 | about $0.17 |
+| `gemini-3.8-flash-lite-tts` | $6.00, then $12.00 | $0.50, then $1.00 | about $0.12 |
+| `gemini-3.1-flash-tts-preview` (legacy) | $20.00 | $1.00 | about $0.38 |
+| `gemini-2.5-flash-preview-tts` (legacy) | $10.00 | $0.50 | about $0.19 |
+| `gemini-2.5-pro-preview-tts` (legacy) | $20.00 | $1.00 | about $0.38 |
 
 Word timings (`gemini-3.5-transcribe`) cost about $0.005 a minute. One public test was billed about 1.5x the token
-arithmetic, so `cost` shows that too, and `ledger.jsonl` keeps the `usage` of every answer to check against. Every
+arithmetic at 25 tokens a second; at the measured 32 about 1.2x is left, so `cost` shows a likely bill at 1.2x, and
+`ledger.jsonl` keeps the `usage` of every answer to check against. Every
 paid command has `--budget USD` (default 1.00) and refuses work whose estimate is higher.
 
 ## Policy

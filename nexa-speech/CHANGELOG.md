@@ -4,6 +4,29 @@ The version is `SKILL_VERSION` in `scripts/speech.py`. Run the offline tests aft
 `python3 -m unittest discover -s ~/.claude/skills/nexa-speech/tests`, and run `plan`, `render`, `master` and `align`
 once by hand (against the real API only when a key and a budget are agreed).
 
+## 2026.09.25.2 · the first live run
+
+An English line (`say`), a Bangla voice-over (`render`, `master`) and `align --engine gemini` on the live API
+(2026-09-25), with gemini-3.8-flash-tts (Iapetus, Sadaltager) and gemini-3.5-transcribe. Every word was spoken
+(checked by whisper and by Gemini); the numbers read as দশ and পাঁচশো. What the real answers changed:
+
+- **32 audio tokens a second, not 25.** The usage the API reported (77 tokens for 2.4 s, 214 for 6.7 s) makes every
+  estimate 28 % higher: 10 minutes on 3.8 Flash is $0.173, not $0.135. The "likely bill" factor drops from 1.5 to
+  1.2, since the old 1.5 was mostly this rate.
+- **Gate 2 before the pace is measured.** 3.8 Flash spoke 2 to 39 % faster than the presets guess, in English and
+  Bangla, with every word present; one Bangla chunk (ratio 0.72) failed and was paid for twice. Until a voice's pace
+  is measured (3 chunks of the project, calibration.json or the profile), the window is 0.65 to 1.50, which still
+  catches a missing sentence; after that it stays 0.80 to 1.25. `takes.json` records the window used.
+- **Align matches what Gemini writes.** It joined আসসালামু আলাইকুম into one word, wrote 10 and 500 for দশ and
+  পাঁচশো, and কিভাবে for কীভাবে: 86 % of the script matched. Digits are now read in the language around them,
+  ী and ি, ূ and ু and a final ো are folded for matching, joined or split words share the heard time by length, and
+  alike words between two matches pair up: 100 %.
+- **What the live answers look like:** raw 16-bit PCM (`audio/l16; rate=24000; channels=1`, with `sample_rate`
+  and `channels` fields), `status: completed`, no finish reason at all, no interaction id with `store: false`;
+  word timings as `word_info` annotations in 0.1 s steps (`"3s"`, `"0.100s"`); transcription bills audio input
+  at 25 tokens a second and reports no output tokens. The fake server in the tests now answers the same way.
+- **Tests:** 71 (the gate 2 windows, the live Bangla transcript's joins, digits and spellings, the new prices).
+
 ## 2026.09.25.1 · first release
 
 Built from the Gemini TTS research of 2026-09-25 (`references/research-notes.md`), offline, with no key.

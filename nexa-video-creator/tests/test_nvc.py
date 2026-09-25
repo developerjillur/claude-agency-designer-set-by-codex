@@ -18,6 +18,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
+import nvc_dsp  # noqa: E402  (snap needs no numpy)
 import nvc_plan as P  # noqa: E402
 
 PRESETS = json.loads((SCRIPTS / "presets.json").read_text())
@@ -139,6 +140,13 @@ class PlanRules(unittest.TestCase):
         plan["overlays"][0]["props"]["value"] = "72%"
         rep = compile_(plan, self.words)["report"]
         self.assertTrue(any("72" in r for r in rep["review"]), rep["review"])
+        # a hook placed at the start may show a number the speaker says later in the edit
+        plan["overlays"] = [{"type": "hook", "at": "start", "seconds": 3, "props": {"text": "62% faster"}}]
+        rep = compile_(plan, self.words)["report"]
+        self.assertEqual(rep["review"], [])
+        plan["overlays"][0]["props"]["text"] = "80% faster"
+        rep = compile_(plan, self.words)["report"]
+        self.assertTrue(any("80" in r and "anywhere in the edit" in r for r in rep["review"]), rep["review"])
 
     def test_overlay_gets_its_reading_time_and_slots_do_not_collide(self):
         plan = base_plan(self.words)
@@ -326,6 +334,68 @@ def tone_speech(path, bursts, duration, rate=48000, delay=0.0, noise=0.0):
 
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg is not installed")
+class Snapping(unittest.TestCase):
+    """Word edges moved to the measured pauses (nvc_dsp.snap)."""
+
+    @staticmethod
+    def words(*items):
+        return [{"text": t, "start": a, "end": b} for t, a, b in items]
+
+    def test_a_breath_in_a_pause_never_becomes_a_word(self):
+        # the first live Bangla test (2026-09-25): a breath at 2.60 to 2.74 s between two sentences; the old rule
+        # put আজ on the breath and দেখাবো on আজ
+        w = self.words(("আছেন?", 1.8, 2.1), ("আজ", 3.0, 3.3), ("দেখাবো", 3.3, 3.7), ("ক্যামেরার", 3.7, 4.2))
+        runs = [[1.21, 2.12], [2.6, 2.74], [3.03, 3.71], [3.83, 5.84]]
+        out = nvc_dsp.snap(w, runs)
+        self.assertEqual((out[0]["end"], out[1]["start"]), (2.12, 3.03))
+        self.assertEqual(out[0]["pause_after"], 0.91)                  # the breath is inside the pause
+        self.assertEqual((out[2]["end"], out[3]["start"]), (3.71, 3.83))
+
+    def test_a_short_word_between_two_pauses_keeps_both(self):
+        w = self.words(("so", 0.0, 1.0), ("and", 1.2, 1.35), ("then", 1.6, 2.5))
+        out = nvc_dsp.snap(w, [[0.0, 1.02], [1.18, 1.36], [1.58, 2.5]])
+        self.assertEqual([(x["start"], x["end"]) for x in out], [(0.0, 1.02), (1.18, 1.36), (1.58, 2.5)])
+
+    def test_the_first_word_skips_a_breath_before_it(self):
+        w = self.words(("hello", 0.9, 1.3), ("there", 1.3, 1.8))
+        out = nvc_dsp.snap(w, [[0.3, 0.45], [0.88, 1.82]])
+        self.assertEqual((out[0]["start"], out[-1]["end"]), (0.88, 1.82))
+
+
+class BanglaDigits(unittest.TestCase):
+    def test_numbers_in_bangla_speech_use_bengali_digits(self):
+        sys.path.insert(0, str(SCRIPTS))
+        import nvc
+        words = [{"text": t, "start": i, "end": i + 0.5} for i, t in enumerate(
+            ["কিভাবে", "10", "সেকেন্ডে", "মাসে", "500", "টাকার", "নতুন", "iPhone", "15", "কিনুন", "4K"])]
+        got = [w["text"] for w in nvc.bangla_digits(words)]
+        self.assertEqual(got, ["কিভাবে", "১০", "সেকেন্ডে", "মাসে", "৫০০", "টাকার", "নতুন", "iPhone", "15", "কিনুন",
+                               "4K"])
+        self.assertEqual(words[1]["text"], "10")                      # the input is left alone
+
+
+class SpeechImport(unittest.TestCase):
+    def test_a_bangla_voice_over_keeps_its_language(self):
+        # nexa-speech keeps the language per profile; the first live run labelled a Bangla voice-over "en"
+        sys.path.insert(0, str(SCRIPTS))
+        import nvc
+        with tempfile.TemporaryDirectory() as tmp:
+            d, vo = Path(tmp) / "job", Path(tmp) / "vo" / "vo_48k.wav"
+            (d / "analysis").mkdir(parents=True)
+            vo.parent.mkdir()
+            (vo.parent / "words.json").write_text(json.dumps(
+                [{"w": "আসসালামু", "start": 0.1, "end": 0.47}, {"w": "আলাইকুম,", "start": 0.47, "end": 0.8}]),
+                encoding="utf-8")
+            (vo.parent / "vo.manifest.json").write_text(json.dumps(
+                {"schema": "nexa-speech/manifest-1", "main_profile": "bn-test",
+                 "profiles": {"bn-test": {"model": "gemini-3.8-flash-tts", "language": "bn-BD"}}}),
+                encoding="utf-8")
+            self.assertEqual(nvc.import_speech_words(d, vo, "vo", "en"), 2)
+            words = json.loads((d / "analysis" / "words.json").read_text(encoding="utf-8"))
+            self.assertEqual(words["language"], "bn")
+            self.assertEqual([w["id"] for w in words["words"]], ["w0001", "w0002"])
+
+
 class Pipeline(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

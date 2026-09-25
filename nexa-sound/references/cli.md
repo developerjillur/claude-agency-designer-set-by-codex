@@ -34,7 +34,8 @@ the output folder; `--project DIR` puts it in `DIR/ledger.jsonl`.
  "units": 1, "est_usd": 0.04, "key_source": "GEMINI_API_KEY", "status": "ok", "id": "ns_2026-09-25_1341_corporate_a"}
 ```
 
-`status` is `ok`, `empty` (the call answered without audio; it may still be billed) or `failed` (logged at $0, except
+`status` is `ok`, `empty` (the call answered without audio; it may still be billed), `blocked` (a finished track
+Google blocked, logged at $0 and made once more) or `failed` (logged at $0, except
 a timeout, which may have been billed). `key_source` is the variable's name, never the key.
 
 ## doctor
@@ -119,15 +120,18 @@ section after the first; density and brightness rise with the section's intensit
 
 | Mode | Model | What comes back | Price |
 |---|---|---|---|
-| `--draft N` (1 to 10) | `lyria-3-clip-preview` | always 30 s, MP3 | $0.04 a take |
-| `--final` (`--takes` 1 to 3) | `lyria-3.5` | WAV is asked for (`response_format` audio/wav); whatever comes back is kept (RIFF is checked; MP3 is fine) | $0.08 a take |
+| `--draft N` (1 to 10) | `lyria-3-clip-preview` | about 25 to 30 s, MP3 (25.6 s on 2026-09-25) | $0.04 a take |
+| `--final` (`--takes` 1 to 3) | `lyria-3.5` | MP3, 44.1 kHz stereo, 192 kbps; the length is loose (64 s for an 18 s request) | $0.08 a take |
 | `--realtime` | `lyria-realtime-exp` | the video length plus 3 s, 48 kHz 16-bit stereo WAV | free for now |
 
-Request (Interactions API, timeout 600 s): `{"model", "input": PROMPT or [text block, image blocks], "store": false}`
-plus `response_format` for finals. Takes run in parallel, at most 3 at a time. If Google rejects the WAV request as a
-bad request about the format, the take is asked for once more without it (noted in the sidecar). A safety block, a
-bad request or a daily quota is never retried; a per-minute quota or a server error waits and retries up to 3 times
-on the same key (the shared `gemini_api` module).
+Request (Interactions API, timeout 600 s): `{"model", "input": PROMPT or [text block, image blocks], "store": false}`.
+No `response_format`: on 2026-09-25 the live API refused audio/wav and audio/l16 for lyria-3.5 ("Audio MIME type
+AUDIO_WAV is not supported"). Takes run in parallel, at most 3 at a time; each id is reserved with a lock file, so a
+draft and a final started in the same minute never share a name. A track Google blocks after generating it (seconds
+of work, then "Request blocked for an unspecified policy reason") is made once more: the same prompt passed, was
+blocked and passed again within 8 minutes on 2026-09-25. A prompt blocked at once, a bad request or a daily quota is
+never retried; a per-minute quota or a server error waits and retries up to 3 times on the same key (the shared
+`gemini_api` module).
 
 `--images`: up to 10 images (JPEG, PNG, WebP; other formats and files over 1.5 MB are turned into a 1280 px JPEG
 first) sent with the prompt to steer the mood.
@@ -147,7 +151,7 @@ The sidecar (schema `nexa-sound/track-1`), fields that cannot be filled are left
  "provider": {"api": "gemini-api", "endpoint": "POST /v1beta/interactions", "model": "lyria-3.5", "stage": "GA",
               "interaction_id": "interactions/...", "store": false, "key_var_used": "GEMINI_API_KEY"},
  "request": {"prompt": "Create a 62-second ...", "lyrics": null, "images": [], "realtime": null, "seed": null,
-             "response_format": {"type": "audio", "mime_type": "audio/wav"}, "requested_duration_s": 62,
+             "response_format": null, "requested_duration_s": 62,
              "brief": {"mood": "corporate", "bpm": 104.0, "key": "C major", "vocals": false, "sections": []}},
  "response": {"text_parts": ["[[A0]] [[B1]] [[C2]]"], "timed_lines": [], "section_labels": ["A0", "B1", "C2"],
               "vocals_suspected": false, "filtered": false, "latency_s": 41.2, "cost_usd_est": 0.08},
@@ -202,8 +206,12 @@ time; they may not change `bpm` or `scale` (that needs a context reset, a hard c
 Fits a track to the picture, to the sample (a result more than 50 ms off stops with an error). BPM comes from
 `--bpm`, else the track's sidecar; the ending style from the sidecar's brief or `--brief`.
 
-1. Resample to 48 kHz 24-bit (`aresample=48000:filter_size=64:phase_shift=10:cutoff=0.97`).
-2. The beat grid (`beats.py`) and, per beat, the energy in three bands (under 250 Hz, 250 Hz to 2 kHz, over 2 kHz).
+1. Resample to 48 kHz (`aresample=48000:filter_size=64:phase_shift=10:cutoff=0.97`) in 32-bit float through a 5 Hz
+   high-pass (Lyria takes carry a 0.5 to 0.7 % DC offset, which clicks at every cut), with a gain that leaves 1 dB
+   of headroom when the source peaks above -1 dBFS (Lyria MP3s decode to +0.8 dBFS, which a 24-bit file would
+   clip). The report lists both as `dc_block` and `gain` ops; the output is 24-bit.
+2. The beat grid (`beats.py`, with the brief's BPM) and, per beat, the energy in three bands (under 250 Hz, 250 Hz
+   to 2 kHz, over 2 kHz).
 3. With `--cuts`: the start moves by up to 2 s either way (skip the head, or start the music later) to put the most
    weighted cuts within 80 ms of a downbeat. It stays put unless that lands more cuts or brings them clearly closer.
 4. Shorter: remove whole bars from the middle where bar a+m sounds like bar a (and bar a+m-1 like bar a-1), keeping
@@ -343,6 +351,9 @@ strictly increasing) and `<out>.json` (schema `nexa-sound/duck-1`). In Remotion:
 `mix [--dialogue F] [--voice F] [--music F] [--sfx F] [--speech F] --platform P [--duck -14] [--music-under 20]
 [--duration S] --out FILE`
 
+The mix is as long as the dialogue or voice-over (else the longest input); give `--duration` with the video's
+length when the music runs on after the last word, or its ending is cut (a warning says so).
+
 1. Dialogue and voice-over are the anchor: each is set to -20 LUFS integrated (mono is measured and played as dual
    mono).
 2. Speech spans from `--speech`, else `silencedetect` on the speech stems.
@@ -383,12 +394,12 @@ marked warn):
 | clipping | a run of over 10 samples at full scale, or flat tops at the peak level (astats flat factor 20 dB) | same | same |
 | loudness | LRA over 8 LU for a bed under speech (warn otherwise) | | -14 (target) +-1 LU, true peak at or under the target +0.1 |
 | normalization | | | linear in `mix.json` |
-| DC offset | over 0.5 % | same | same |
+| DC offset | over 0.5 % (on a Lyria original, warn up to 2 %: fit and loop remove it) | same | same |
 | mono fold-down | over 3 LU lost when L and R are summed | | same |
 | silences | 0.75 s or more under -50 dB inside the body | | warn |
 | lead-in | warn over 0.3 s | | warn |
 | ending | the last 50 ms above -35 dBFS without 6 dB of decay | | |
-| tempo | over 4 % from the brief (half and double allowed) | | |
+| tempo | over 4 % from the brief (half and double allowed; the grid is read with the brief's BPM) | | |
 | vocals | timed lyric lines in an instrumental | | |
 | peak, tail, attack | | peak over -0.5 dBFS; last 20 ms over -50 dBFS; attack after 0.3 s (warn) | |
 
@@ -429,4 +440,7 @@ and spend by model and status; with counts, an estimate. Prices: `lyria-3.5` $0.
 ## beats.py
 
 `python3 beats.py TRACK [--bpm N] [--json]`: `{"bpm", "period_s", "bar_s", "beats", "downbeats",
-"first_downbeat_s", "confidence", "downbeat_confidence", "fine_shift_ms", "duration_s"}`. 4/4 is assumed.
+"first_downbeat_s", "confidence", "downbeat_confidence", "fine_shift_ms", "duration_s"}`. 4/4 is assumed. With
+`--bpm`, a tempo 3:4 or 2:3 from the autocorrelation's pick that lies within 8 % of the request wins when its
+sixteenth grid explains the gaps between the strong onsets at least 0.08 better: dotted-eighth kicks and arpeggios
+made a real Lyria take at 110 BPM read as 146.7.

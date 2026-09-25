@@ -129,20 +129,28 @@ research or for the build: everything about the API below is what Google's pages
   human-made to deceive [S37].
 - Free-tier content may be used to improve Google's products; paid-tier content is not [S6].
 
+## Checked on the live API (2026-09-25)
+
+- The 3.8 answer: `steps[].content[]` audio blocks with `data`, `mime_type` (`audio/l16; rate=24000; channels=1`),
+  `sample_rate` and `channels`; raw PCM; `status: completed`; no finish reason anywhere; no `id` with
+  `store: false`; `usage.total_output_tokens` at 32 a second of audio (77 for 2.4 s, 214 for 6.7 s).
+- The transcription answer: one text block with `word_info` annotations (`start_offset` and `end_offset` such as
+  `"3s"` and `"0.100s"`, 0.1 s steps; `start_index` and `end_index` are UTF-8 byte offsets); audio in at 25
+  tokens a second, no output tokens. With `language_codes: ["bn-BD"]` it split আসসালামু আলাইকুম into two words;
+  without codes it joined them. Both wrote 10 and 500 for spoken দশ and পাঁচশো.
+- 3.8 Flash's pace: Iapetus (English) and Sadaltager (Bangla) spoke 2 to 39 % faster than the presets' words per
+  minute suggest (voiced time), every word present.
+
 ## Unverified (test on the first real run)
 
-- The Interactions request and answer shapes used here: the audio block (`steps[].content[]` with `data`,
-  `mime_type`, `sample_rate`), where a finish reason appears, and the `usage` field names.
 - Whether `speech_config[].language` accepts `bn-BD`, and whether voice design accepts `language_code: "bn-BD"`
   (fall back to `bn-IN` if not); the `gender` value format; the design answer (`id`, `expire_time`, `sample_audio`)
   and which life a designed voice really has (1 year or 7 days).
 - The voice library's query parameter and field names.
-- The transcription answer (`word_info` annotations with `start_offset` and `end_offset`), as read by the shared
-  `gemini_api.py`.
 - Whether 3.8 honours `speech_metadata` in batch, and whether batch and interactive sound the same (this tool renders
   interactively only).
 - Whether TTS answers can carry their own word timings; whether chaining requests improves continuity; whether a seed
-  gives any repeatability on 3.8; the 3.8 rate limits per project; the real audio tokens per second in `usage`.
+  gives any repeatability on 3.8; the 3.8 rate limits per project.
 - Bangla with English words in Latin script, against all-Bengali and Romanized input: needs a native listen and a CER
   check.
 - The Bangla number words beyond the 0 to 99 table given in the spec (hundreds, years, ordinals, times) and the

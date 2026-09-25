@@ -5,7 +5,10 @@
    beating chords do not ripple into false onsets); onset strength is the positive part of its first difference.
 3. Tempo: autocorrelation of the onset strength over 60 to 200 BPM, weighted by a Gaussian (in octaves) around the
    BPM the brief asked for (Lyria follows the requested tempo closely), so half and double tempo resolve toward the
-   request. Without a request the weight is a wide one around 120 BPM.
+   request. Without a request the weight is a wide one around 120 BPM. Syncopation can still win the
+   autocorrelation: a Lyria take at 110 BPM with its kicks and arpeggios in dotted eighths (3 sixteenths apart)
+   read as 146.7 BPM (4/3 of the tempo). So when a tempo related by 3:4 or 2:3 lies near the request, the one whose
+   sixteenth grid explains the gaps between the strong onsets clearly better wins.
 4. Beat phase: a comb sum of onset strength at phase + k x period over the whole track (2 frames either side), the
    best phase wins; the period is refined on the same comb, then by a least-squares line through the matched onsets.
 5. Downbeat: of the 4 possible bar phases, the one with the most low-band (kick) onset on its beats.
@@ -113,7 +116,63 @@ def tempo(onset, bpm_hint=None):
     best = max((lag for lag in ac if lo <= lag <= hi), key=lambda lag: max(ac[lag], 0.0) * weight(lag))
     lags = sorted(ac)
     ys = [ac[k] for k in lags]
-    return _parabolic(ys, lags.index(best)) + lags[0], ac
+    period = _parabolic(ys, lags.index(best)) + lags[0]
+    if bpm_hint:
+        period = _resolve_related(onset, ac, lags, ys, period, float(bpm_hint))
+    return period, ac
+
+
+RELATED = (0.75, 4.0 / 3.0, 2.0 / 3.0, 1.5)   # tempo ratios that syncopation confuses (octaves are the prior's job)
+
+
+def strong_onsets(onset, frac=0.15, r=2):
+    """Frames of the strong onsets: local maxima (2 frames either side) of at least `frac` of the strongest."""
+    top = max(onset) if onset else 0.0
+    if top <= 0:
+        return []
+    thr = frac * top
+    return [i for i in range(r, len(onset) - r) if onset[i] >= thr and onset[i] == max(onset[i - r:i + r + 1])]
+
+
+def sixteenth_fit(peaks, period, sub=4, tol=0.25):
+    """(share, count) of the gaps between neighbouring strong onsets that come within `tol` of a whole number of
+    sixteenths of this beat period. The tolerance scales with the step, so a finer grid gains nothing by chance."""
+    step = period / float(sub)
+    n = hit = 0
+    for a, b in zip(peaks, peaks[1:]):
+        k = (b - a) / step
+        if k < 0.5:
+            continue
+        n += 1
+        if abs(k - round(k)) <= tol:
+            hit += 1
+    return (hit / float(n) if n else 0.0), n
+
+
+def _resolve_related(onset, ac, lags, ys, period, hint):
+    """Move to a tempo 3:4 or 2:3 away from the autocorrelation's pick when it lies within 8 % of the request (or
+    its half or double) and its sixteenth grid fits the strong onsets at least 0.08 better. Needs 12 gaps."""
+    peaks = strong_onsets(onset)
+    base, n = sixteenth_fit(peaks, period)
+    if n < 12:
+        return period
+    options = []
+    for r in RELATED:
+        bpm = 60.0 * FPS / period * r
+        if not BPM_MIN <= bpm <= BPM_MAX:
+            continue
+        if min(abs(math.log2(bpm / (hint * m))) for m in (0.5, 1.0, 2.0)) > math.log2(1.08):
+            continue
+        want = period / r
+        near = [k for k in lags if abs(k - want) <= 0.04 * want]
+        if not near:
+            continue
+        top = max(near, key=lambda k: ac[k])
+        cand = _parabolic(ys, lags.index(top)) + lags[0]
+        share, _ = sixteenth_fit(peaks, cand)
+        if share >= base + 0.08:
+            options.append((share, -abs(math.log2(60.0 * FPS / cand / hint)), cand))
+    return max(options)[2] if options else period
 
 
 def _comb(omax, period, phase):

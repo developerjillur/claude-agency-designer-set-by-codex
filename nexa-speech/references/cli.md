@@ -247,8 +247,10 @@ files in `DIR/work/` are removed afterwards.
   150 ms) within 150 ms.
 - `gemini`: one `gemini-3.5-transcribe` call on a 16 kHz copy of `vo_48k.wav` with word timestamps; the recognised
   words are matched to the spoken words with `difflib.SequenceMatcher` on normalised tokens (lower case, punctuation
-  stripped, Bengali digits folded, numbers spelled out), the display words carried over, and unmatched words placed
-  between their matched neighbours in the same sentence.
+  stripped, Bengali digits folded, numbers spelled out in the language around them, so a heard "10" in Bangla is
+  দশ; ী and ি, ূ and ু and a final ো folded). Between two matched stretches, words joined or split differently
+  (আসসালামু আলাইকুম heard as one word) share the heard time by length and alike words pair one to one; the display
+  words are carried over, and what is left is placed between its matched neighbours in the same sentence.
 
 Writes `words.json`, `sentences.json`, `vo.srt`, `vo.vtt` and `align.json`. Captions: one sentence at a time, split
 into the fewest cues that fit, of even length, breaking after punctuation where it helps, never a one-word cue left
@@ -268,7 +270,8 @@ again. `master` keeps applying `fit.json` while the script is unchanged; delete 
 ### cost
 
 `cost [--minutes 10] [--model M]`: the estimate for that many minutes on each model (or one): interactive, batch or
-flex (for reference), from 2027-01-01, with 1.4x takes, with word timings, and a likely bill at 1.5x.
+flex (for reference), from 2027-01-01, with 1.4x takes, with word timings, and a likely bill at 1.2x (32 audio
+tokens a second, as the live usage showed).
 `cost DIR`: the ledger's calls by model, their estimates, dollars from the `usage` the API reported where it gave
 token counts, and requests per day (Pacific, when the daily quota resets).
 
@@ -277,7 +280,7 @@ token counts, and requests per day (Pacific, when the daily quota resets).
 | Gate | Check | On failure |
 |---|---|---|
 | 1 | audio present; finish reason STOP or none and status completed or none (`OTHER`, `MAX_TOKENS` and the like count as truncated); no WAV inside the WAV | re-roll (a refusal: reported, no re-roll) |
-| 2 | voiced seconds (between the first and last sound, less pauses of 150 ms or more) against words at the reference pace: 0.80 to 1.25 passes; skipped under 4 words | re-roll |
+| 2 | voiced seconds (between the first and last sound, less pauses of 150 ms or more) against words at the reference pace: 0.80 to 1.25 passes once the pace is measured (3 chunks of this project, `calibration.json` or the profile), 0.65 to 1.50 against a preset's guess; skipped under 4 words | re-roll |
 | 3 | lead-in under 20 ms; a click (the first 5 ms peak over 4x the next 50 ms); noise after the last word (the last 300 ms steady, above -50 dBFS, median spectral flatness 0.4 or more) | flag, fixed in `master` |
 | 4 | `--asr` only: WER over 3% (English) or CER over 5% (Bangla); words missing or extra at the end; style or tag words heard that the script does not have; a lexicon term not heard | re-roll |
 | 5 | from 5 chunks of the same profile with 3 s or more of voice: speaking rate beyond 12% of the median, loudness beyond 4 LU of the median (up to that it is only gain-matched), spectral centroid beyond 2 SD of the mean (the SD taken as at least 5% of the mean) | re-roll |
@@ -392,7 +395,13 @@ rules used.
 `design.json`: the model, description, gender, language and each voice (`id`, `expire_time`, `sample`).
 `audition.json`: the text, the estimate, and per voice the file, master key, duration and loudness.
 
-## Requests (exact, from the Gemini docs of 2026-09-24; untested against the real API)
+## Requests (exact; the 3.8 request and `gemini-3.5-transcribe` checked on the live API, 2026-09-25)
+
+The live 3.8 answer: `{"status": "completed", "steps": [{"type": "model_output", "content": [{"type": "audio",
+"data", "mime_type": "audio/l16; rate=24000; channels=1", "sample_rate": 24000, "channels": 1}]}], "usage": {...}}`:
+raw PCM, no finish reason, no `id` with `store: false`, and `total_output_tokens` at 32 a second. The transcription
+answer is one text block whose `annotations` are `word_info` items (`text`, `start_offset` and `end_offset` such as
+`"3s"` or `"0.100s"`, in 0.1 s steps); its usage counts the audio in at 25 tokens a second and no output tokens.
 
 3.8 (`speech_metadata`), `POST /v1beta/interactions`:
 

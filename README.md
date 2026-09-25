@@ -174,7 +174,7 @@ nexa-speech/      voice-overs: scripts/speech.py, voices and presets, references
   fictional sample brand and say so in their metadata (IPTC DigitalSourceType trainedAlgorithmicMedia).
 - The sample brand's fonts are open-licensed (SIL OFL 1.1); see `codex-design/templates/sample-brand/fonts/`.
 - `nexa-speech` and `nexa-sound` call the Gemini API with your key and cost money per call (a 10-minute voice-over is
-  about $0.14 to $0.24 on Gemini 3.8 Flash TTS, a Lyria 3.5 track $0.08; September 2026 prices). Every call is
+  about $0.17 to $0.25 on Gemini 3.8 Flash TTS, a Lyria 3.5 track $0.08; September 2026 prices). Every call is
   estimated first, logged in the job's `ledger.jsonl`, and stopped by a budget guard. Use a key from a project with
   billing turned on: on the free tier Google may use what you send to improve its products.
 - Lyria music and Gemini voices carry Google's SynthID watermark; the tools keep it and never try to remove it. Lyria

@@ -48,7 +48,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gemini_api as G  # noqa: E402  (shared by the nexa skills: never edit it here)
 
-SKILL_VERSION = "2026.09.25.1"
+SKILL_VERSION = "2026.09.25.2"
 PRICES_AS_OF = "2026-09-25"
 ANALYSIS_VERSION = "2026.09.25.1"   # bump when what analyse_audio() returns changes
 SCRIPTS = Path(__file__).resolve().parent
@@ -72,10 +72,11 @@ MODELS = {
     "gemini-2.5-pro-preview-tts": {"family": "director_text", "status": "legacy preview",
                                    "audio": [(None, 20.00)], "text": [(None, 1.00)]},
 }
-AUDIO_TOKENS_PER_S = 25          # audio output tokens per second of speech
+AUDIO_TOKENS_PER_S = 32          # audio output tokens per second of speech (usage on the live API, 2026-09-25)
 TEXT_CHARS_PER_TOKEN = 3.0       # a rough count for the text input line, which is under 1% of the bill
 BATCH_FACTOR = 0.5               # batch and flex cost half (shown for reference; this tool renders interactively)
-BILL_FACTOR = 1.5                # one public test (2026-09-23) was billed about 1.5x the token arithmetic
+BILL_FACTOR = 1.2                # a public test (2026-09-23) was billed 1.5x the arithmetic at 25 tokens a second;
+                                 # 32 a second (measured) explains 1.28x of that, so about 1.2x is left
 RETAKE_FACTOR = 1.4              # typical extra takes
 TRANSCRIBE_MODEL = "gemini-3.5-transcribe"
 TRANSCRIBE_USD_PER_MIN = 0.003 + 0.002   # audio in plus text out, per minute of audio
@@ -105,6 +106,10 @@ DEFAULT_POST = {"highpass_hz": 70, "deess": 0, "room_tone": "pink", "room_tone_d
 DEFAULT_TAKES = {"default": 1, "hero": 3, "max_auto_reroll": 1}
 BN_MAX_WORDS = 124               # Bangla ceiling per request, measured in an earlier production pipeline
 PAUSE_SHARE = 0.10               # starting guess: share of a chunk spent in pauses of 150 ms or more
+GATE2_WINDOW = (0.80, 1.25)      # voiced time against the words at the measured pace
+GATE2_WINDOW_PRESET = (0.65, 1.50)   # against a preset's guess: on the live API (2026-09-25) 3.8 Flash TTS spoke
+                                     # 2 to 39 % faster than the presets in English and Bangla, and every chunk
+                                     # was complete; whole missing sentences still fall under 0.65
 INNER_PAUSE_S = 0.35             # estimate of the pause between two sentences inside one request
 TAG_SECONDS = {"short pause": 0.25, "long pause": 1.0}
 OTHER_TAG_S = 0.4
@@ -1960,7 +1965,7 @@ def references(plan: dict, state: dict, metrics: dict, calib: dict) -> dict:
             wps, source = statistics.median(rates), f"this project (median of {len(rates)} chunks)"
         else:
             wps, source = articulation_wps(p, calib)
-        ref = {"wps": wps, "wps_source": source, "drift": None}
+        ref = {"wps": wps, "wps_source": source, "drift": None, "calibrated": not source.startswith("preset")}
         long_items = [(ch, m) for ch, m in items if m["voiced_s"] >= 3.0 and ch["n_words"] >= 4]
         if len(long_items) >= 5:
             r = [ch["n_words"] / m["voiced_s"] for ch, m in long_items]
@@ -2002,9 +2007,11 @@ def evaluate(ch: dict, rec: dict, m: dict, ref: dict, asr: dict = None) -> dict:
         if ch["n_words"] >= 4 and m["voiced_s"] >= 0.8:
             expected = ch["n_words"] / ref["wps"]
             ratio = m["voiced_s"] / expected
-            if ratio < 0.80 or ratio > 1.25:
+            lo, hi = GATE2_WINDOW if ref.get("calibrated", True) else GATE2_WINDOW_PRESET
+            if ratio < lo or ratio > hi:
                 fails.append(f"gate 2: duration ratio {ratio:.2f} (voiced {m['voiced_s']:.1f} s against about "
-                             f"{expected:.1f} s expected; 0.80 to 1.25 passes)")
+                             f"{expected:.1f} s expected; {lo:.2f} to {hi:.2f} passes"
+                             + ("" if ref.get("calibrated", True) else " until the voice's pace is measured") + ")")
                 why.add("duration")
                 gates["2"] = "fail"
             else:
@@ -2068,7 +2075,8 @@ def evaluate(ch: dict, rec: dict, m: dict, ref: dict, asr: dict = None) -> dict:
     return {"result": result, "fails": fails, "flags": flags, "gates": gates, "score": round(score, 3),
             "reroll": bool(why & RE_ROLLABLE) and fc != "blocked",
             "measures": {"ratio": rnd(ratio), "rate_dev": rnd(rate_dev), "loudness_dev": rnd(loud_dev),
-                         "centroid_z": rnd(cen_z), "wps_ref": rnd(ref["wps"]), "wps_source": ref["wps_source"]}}
+                         "centroid_z": rnd(cen_z), "wps_ref": rnd(ref["wps"]), "wps_source": ref["wps_source"],
+                         "gate2_window": list(GATE2_WINDOW if ref.get("calibrated", True) else GATE2_WINDOW_PRESET)}}
 
 
 # ------------------------------------------------------------------------------------------------ ASR check (gate 4)
@@ -2923,16 +2931,8 @@ def align_gemini(project: Path, plan: dict, manifest: dict, budget: float) -> tu
             toks = norm_tokens(w["sp"] or w["w"], is_bn(w["sp"] or w["w"])) or [""]
             for t in toks:
                 script.append({"tok": t, "sent": idx, "wi": wi, "word": w, "s": s})
-    hyp = []
-    for w in asr_words:
-        for t in norm_tokens(w.get("text") or "", is_bn(w.get("text") or "")) or []:
-            hyp.append({"tok": t, "start": w["start"], "end": w["end"] if w.get("end") is not None else w["start"]})
-    sm = difflib.SequenceMatcher(a=[x["tok"] for x in script], b=[x["tok"] for x in hyp], autojunk=False)
-    matched = 0
-    for bk in sm.get_matching_blocks():
-        for k in range(bk.size):
-            script[bk.a + k]["t"] = (hyp[bk.b + k]["start"], hyp[bk.b + k]["end"])
-            matched += 1
+    hyp = heard_tokens(asr_words, bn)
+    matched, close = place_tokens(script, hyp)
     # unmatched tokens: between the neighbours, inside their sentence
     for i, x in enumerate(script):
         if "t" in x:
@@ -2962,8 +2962,83 @@ def align_gemini(project: Path, plan: dict, manifest: dict, budget: float) -> tu
         sents_out.append({"index": idx, "scene": s["scene"], "chunk": s["chunk"], "text": s["text"], "start": a,
                           "end": b})
     return words_out, sents_out, {"engine": "gemini", "model": TRANSCRIBE_MODEL, "asr_words": len(asr_words),
-                                  "script_tokens": len(script), "matched": matched,
-                                  "matched_share": round(matched / max(1, len(script)), 3), "est_usd": round(est, 5)}
+                                  "script_tokens": len(script), "matched": matched, "close": close,
+                                  "matched_share": round((matched + close) / max(1, len(script)), 3),
+                                  "est_usd": round(est, 5)}
+
+
+def heard_tokens(asr_words: list, bn: bool) -> list:
+    """The recognised words as normalised tokens with their times. Digits are read in the language around them:
+    Gemini writes "10" inside Bangla speech that said দশ, and "15" after "iPhone" is fifteen."""
+    hyp = []
+    texts = [w.get("text") or "" for w in asr_words]
+    for i, w in enumerate(asr_words):
+        bn_w = is_bn(texts[i]) or (bn and not re.search(r"[A-Za-z]", texts[i]) and any(
+            is_bn(texts[j]) for j in (i - 1, i + 1) if 0 <= j < len(texts)))
+        for t in norm_tokens(texts[i], bn_w) or []:
+            hyp.append({"tok": t, "start": w["start"], "end": w["end"] if w.get("end") is not None else w["start"]})
+    return hyp
+
+
+def place_tokens(script: list, hyp: list) -> tuple:
+    """Give each script token ("tok") the time ("t") of the heard token it matches. Returns (exact matches,
+    close ones: joined, split or spelled differently); tokens left without "t" are placed by the caller."""
+    a_keys = [match_key(x["tok"]) for x in script]
+    b_keys = [match_key(x["tok"]) for x in hyp]
+    matched = close = 0
+    for tag, a1, a2, b1, b2 in difflib.SequenceMatcher(a=a_keys, b=b_keys, autojunk=False).get_opcodes():
+        if tag == "equal":
+            for k in range(a2 - a1):
+                script[a1 + k]["t"] = (hyp[b1 + k]["start"], hyp[b1 + k]["end"])
+                matched += 1
+        elif tag == "replace":
+            close += fill_replaced(script[a1:a2], hyp[b1:b2], a_keys[a1:a2], b_keys[b1:b2])
+    return matched, close
+
+
+BN_SPELLING_FOLD = str.maketrans({"\u09c0": "\u09bf", "\u09c2": "\u09c1"})   # ী as ি, ূ as ু
+
+
+def match_key(tok: str) -> str:
+    """A token as the aligner compares it: the Bangla spellings that the script and the ASR often write
+    differently are folded (কীভাবে and কিভাবে, দেখাবো and দেখাব)."""
+    key = tok.translate(BN_SPELLING_FOLD)
+    return key[:-1] if len(key) > 2 and key.endswith("\u09cb") else key
+
+
+def _share_span(xs: list, start: float, end: float) -> None:
+    lens = [max(1, len(x["tok"])) for x in xs]
+    t, total = start, float(sum(lens))
+    for x, n in zip(xs, lens):
+        d = (end - start) * n / total
+        x["t"] = (t, t + d)
+        t += d
+
+
+def fill_replaced(xs: list, hs: list, ak: list, bk: list) -> int:
+    """Script tokens and heard tokens that differ between two matched stretches. Words joined or split
+    differently (আসসালামু আলাইকুম heard as আসসালামুআলাইকুম) take the heard time, shared by length; where both
+    sides have the same number of tokens left, alike words (60 % of their letters) pair one to one. Returns the
+    number of script tokens placed; the rest are placed between their neighbours."""
+    placed = i = j = 0
+    while i < len(xs) and j < len(hs):
+        a, b, ii, jj = ak[i], bk[j], i + 1, j + 1
+        while a != b:
+            if len(a) < len(b) and ii < len(xs) and b.startswith(a):
+                a, ii = a + ak[ii], ii + 1
+            elif len(b) < len(a) and jj < len(hs) and a.startswith(b):
+                b, jj = b + bk[jj], jj + 1
+            else:
+                break
+        if a == b:
+            _share_span(xs[i:ii], hs[j]["start"], hs[jj - 1]["end"])
+            placed, i, j = placed + (ii - i), ii, jj
+        elif len(xs) - i == len(hs) - j and difflib.SequenceMatcher(a=ak[i], b=bk[j]).ratio() >= 0.6:
+            xs[i]["t"] = (hs[j]["start"], hs[j]["end"])
+            placed, i, j = placed + 1, i + 1, j + 1
+        else:
+            break
+    return placed
 
 
 BREAK_AFTER = tuple(",;:.!?\u0964\u0965\u2026)") + ("\u2014", "\u2013")
@@ -3464,8 +3539,10 @@ def cmd_align(args) -> None:
     if fast:
         lines.append(f"cues over 20 characters a second (fast speech, no room to hold them longer): {fast[:12]}")
     if info.get("matched_share") is not None:
-        lines.append(f"ASR matched {info['matched_share'] * 100:.0f}% of the script tokens; the rest are placed "
-                     "between their neighbours")
+        share = info["matched_share"]
+        lines.append(f"ASR matched {share * 100:.0f}% of the script tokens"
+                     + (f" ({info['close']} of them joined, split or spelled differently)" if info.get("close") else "")
+                     + ("; the rest are placed between their neighbours" if share < 1.0 else ""))
     emit(args, {"ok": True, "engine": engine, "info": info, "words": str(project / "words.json"),
                 "sentences": str(project / "sentences.json"), "srt": str(srt), "vtt": str(vtt), "cues": len(cues),
                 "fast_cues": fast}, lines)

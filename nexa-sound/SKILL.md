@@ -64,6 +64,8 @@ takes. Run anything that calls Lyria with Bash `run_in_background: true`: a fina
 - **Effects:** few, and each on a visible event. Hits, clicks and pops land their attack on the frame; a whoosh's
   peak lands 1.5 frames before the cut (`--fps`); a riser's climax lands on the cut. Prefer the synthesiser.
 - **RealTime beds and Clip drafts end abruptly** (a stream, a 30 s cut): always `fit` them before use.
+- **Lengths are loose.** Lyria 3.5 made 64 s for an 18 s request and the Clip 25.6 s (2026-09-25): ask for what the
+  video needs and let `fit` cut it; both come as MP3 only (44.1 kHz, 192 kbps, a C2PA manifest in the ID3 tag).
 - **Clean-up** never sets loudness (the mix does). Voice isolation is optional: when it cannot run, the chain goes on
   and the report says so.
 - **Never** use MusicGen, AudioGen, MMAudio, AudioLDM 2, TangoFlux, ThinkSound, BBC Sound Effects, Freesound NC
@@ -120,11 +122,13 @@ fake server, so Lyria's own generation time is not included.
 | `duck` | -14.00 dB under speech, 0.00 dB in long gaps, on both channels |
 | `mix` | -14.0, -16.0 and -23.0 LUFS on target, true peak -1.8 dBTP or lower, linear; music 20.3 dB under the voice |
 
-Untested against the real services (no live call was made): Lyria 3.5's WAV answer and text parts, `store: false`,
-images as input, the Clip MP3's C2PA tag, every part of Lyria RealTime (SDK names, the scale values, v1beta, filtered
-prompts, automation timing), the listening judge's JSON answer, Freesound's search and ElevenLabs' endpoints. The
-uv venv for RealTime was not created (it downloads packages). Apple's voice isolation ran only on tone-burst speech,
-which it partly removes; it is tuned for real voices. Run `doctor --live` and one cheap draft before a client job.
+Checked on the live API (2026-09-25): a Clip draft and a Lyria 3.5 final with `store: false` (MP3 with C2PA, text
+parts `<instrumental>` and `[[A0]]` section labels, no finish reason), a final blocked after generation and made
+again, the listening judge's JSON answer (vocals false, fit 10/10), and fit, mix and QC on the result. Lyria 3.5
+refuses `response_format` audio/wav and audio/l16. Still untested: images as input, every part of Lyria RealTime
+(SDK names, the scale values, v1beta, filtered prompts, automation timing; its venv downloads packages), Freesound's
+search and ElevenLabs' endpoints. Apple's voice isolation ran only on tone-burst speech, which it partly removes; it
+is tuned for real voices. Run `doctor --live` and one cheap draft before a client job.
 
 ## Files
 

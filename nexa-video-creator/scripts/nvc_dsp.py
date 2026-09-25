@@ -12,7 +12,10 @@ import json
 import subprocess
 import sys
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:      # snap() needs only the standard library; activity and levels run in the skill venv
+    np = None
 
 SR, HOP = 16000, 160   # 10 ms frames
 
@@ -50,29 +53,42 @@ def activity(path, over_floor_db=15.0):
     return [[round(a * HOP / SR, 3), round(b * HOP / SR, 3)] for a, b in merged if b - a >= 4]
 
 
-def snap(words, runs, min_gap=0.12, reach=0.6):
-    """words: [{"start", "end", ...}] in time order. Each measured pause (a gap between runs of at least min_gap)
-    claims the closest word boundary within `reach` seconds, and that boundary takes the pause edges. The first and
-    last words take the outer activity edges when they are within a second of them."""
+def snap(words, runs, min_gap=0.12, reach=0.35, edge_reach=0.5):
+    """words: [{"start", "end", ...}] in time order, as the recogniser timed them. Each measured pause (a gap between
+    speech runs of at least min_gap) goes to the word boundary nearest to it, measured from the gap to the span
+    between the two words' recognised edges (within `reach` seconds), and the boundary takes the pause edges. A
+    boundary that gets two gaps has a breath or a click between them: the earlier word ends at the first gap and
+    the next word starts after the last one, so a breath never becomes a word. (The old rule let each gap claim the
+    nearest free boundary by centre; on the first live Bangla test it put আজ on the breath before it, 0.4 s early,
+    and the next word on আজ.) The first and last words take the nearest run edge within `edge_reach`."""
     w = [dict(x) for x in words]
+    heard = [(x["start"], x["end"]) for x in w]
     gaps = [(runs[k][1], runs[k + 1][0]) for k in range(len(runs) - 1) if runs[k + 1][0] - runs[k][1] >= min_gap]
-    used = set()
+    claims = {}
     for g0, g1 in gaps:
-        centre = (g0 + g1) / 2
-        best, best_d = None, reach
+        best, best_key = None, None
         for b in range(len(w) - 1):
-            d = abs((w[b]["end"] + w[b + 1]["start"]) / 2 - centre)
-            if d < best_d and b not in used:
-                best, best_d = b, d
+            lo, hi = sorted((heard[b][1], heard[b + 1][0]))
+            d = max(0.0, lo - g1, g0 - hi)
+            if d > reach:
+                continue
+            key = (d, -(min(g1, hi) - max(g0, lo)), abs((lo + hi) / 2 - (g0 + g1) / 2))
+            if best_key is None or key < best_key:
+                best, best_key = b, key
         if best is not None:
-            used.add(best)
-            w[best]["end"], w[best + 1]["start"] = round(g0, 3), round(g1, 3)
-            w[best]["pause_after"] = round(g1 - g0, 3)
+            claims.setdefault(best, []).append((g0, g1))
+    for b in sorted(claims):
+        g0, g1 = claims[b][0][0], claims[b][-1][1]
+        if g0 > w[b]["start"] + 0.02 and g1 < w[b + 1]["end"] - 0.02:
+            w[b]["end"], w[b + 1]["start"] = round(g0, 3), round(g1, 3)
+            w[b]["pause_after"] = round(g1 - g0, 3)
     if runs and w:
-        if abs(w[0]["start"] - runs[0][0]) < 1.0:
-            w[0]["start"] = round(runs[0][0], 3)
-        if abs(w[-1]["end"] - runs[-1][1]) < 1.0:
-            w[-1]["end"] = round(runs[-1][1], 3)
+        first = min((a for a, _ in runs), key=lambda a: abs(a - w[0]["start"]))
+        if abs(first - w[0]["start"]) <= edge_reach and first < w[0]["end"] - 0.02:
+            w[0]["start"] = round(first, 3)
+        last = min((b for _, b in runs), key=lambda b: abs(b - w[-1]["end"]))
+        if abs(last - w[-1]["end"]) <= edge_reach and last > w[-1]["start"] + 0.02:
+            w[-1]["end"] = round(last, 3)
     for item in w:                       # keep every word at least 20 ms long and in order
         if item["end"] < item["start"] + 0.02:
             item["end"] = round(item["start"] + 0.02, 3)

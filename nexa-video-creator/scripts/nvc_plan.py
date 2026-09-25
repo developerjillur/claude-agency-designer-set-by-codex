@@ -849,12 +849,15 @@ def compile_plan(plan, words, job, preset, overlay_rules, sfx_defaults=None, fps
             props.setdefault("layer", ov.get("layer") or "screen")
         if text:
             shown = numbers_in(text) - label_numbers(text)
-            said = numbers_in(grounded_quote) if grounded_quote else set()
+            # an overlay placed by time (a hook at the start) may show a number said later in the edit
+            said = numbers_in(grounded_quote if grounded_quote else " ".join(m["text"] for m in mapped))
             origin = {str(f.get("origin")) for f in (ov.get("facts") or []) if isinstance(f, dict)}
             extra = sorted(x for x in shown if x not in said)
             if extra and not (origin & {"brief", "client", "web"}):
-                rep.ask(where, "shows %s, which the speaker did not say in the grounded words; confirm the source "
-                        "(add facts with origin brief, client or web)" % ", ".join(("%g" % x) for x in extra))
+                rep.ask(where, "shows %s, which the speaker %s; confirm the source (add facts with origin brief, "
+                        "client or web)" % (", ".join(("%g" % x) for x in extra),
+                                            "did not say in the grounded words" if grounded_quote
+                                            else "does not say anywhere in the edit"))
         slot = rule["slot"]
         f0, f1 = _frames(start, fps), _frames(end, fps)
         overlays.append({"id": "o%03d" % (n + 1), "type": otype, "from": f0, "durationInFrames": max(1, f1 - f0),

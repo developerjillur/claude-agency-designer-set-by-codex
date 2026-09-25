@@ -279,14 +279,23 @@ const Compare: React.FC<P> = ({ edl, overlay }) => {
   const pr = spring({ frame: frame - 6, fps, config: { damping: 18, stiffness: 160 } });
   const width = Math.round(vertical ? edl.safe.w : Math.min(1180 * u, edl.safe.w));
   const colW = (width - 80 * u) / 2;
+  // short sides read as a headline, long ones as a card; with no face or screen behind (voiceOnly, brollFull) the
+  // comparison is the picture, so it sits in the middle between the title band and the lower band
+  const longest = Math.max(left.length, right.length);
+  const size = Math.round((longest <= 16 ? 64 : longest <= 28 ? 50 : 38) * u);
+  const clip = clipAt(edl, overlay.from);
+  const open = !clip || clip.layout === "voiceOnly" || clip.layout === "brollFull";
   const col = (text: string, color: string, p: number, dir: number) => (
-    <div style={{ width: colW, backgroundColor: t.card, color: t.cardText, borderRadius: Math.round(t.radius * u), padding: Math.round(30 * u), boxShadow: shadow(u), borderTop: `${Math.round(10 * u)}px solid ${color}`, transform: `translateX(${(1 - p) * dir * 60 * u}px)`, opacity: p }}>
-      <div style={{ fontFamily: displayFont(edl, text), fontWeight: 800, fontSize: Math.round(38 * u), lineHeight: isBengali(text) ? 1.45 : 1.2 }}>{text}</div>
+    <div style={{ width: colW, backgroundColor: t.card, color: t.cardText, borderRadius: Math.round(t.radius * u), padding: `${Math.round(34 * u)}px ${Math.round(30 * u)}px`, boxShadow: shadow(u), borderTop: `${Math.round(10 * u)}px solid ${color}`, transform: `translateX(${(1 - p) * dir * 60 * u}px)`, opacity: p, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+      <div style={{ fontFamily: displayFont(edl, text), fontWeight: 800, fontSize: size, lineHeight: isBengali(text) ? 1.45 : 1.2 }}>{text}</div>
     </div>
   );
+  const place: React.CSSProperties = open
+    ? { top: edl.bands.title.y, height: edl.bands.lower.y - edl.bands.title.y, display: "flex", flexDirection: "column", justifyContent: "center" }
+    : { top: vertical ? edl.bands.title.y : edl.safe.y + edl.safe.h * 0.18 };
   return (
     <AbsoluteFill style={{ opacity: io.out }}>
-      <div style={{ position: "absolute", left: (W - width) / 2, top: vertical ? edl.bands.title.y : edl.safe.y + edl.safe.h * 0.18, width }}>
+      <div style={{ position: "absolute", left: (W - width) / 2, width, ...place }}>
         {title ? <div style={{ textAlign: "center", fontFamily: displayFont(edl, title), fontWeight: 900, fontSize: Math.round(46 * u), color: t.text, marginBottom: Math.round(18 * u), textShadow: "0 4px 18px rgba(0,0,0,0.5)" }}>{title}</div> : null}
         <div style={{ display: "flex", alignItems: "stretch", justifyContent: "space-between", position: "relative" }}>
           {col(left, t.danger, pl, -1)}

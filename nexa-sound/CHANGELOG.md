@@ -4,6 +4,32 @@ The version is `SKILL_VERSION` in `scripts/sound.py`. Run the offline tests afte
 `python3 -m unittest discover -s ~/.claude/skills/nexa-sound/tests` (about 35 s, no network, no keys), and run the
 changed command once by hand on a synthetic file and measure the result.
 
+## 2026.09.25.2 · the first live run
+
+A Clip draft, two Lyria 3.5 finals and a listening-judge call on the live API (2026-09-25), then fit, mix and QC
+on what came back. What the real answers changed:
+
+- **No format request.** Lyria 3.5 refuses `response_format` audio/wav and audio/l16 ("Audio MIME type AUDIO_WAV
+  is not supported for models/lyria-3.5"): both models answer in MP3, 44.1 kHz stereo, 192 kbps, with the C2PA
+  manifest in the ID3 tag. Finals no longer ask for WAV and wait on a refusal first.
+- **A paid take is never lost to a name clash.** A draft and a final started in the same minute took the same id;
+  the final's paid audio could not be written over the draft's read-only original and the run crashed. Every id
+  is now reserved at once with a lock file, and a take never saves over another's original.
+- **A track blocked after generation is made once more.** The same prompt passed at 17:26, came back as "Request
+  blocked for an unspecified policy reason" after 22 s of generation at 17:33, and passed at 17:34. A block that
+  arrives after seconds of work is retried once (logged at $0); a prompt blocked at once is still never retried.
+- **3:4 tempo mistakes.** A take at 110 BPM with dotted-eighth kicks and arpeggios read as 146.7 BPM and failed QC.
+  With the brief's BPM, a tempo 3:4 or 2:3 away that fits the gaps between strong onsets on a sixteenth grid
+  clearly better now wins; QC reads the grid with the brief's BPM too.
+- **DC and overs in fit and loop.** Lyria takes carry a 0.5 to 0.7 % DC offset and decode to +0.8 dBFS. The working
+  copy is now 32-bit float through a 5 Hz high-pass, with a gain for 1 dB of headroom when needed, so cuts do not
+  click and the 24-bit output does not clip. QC on a Lyria original warns about DC up to 2 % instead of failing.
+- **Measured on the live answers:** the Clip draft was 25.6 s (not 30 s) and the final 64.0 s for an 18 s request;
+  Lyria answered in 13.7 s (Clip) and 24.5 s (3.5); the judge heard no vocals and scored the fitted bed 10/10.
+- **Docs:** `mix` follows the dialogue's length unless `--duration` says otherwise (the help said the longest input).
+- **Tests:** 56 (a race between two runs, blocked tracks, the DC warning and fit, dotted eighths, the fake answering
+  as the live API does).
+
 ## 2026.09.25.1 · first release
 
 - **Music from Google Lyria:** `brief` turns the video's length, cuts and speech into a Lyria prompt from 12 mood

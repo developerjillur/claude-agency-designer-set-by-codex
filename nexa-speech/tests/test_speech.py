@@ -281,18 +281,18 @@ class FakeGemini:
                 content = []
                 for piece in pieces:
                     if rf.get("mime_type") == "audio/l16":
-                        data, mime = piece, "audio/l16; rate=24000"
+                        data, mime = piece, "audio/l16; rate=24000; channels=1"
                     else:
                         data, mime = wav_bytes(piece), "audio/wav"
                     content.append({"type": "audio", "data": base64.b64encode(data).decode(), "mime_type": mime,
                                     "sample_rate": RATE, "channels": 1})
                 secs = len(pcm) / 2 / RATE
-                self.send(200, {"id": "interaction-%d" % len(fake.log), "status": "completed",
-                                "steps": [{"type": "model_output",
-                                           "finish_reason": "OTHER" if mode == "truncated" else "STOP",
-                                           "content": content}],
+                step = {"type": "model_output", "content": content}     # the live API sends no finish_reason
+                if mode == "truncated":
+                    step["finish_reason"] = "OTHER"
+                self.send(200, {"status": "completed", "steps": [step],
                                 "usage": {"total_input_tokens": len(text) // 3,
-                                          "total_output_tokens": int(secs * 25)}})
+                                          "total_output_tokens": int(secs * 32)}})   # 32 a second, as measured
 
             def transcribe(self, body):
                 block = body["input"][0]
@@ -313,7 +313,8 @@ class FakeGemini:
                          for w, a, b in words]
                 self.send(200, {"status": "completed", "steps": [{"type": "model_output", "content": [
                     {"type": "text", "text": " ".join(w for w, _, _ in words), "annotations": notes}]}],
-                    "usage": {"total_input_tokens": 50, "total_output_tokens": len(words)}})
+                    "usage": {"total_input_tokens": int(len(frames) / 2 / 16000 * 25) + 1,   # audio in, as live
+                              "total_output_tokens": 0}})
 
             def design(self, body):
                 with fake.lock:
@@ -486,10 +487,11 @@ class TextTests(unittest.TestCase):
         self.assertEqual(S.graphemes("hello"), 5)
 
     def test_prices(self):
-        self.assertAlmostEqual(S.tts_usd("gemini-3.8-flash-tts", 600, 0, "2026-09-25"), 0.135, places=6)
-        self.assertAlmostEqual(S.tts_usd("gemini-3.8-flash-tts", 600, 0, "2027-01-01"), 0.27, places=6)
-        self.assertAlmostEqual(S.tts_usd("gemini-3.8-flash-lite-tts", 600, 0, "2026-12-31"), 0.09, places=6)
-        self.assertAlmostEqual(S.tts_usd("gemini-3.1-flash-tts-preview", 600, 0), 0.30, places=6)
+        # 10 minutes at 32 audio tokens a second (the usage the live API reported on 2026-09-25)
+        self.assertAlmostEqual(S.tts_usd("gemini-3.8-flash-tts", 600, 0, "2026-09-25"), 0.1728, places=6)
+        self.assertAlmostEqual(S.tts_usd("gemini-3.8-flash-tts", 600, 0, "2027-01-01"), 0.3456, places=6)
+        self.assertAlmostEqual(S.tts_usd("gemini-3.8-flash-lite-tts", 600, 0, "2026-12-31"), 0.1152, places=6)
+        self.assertAlmostEqual(S.tts_usd("gemini-3.1-flash-tts-preview", 600, 0), 0.384, places=6)
         self.assertAlmostEqual(S.asr_usd(600), 0.05, places=6)
         self.assertEqual(S.PRICES_AS_OF, "2026-09-25")
 
@@ -779,6 +781,57 @@ class CaptionTests(unittest.TestCase):
         self.assertEqual(times[1][1], 1.9)
         self.assertEqual(times[2][0], 2.3)
         self.assertTrue(all(a < b for a, b in times))
+
+
+class Gate2WindowTests(unittest.TestCase):
+    """On the live API 3.8 Flash TTS spoke up to 39 % faster than the Bangla preset, every word present."""
+
+    M = {"voiced_s": 4.987, "empty": False, "lead_s": 0.05, "click": False, "noise_tail": False, "clipped": False,
+         "loudness_i": -16.3, "centroid_hz": 1800.0}
+
+    def gate2(self, voiced, calibrated):
+        ref = {"wps": 2.444, "wps_source": "x", "drift": None, "calibrated": calibrated}
+        res = S.evaluate({"n_words": 17}, {"finish_class": "ok"}, dict(self.M, voiced_s=voiced), ref)
+        return res["gates"]["2"], res["measures"]["gate2_window"]
+
+    def test_a_preset_guess_gets_the_wide_window(self):
+        self.assertEqual(self.gate2(4.987, False), ("pass", [0.65, 1.5]))     # ratio 0.72, the live chunk c002
+        self.assertEqual(self.gate2(4.987, True), ("fail", [0.8, 1.25]))
+        self.assertEqual(self.gate2(3.4, False)[0], "fail")                     # half the words missing
+        self.assertEqual(self.gate2(11.2, False)[0], "fail")                    # babble
+
+
+class AlignMatchTests(unittest.TestCase):
+    """The first live Bangla transcript (2026-09-25): a joined greeting, digits for spoken numbers, কিভাবে for
+    কীভাবে. The old matcher placed 86 % of the words; these all match now."""
+
+    def script(self, words):
+        return [{"tok": t} for w in words for t in S.norm_tokens(w, True)]
+
+    def heard(self, items):
+        return S.heard_tokens([{"text": t, "start": a, "end": b} for t, a, b in items], True)
+
+    def test_joined_words_digits_and_spelling(self):
+        script = self.script(["আসসালামু", "আলাইকুম,", "সবাই", "কীভাবে", "দশ", "সেকেন্ডে", "মাসে", "পাঁচশো", "টাকার"])
+        hyp = self.heard([("আসসালামুআলাইকুম,", 0.1, 0.8), ("সবাই", 1.3, 1.6), ("কিভাবে", 5.8, 6.25),
+                          ("10", 6.25, 6.7), ("সেকেন্ডে", 6.7, 7.0), ("মাসে", 8.9, 9.2), ("500", 9.2, 9.8),
+                          ("টাকার", 9.8, 9.9)])
+        matched, close = S.place_tokens(script, hyp)
+        self.assertEqual((matched + close, len(script)), (9, 9))
+        self.assertAlmostEqual(script[0]["t"][0], 0.1)
+        self.assertAlmostEqual(script[1]["t"][1], 0.8)
+        self.assertAlmostEqual(script[0]["t"][1], script[1]["t"][0])            # the heard span shared by length
+        self.assertEqual(script[4]["t"], (6.25, 6.7))                           # দশ heard as 10
+        self.assertEqual(script[7]["t"], (9.2, 9.8))                            # পাঁচশো heard as 500
+
+    def test_digits_after_english_stay_english(self):
+        toks = [x["tok"] for x in self.heard([("নতুন", 0, 0.3), ("iPhone", 0.3, 0.7), ("15", 0.7, 1.0)])]
+        self.assertEqual(toks, ["নতুন", "iphone", "fifteen"])
+
+    def test_spelling_fold(self):
+        self.assertEqual(S.match_key("কীভাবে"), S.match_key("কিভাবে"))
+        self.assertEqual(S.match_key("দেখাবো"), S.match_key("দেখাব"))
+        self.assertNotEqual(S.match_key("কাল"), S.match_key("কাজ"))
 
 
 class AsrCheckTests(unittest.TestCase):
@@ -1194,8 +1247,8 @@ class EndToEndTests(unittest.TestCase):
     def test_cost_estimate_and_actual(self):
         est = self.js(self.cli("cost", "--minutes", "10", "--model", "gemini-3.8-flash-tts", "--json"))
         row = est["rows"][0]
-        self.assertAlmostEqual(row["interactive"], 0.135, delta=0.005)
-        self.assertAlmostEqual(row["batch_or_flex"], row["interactive"] / 2, places=4)
+        self.assertAlmostEqual(row["interactive"], 0.1743, delta=0.005)
+        self.assertAlmostEqual(row["batch_or_flex"], row["interactive"] / 2, delta=0.0001)   # both rounded
         act = self.js(self.cli("cost", self.main, "--json"))
         self.assertGreaterEqual(act["calls"], self.calls1)                 # align --engine gemini adds its own line
         self.assertIsNotNone(act["usage_usd"])

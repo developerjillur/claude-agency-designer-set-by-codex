@@ -66,12 +66,28 @@ def groove_expr(bpm, dur, ring=2.0, idx=0):
     return "0.6*((%s)+(%s+%s)*%s)" % (body, bass, pad, tail)
 
 
-def groove(path, bpm, dur, rate=44100, codec=None):
-    args = ["-f", "lavfi", "-i", "aevalsrc='%s':s=%d:d=%.3f" % (groove_expr(bpm, dur), rate, dur),
+def groove(path, bpm, dur, rate=44100, codec=None, dc=0.0):
+    expr = groove_expr(bpm, dur) + ("+%g" % dc if dc else "")
+    args = ["-f", "lavfi", "-i", "aevalsrc='%s':s=%d:d=%.3f" % (expr, rate, dur),
             "-af", "pan=stereo|c0=c0|c1=c0"]
     if codec:
         args += ["-c:a", codec]
     ff(*(args + [path]))
+
+
+def dotted(path, bpm, dur):
+    """Kick and pluck on sixteenths 0, 3, 6, 9 and 12 of every bar (dotted eighths, then a quarter), soft eighth-note
+    hats and a pad: the syncopation that made a real Lyria take at 110 BPM read as 146.7 (4/3 of it)."""
+    s = 60.0 / bpm / 4
+    pos = "floor(mod(t,%.9f)/%.9f)" % (16 * s, s)
+    u = "mod(t,%.9f)" % s
+    trig = "+".join("eq(%s,%d)" % (pos, k) for k in (0, 3, 6, 9, 12))
+    kick = "(%s)*sin(2*PI*55*%s+30*(1-exp(-%s*35)))*exp(-%s*30)" % (trig, u, u, u)
+    pluck = "(%s)*0.35*sin(2*PI*880*t)*exp(-%s*40)" % (trig, u)
+    hat = "0.05*(2*random(1)-1)*exp(-mod(t,%.9f)*90)" % (2 * s)
+    pad = "0.05*(sin(2*PI*220*t)+sin(2*PI*261.63*t)+sin(2*PI*329.63*t))"
+    ff("-f", "lavfi", "-i", "aevalsrc='0.6*(%s+%s+%s+%s)':s=44100:d=%g" % (kick, pluck, hat, pad, dur),
+       "-af", "pan=stereo|c0=c0|c1=c0", path)
 
 
 def clicks(path, bpm, t0, dur):
@@ -143,6 +159,8 @@ def shared(name):
         groove(p, 104, 26.0)
     elif name == "clicks104.wav":
         clicks(p, 104, 0.3, 20.0)
+    elif name == "dotted110.wav":
+        dotted(p, 110, 24.0)
     elif name == "voice_noisy.wav":
         voice(p, noise_db=-42, hum_db=-38)
     elif name == "voice.wav":
@@ -172,19 +190,20 @@ class Fake(object):
     max_active = 0
     el_tier = "creator"
     audio = {}
+    blocks = {}
 
     @classmethod
-    def track(cls, bpm, seconds, fmt):
-        key = (round(bpm, 2), int(seconds), fmt)
+    def track(cls, bpm, seconds, fmt, dc=0.0):
+        key = (round(bpm, 2), int(seconds), fmt, dc)
         with cls.lock:
             if key in cls.audio:
                 return cls.audio[key]
-        path = os.path.join(ROOT, "fake", "track_%s_%d.%s" % (key[0], key[1], fmt))
+        path = os.path.join(ROOT, "fake", "track_%s_%d_%g.%s" % (key[0], key[1], dc, fmt))
         os.makedirs(os.path.dirname(path), exist_ok=True)
         if fmt == "mp3" and not HAVE_MP3:     # the spec's fallback: a WAV when this ffmpeg cannot write MP3
             fmt, path = "wav", path[:-4] + ".wav"
         if fmt == "wav":
-            groove(path, bpm, seconds, rate=44100, codec="pcm_s16le")
+            groove(path, bpm, seconds, rate=44100, codec="pcm_s16le", dc=dc)
             data = read_bytes(path)
         else:
             groove(path, bpm, seconds, rate=44100, codec="libmp3lame")
@@ -282,9 +301,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _interaction(self, body):
         model = body.get("model")
         text = prompt_text(body)
-        if "fake:no-wav" in text and body.get("response_format"):
-            return self._send(400, {"error": {"code": 400, "status": "INVALID_ARGUMENT",
-                                              "message": "response_format mime_type audio/wav is not supported"}})
+        if body.get("response_format") and model in ("lyria-3.5", "lyria-3-clip-preview"):   # as the live API
+            mime = str(body["response_format"].get("mime_type", "")).upper().replace("/", "_")
+            return self._send(400, {"error": {"message": "Audio MIME type %s is not supported for models/%s" % (
+                mime, model), "code": "invalid_request"}})
+        for tag, times in (("fake:outblock1", 1), ("fake:outblock2", 2)):   # blocked after generation
+            if tag in text:
+                with Fake.lock:
+                    Fake.blocks[tag] = Fake.blocks.get(tag, 0) + 1
+                    n = Fake.blocks[tag]
+                if n <= times:
+                    return self._send(400, {"error": {"message": "Request blocked for an unspecified policy reason. "
+                                                      "Please modify your input and retry.",
+                                           "code": "content_blocked"}})
+        if "fake:slow" in text:
+            time.sleep(1.5)
         if "fake:blocked" in text:
             return self._send(400, {"error": {"code": 400, "status": "INVALID_ARGUMENT",
                                               "message": "The prompt was blocked for safety reasons."}})
@@ -298,9 +329,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         texts = [{"type": "text", "text": "[[A0]] [[B1]] [[C2]]"}]
         if "fake:timed-lyrics" in text:
             texts.append({"type": "text", "text": "[0.0:4.5] We rise together\n[4.5:9.0] (oh oh)"})
-        if model == "lyria-3.5":
+        if model == "lyria-3.5":             # MP3, as the live API answers (a WAV for the DC test)
             secs = int((re.search(r"Create a (\d+)-second", text) or re.search("(14)", "14")).group(1))
-            data, mime = Fake.track(bpm, secs, "wav"), "audio/wav"
+            dc = 0.006 if "fake:dc" in text else 0.0
+            data = Fake.track(bpm, secs, "wav" if dc else "mp3", dc=dc)
+            mime = "audio/wav" if data[:4] == b"RIFF" else "audio/mpeg"
         elif model == "lyria-3-clip-preview":
             data, mime = Fake.track(bpm, 30, "mp3"), "audio/mpeg"
         else:
@@ -594,9 +627,28 @@ class C_BeatTests(unittest.TestCase):
         self.assertEqual(g["downbeats"][0], 0.0)
         self.assertGreater(g["confidence"], 0.8)
 
+    def test_dotted_eighths_do_not_read_as_four_thirds_of_the_tempo(self):
+        path = shared("dotted110.wav")
+        for hint in (112, 110, 104):
+            self.assertAlmostEqual(beats.analyze(path, hint)["bpm"], 110.0, delta=0.6)
+
 
 @NEED_FF
 class D_FitLoopTests(unittest.TestCase):
+    def test_fit_takes_out_dc_and_keeps_the_peaks_under_full_scale(self):
+        src = tmp("fit", "hot_dc.wav")       # a float source over full scale with a 1 % DC offset
+        ff("-f", "lavfi", "-i", "aevalsrc='(%s)*2.2+0.01':s=44100:d=20" % groove_expr(104, 20.0),
+           "-af", "pan=stereo|c0=c0|c1=c0", "-c:a", "pcm_f32le", src)
+        self.assertGreater(sound.astats(src)["peak_db"], 0.5)
+        out = tmp("fit", "hot_dc_fit.wav")
+        r = cli_json("fit", src, "--target", 12.0, "--bpm", 104, "--out", out)
+        ops = dict((op["op"], op) for op in r["ops"])
+        self.assertIn("dc_block", ops)
+        self.assertLess(ops["gain"]["db"], -1.0)
+        st = sound.astats(out)
+        self.assertLess(st["peak_db"], -0.1)
+        self.assertLess(abs(st["dc_offset"]), 0.0005)
+
     def test_shorter_lands_on_the_target_with_crossfades_on_bar_lines(self):
         src = shared("groove.wav")
         before = hashlib.sha256(read_bytes(src)).hexdigest()
@@ -916,20 +968,59 @@ class G_DuckMixTests(unittest.TestCase):
 
 @NEED_FF
 class H_GenerateTests(unittest.TestCase):
-    def test_refused_wav_request_is_in_the_ledger(self):
-        brief = make_brief("nowav", 12.0)
-        with open(brief) as fh:
-            data = json.load(fh)
-        data["prompt"] = data["prompt"] + " fake:no-wav"
-        with open(brief, "w") as fh:
-            json.dump(data, fh)
-        out = tmp("gen", "nowav")
-        r = cli_json("generate", brief, "--out", out, "--final")
-        self.assertTrue(r["takes"][0]["ok"], r)
-        led = load_jsonl(os.path.join(out, "ledger.jsonl"))
-        statuses = [(x["status"], x["est_usd"]) for x in led if x["command"] == "generate"]
-        self.assertIn(("rejected", 0.0), statuses)
-        self.assertEqual(sum(1 for st, _ in statuses if st == "ok"), 1)
+    def interactions_since(self, before):
+        return [x for x in Fake.log[before:] if x["path"] == "/v1beta/interactions"]
+
+    def test_a_track_blocked_after_generation_is_made_once_more(self):
+        brief = make_brief("outblock1", 12.0, notes="fake:outblock1")
+        out = tmp("gen", "outblock1")
+        before = len(Fake.log)
+        r = cli_json("generate", brief, "--out", out, "--final", env={"NEXA_SOUND_OUTPUT_BLOCK_S": "0.05"})
+        take = r["takes"][0]
+        self.assertTrue(take["ok"], take)
+        self.assertEqual(len(self.interactions_since(before)), 2)
+        led = [(x["status"], x["est_usd"]) for x in load_jsonl(os.path.join(out, "ledger.jsonl"))]
+        self.assertEqual(led, [("blocked", 0.0), ("ok", 0.08)])
+        self.assertEqual(load_json(take["sidecar"])["response"]["blocked_before"], 1)
+
+    def test_a_track_blocked_twice_stops_with_the_reason(self):
+        brief = make_brief("outblock2", 12.0, notes="fake:outblock2")
+        before = len(Fake.log)
+        r = cli("generate", brief, "--out", tmp("gen", "outblock2"), "--final", expect=1,
+                env={"NEXA_SOUND_OUTPUT_BLOCK_S": "0.05"})
+        self.assertIn("blocked the finished track 2 time(s)", r.stdout + r.stderr)
+        self.assertEqual(len(self.interactions_since(before)), 2)
+
+    def test_two_runs_in_the_same_minute_never_share_a_name(self):
+        # a draft and a final run side by side once got the same id; the second paid take could not be saved
+        brief = make_brief("race", 12.0, notes="fake:slow")
+        out = os.path.dirname(tmp("gen", "race", "x"))
+        procs = [subprocess.Popen([sys.executable, str(SCRIPTS / "sound.py"), "generate", brief, "--out", out,
+                                   "--draft", "1", "--json"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True) for _ in range(2)]
+        ids = []
+        for p, (so, se) in [(p, p.communicate(timeout=300)) for p in procs]:
+            OUTPUTS.append(so + se)
+            self.assertEqual(p.returncode, 0, se[-800:])
+            take = json.loads(so)["takes"][0]
+            self.assertTrue(take["ok"], take)
+            self.assertTrue(os.path.exists(take["file"]))
+            ids.append(take["id"])
+        self.assertEqual(len(set(ids)), 2, ids)
+        self.assertEqual([f for f in os.listdir(out) if f.endswith(".lock")], [])
+
+    def test_dc_on_an_original_is_a_warning_and_fit_takes_it_out(self):
+        brief = make_brief("dc", 16.0, notes="fake:dc")
+        out = tmp("gen", "dc")
+        take = cli_json("generate", brief, "--out", out, "--final")["takes"][0]
+        self.assertTrue(take["ok"], take)
+        qc = load_json(take["sidecar"])["qc"]
+        self.assertNotIn("dc_offset", qc["failed"])
+        self.assertIn("dc_offset", qc["warnings"])
+        fitted = os.path.join(out, "fit12.wav")
+        f = cli_json("fit", take["file"], "--target", 12.0, "--out", fitted)
+        self.assertIn("dc_block", [op["op"] for op in f["ops"]])
+        self.assertLess(abs(sound.astats(fitted)["dc_offset"]), 0.0005)
 
     def test_final_sidecar_ledger_library_and_untouched_original(self):
         brief = make_brief("final", 12.0)
@@ -940,14 +1031,14 @@ class H_GenerateTests(unittest.TestCase):
         r = cli_json("generate", brief, "--out", out, "--final", "--images", still)
         take = r["takes"][0]
         self.assertTrue(take["ok"], take)
-        self.assertEqual(take["format"], "wav")
+        self.assertEqual(take["format"], "mp3" if HAVE_MP3 else "wav")
         req = [x for x in Fake.log[before:] if x["path"] == "/v1beta/interactions"][0]
         self.assertEqual(req["body"]["model"], "lyria-3.5")
-        self.assertEqual(req["body"]["response_format"], {"type": "audio", "mime_type": "audio/wav"})
+        self.assertNotIn("response_format", req["body"])       # the live API refuses WAV and L16 for lyria-3.5
         self.assertIs(req["body"]["store"], False)
         self.assertEqual(req["body"]["images"], ["image/png"])
         data = read_bytes(take["file"])
-        self.assertEqual(data[:4], b"RIFF")
+        self.assertEqual(data[:3] if HAVE_MP3 else data[:4], b"ID3" if HAVE_MP3 else b"RIFF")
         self.assertFalse(os.access(take["file"], os.W_OK))                 # the original is read-only
         side = load_json(take["sidecar"])
         for k in ("id", "created_at", "tool", "provider", "request", "response", "original", "analysis", "qc",
@@ -955,6 +1046,7 @@ class H_GenerateTests(unittest.TestCase):
             self.assertIn(k, side)
         self.assertEqual(side["provider"]["key_var_used"], "GEMINI_API_KEY")
         self.assertEqual(side["original"]["sha256"], hashlib.sha256(data).hexdigest())
+        self.assertEqual(side["original"]["c2pa_manifest_present"], HAVE_MP3)
         self.assertEqual(side["response"]["section_labels"], ["A0", "B1", "C2"])
         self.assertAlmostEqual(side["analysis"]["bpm"], 104.0, delta=1.0)
         self.assertEqual(side["licence"]["content_id"], "Do not register.")
@@ -1046,6 +1138,7 @@ class H_GenerateTests(unittest.TestCase):
         r = cli_json("generate", brief, "--out", tmp("gen", "rt"), "--realtime", env=env)
         take = r["takes"][0]
         self.assertAlmostEqual(take["duration_s"], 9.0, delta=0.01)       # 6 s + 3 s, the preroll dropped
+        self.assertEqual([f for f in os.listdir(tmp("gen", "rt")) if f.endswith(".lock")], [])
         side = load_json(take["sidecar"])
         rt = side["request"]["realtime"]
         self.assertEqual(rt["preroll_s"], 8.0)

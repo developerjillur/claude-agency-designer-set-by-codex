@@ -4,6 +4,27 @@ The version is `SKILL_VERSION` in `scripts/nvc.py`. Run the offline tests after 
 `python3 -m unittest discover -s ~/.claude/skills/nexa-video-creator/tests` (and with `NVC_RENDER_TESTS=1` once the
 renderer is set up).
 
+## 2026.09.25.2 · the first live run
+
+A Bangla job on the live API (2026-09-25): Gemini 3.5 Transcribe with `bn-BD`, then a 10 s faceless edit from the
+nexa-speech voice-over and a Lyria 3.5 bed (compile, audio, stills, render, qa: all clean). What it changed:
+
+- **A breath is never a word.** The snap let each pause claim the nearest free word boundary; a breath between two
+  sentences split one pause into two, and আজ landed on the breath (0.4 s early) while the next word took আজ. Each
+  pause now goes to the boundary nearest to it, measured to the span between the two words' heard edges, and a
+  boundary with two pauses ends the first word at the first and starts the next after the last. The first and last
+  words take the nearest speech edge, so a breath before the first word is skipped too.
+- **Bangla numbers in Bengali digits.** Gemini writes 10 and 500 where the speaker said দশ and পাঁচশো; Bangla
+  transcripts now show ১০ and ৫০০ (the house rule for Bangla copy), except after a Latin word (iPhone 15).
+- **A nexa-speech voice-over keeps its language.** The manifest keeps the language per profile (bn-BD); the import
+  looked for a top-level field, labelled a Bangla voice-over "en", and the edit brief said English.
+- **Numbers on a time-placed overlay.** A hook at the start that shows a number the speaker says later in the edit
+  (১০ at 3.2 s) is no longer sent for review; one said nowhere in the edit still is.
+- **The compare card** sits in the middle with headline-sized text when nothing is behind it (voiceOnly, brollFull);
+  it was small and high on the frame.
+- **Measured:** the 10.45 s edit rendered in 8.2 s (0.76 s a second of video), mixed at -14.0 LUFS, -2.7 dBTP.
+- **Tests:** 30 (snapping with a breath, Bengali digits, the voice-over's language, time-placed numbers).
+
 ## 2026.09.25.1 · first release
 
 Built from six research reports written on 2026-09-25 (editing craft, Remotion for real footage, HyperFrames, audio
