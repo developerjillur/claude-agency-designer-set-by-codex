@@ -48,7 +48,7 @@ LEAN_FLAGS = [] if os.environ.get("CODEX_IMAGEGEN_FULL_FEATURES") else [
 # spend ~3.1 s (median) in Codex start-up before the model is called; measure with `doctor --image-smoke`.
 LEAN_FLAGS = LEAN_FLAGS + shlex.split(os.environ.get("CODEX_IMAGEGEN_EXTRA_FLAGS", ""))
 API_BASE = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-SKILL_VERSION = "2026.09.24.2"  # bump on every behaviour change; `doctor` reports it
+SKILL_VERSION = "2026.09.25.1"  # bump on every behaviour change; `doctor` reports it
 CODEX_TZ = os.environ.get("CODEX_IMAGEGEN_TZ", "UTC")  # Codex tells the model the machine timezone; "system" keeps it
 # Session time limits. Real fast-mode image sessions took 87 s median, 246 s p90 and 488 s at most; real judges took
 # 38 s median, 53 s p90 and 104 s at most. Agent mode and the API engine keep the older, longer limit.
@@ -1273,15 +1273,17 @@ def _judge_once(image, brief, threshold, model, effort, timeout, checklist, job,
     tmp = Path(tmp_dir(prefix="codex-judge-"))
     schema, last = tmp / "judge_schema.json", tmp / "judge.json"
     schema.write_text(json.dumps(JUDGE_SCHEMA), encoding="utf-8")
-    prompt = JUDGE_PROMPT.format(brief=judge_brief(brief))
+    prompt = ("Use only this message and the attached image. Do not open, list or search any files, and do not run "
+              "commands.\n\n") + JUDGE_PROMPT.format(brief=judge_brief(brief))
     if checklist:
         prompt += ("\n\nAcceptance checklist compiled when the prompt was written (verify each item explicitly in the "
                    "traces):\n- " + "\n- ".join(checklist))
     for m in (model, FALLBACK_CODEX_MODEL):
         # with --log-dir the judge keeps its session so its rollout (timeline, tokens) can be digested
+        # its own empty folder: a judge that starts in the project folder reads the files there (2026-09-25)
         cmd = [bin_, "exec", "-i", str(image)] + ([] if TELEMETRY["log_dir"] else ["--ephemeral"]) + [
-            "--skip-git-repo-check", "-s", "read-only", "--json", "-c", f'model_reasoning_effort="{effort}"',
-            "--output-schema", str(schema), "-o", str(last)] + LEAN_FLAGS
+            "--skip-git-repo-check", "-s", "read-only", "--json", "-C", str(tmp),
+            "-c", f'model_reasoning_effort="{effort}"', "--output-schema", str(schema), "-o", str(last)] + LEAN_FLAGS
         if REASONING_SUMMARY and REASONING_SUMMARY != "none":
             cmd += ["-c", f'model_reasoning_summary="{REASONING_SUMMARY}"']
         if m:

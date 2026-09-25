@@ -1710,6 +1710,30 @@ class SpeedAndReliability(unittest.TestCase):
             d.cmd_judge(self.judge_args(pdf, brief="Wedding card"))
         self.assertTrue((self.tmp / "invite.preview.judge.json").exists())
 
+    def test_every_judge_session_starts_in_its_own_empty_folder(self):
+        """2026-09-25: a design judge started in the project folder, read design/hero.html and failed a PNG banner for a
+        <span> that was not a working button."""
+        seen = {}
+
+        def fake_session(cmd, prompt, timeout, env=None):
+            seen.update(cmd=cmd, prompt=prompt)
+            Path(cmd[cmd.index("-o") + 1]).write_text(json.dumps(copy_answer()))
+            return {"stdout": "", "stderr": "", "returncode": 0, "error": None}
+
+        class Codex:
+            LEAN_FLAGS = []
+            codex_bin = staticmethod(lambda: "codex")
+            codex_env = staticmethod(lambda: {})
+        old = d.run_session
+        d.run_session = fake_session
+        try:
+            d._codex_json(Codex, "Judge this copy.", [], d.COPY_SCHEMA, "low", 30, "copy judge", ("scores",))
+        finally:
+            d.run_session = old
+        cmd = seen["cmd"]
+        self.assertEqual(Path(cmd[cmd.index("-C") + 1]), Path(cmd[cmd.index("-o") + 1]).parent)
+        self.assertTrue(seen["prompt"].startswith(d.JUDGE_ONLY_THIS))
+
     def test_a_wider_claim_needs_most_runs(self):
         runs = []
         for flag in (True, False, True):

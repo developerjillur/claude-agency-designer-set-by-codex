@@ -1477,6 +1477,24 @@ class SpeedAndReliability(unittest.TestCase):
                "images": [{"name": "cup", "verdict": "ERROR", "rounds": [], "judge_error": "judge timed out"}]}
         self.assertIn("not judged (judge timed out)", ci.fast_report_md(rep))  # an unjudged image is listed
 
+    def test_the_judge_starts_in_its_own_empty_folder(self):
+        """2026-09-25: a judge that started in the project folder read the files there (a design's HTML, notes)."""
+        seen = {}
+
+        def fake_run_group(cmd, prompt, timeout, tmp, cancel=None, ready=None, env=None):
+            seen.update(cmd=cmd, prompt=prompt, tmp=tmp)
+            Path(cmd[cmd.index("-o") + 1]).write_text(json.dumps({
+                "gates": {g: "PASS" for g in ("instruction_following", "text_exact", "physics", "hand_object",
+                                              "anatomy", "no_unrequested_elements")},
+                "scores": {"realism": 5, "artifacts": 5, "physics_plausibility": 5, "composition": 5,
+                           "brief_fidelity": 5}, "defects": []}))
+            return {"stdout": "", "stderr": "", "returncode": 0, "error": None, "early": None}
+        ci.run_group, ci.JUDGE_RETRY_WAIT = fake_run_group, 0
+        ci.codex_bin = lambda: "codex"
+        ci.run_judge(self.tmp / "x.png", "a cup")
+        self.assertEqual(Path(seen["cmd"][seen["cmd"].index("-C") + 1]), Path(seen["tmp"]))
+        self.assertTrue(seen["prompt"].startswith("Use only this message and the attached image."))
+
     def test_early_exit_judges_candidates_while_others_are_judged(self):
         spans, lock = {}, threading.Lock()
         src = self.tmp / "src.png"

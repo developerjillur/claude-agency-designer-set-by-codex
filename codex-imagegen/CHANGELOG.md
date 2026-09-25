@@ -3,6 +3,13 @@
 The version is `SKILL_VERSION` in `scripts/codex_image.py`; `doctor` reports it. Run the offline tests after every change:
 `python3 -m unittest discover -s ~/.claude/skills/codex-imagegen/tests`. Run `doctor --image-smoke` after every Codex CLI update.
 
+## 2026.09.25.1 · the judge sees only what it is given
+
+- The image judge's Codex session now starts in its own empty folder (`-C` its temp folder) and is told to use only
+  the message and the attached image. It started in the project folder, where a judge can read the files there; in
+  a test on 2026-09-25 a design judge read a banner's HTML and failed the PNG for it.
+- **Tests:** 100 offline tests.
+
 ## 2026.09.24.2 · a fast path for drafts
 
 - SKILL.md opens with the draft path: brief, `generate --no-judge` in the foreground (about 50 s instead of 90; a

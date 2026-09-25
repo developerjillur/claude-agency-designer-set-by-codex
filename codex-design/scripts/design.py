@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # no __pycache__ inside the skill folder
 import copyrules  # noqa: E402  (copy that reads human: references/copy.md)
 
-SKILL_VERSION = "2026.09.25.3"
+SKILL_VERSION = "2026.09.25.4"
 SKILL_DIR = Path(__file__).resolve().parent.parent
 PRESETS_FILE = SKILL_DIR / "scripts" / "presets.json"
 
@@ -2838,6 +2838,13 @@ def brand_brief(brand_json) -> str:
     return "\n".join(rows)
 
 
+# Every judge session runs in its own empty folder and is told to use only what it is given. It used to start in the
+# project folder, and a design judge read design/hero.html and failed a PNG banner for a <span> that was not a working
+# button (2026-09-25); a judge that reads the designer's notes judges the notes.
+JUDGE_ONLY_THIS = ("Use only this message and the attached images. Do not open, list or search any files, and do not "
+                   "run commands.\n\n")
+
+
 def _codex_json(ci, prompt: str, images: list, schema: dict, effort: str, timeout: int, who: str,
                 required: tuple, retries: int = 1) -> dict:
     """One fresh read-only Codex session that answers in a JSON schema. A timeout, an empty answer or one that breaks
@@ -2850,10 +2857,10 @@ def _codex_json(ci, prompt: str, images: list, schema: dict, effort: str, timeou
     for attempt in range(retries + 1):
         last = tmp / f"answer-{attempt}.json"
         cmd = [ci.codex_bin(), "exec"] + sum((["-i", str(x)] for x in images), []) + [
-            "--ephemeral", "--skip-git-repo-check", "-s", "read-only", "--json",
+            "--ephemeral", "--skip-git-repo-check", "-s", "read-only", "--json", "-C", str(tmp),
             "-c", f'model_reasoning_effort="{effort}"', "--output-schema", str(sp), "-o", str(last)] + \
             ci.LEAN_FLAGS + ["-"]
-        res = run_session(cmd, prompt, timeout, env=ci.codex_env())
+        res = run_session(cmd, JUDGE_ONLY_THIS + prompt, timeout, env=ci.codex_env())
         if res["error"] == "stopped":
             raise RunFailed(f"{who}: stopped")
         problem = None

@@ -46,6 +46,9 @@ or final version): add the gates below: the ledger, judged plates, the design ju
 copyjudge and `deliver`. The last step is one command, `deliver --judge --brief brief.md …`: it runs both final
 judges (3 runs each) at the same time, then every gate. `brief.md` holds only what the client gave (their words,
 facts, audience, brand): the judges fail a design on anything in it, so your own photo prompts and notes stay out.
+Before designing, check the brief has what the format needs (an event: date, time and place; an offer: the deal and
+its dates; a product: the price and where to buy): ask for what is missing, or show it as an agreed placeholder, and
+never invent it (a poster with no place failed essentials in every run).
 At most two fix rounds after the first verdict; each re-judge sees the last round's fixes. PASS ships, and the
 report lists what the judges still want; still REVISE or FAIL after two rounds: stop, and show the user the design,
 the verdicts and the notes. Never copy files into the delivery folder by hand: when `deliver` stops, it stays empty.
