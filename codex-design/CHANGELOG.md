@@ -20,7 +20,10 @@ the routing, no skill was loaded at all and the caption invented taste claims an
   save copy and skip the check. natural-copy's fast path saves only this way.
 - **Scarcity without its fact** is a Bengali warning now (`bn-urgency`: শেষ হয়ে যেতে পারে, স্টক সীমিত without a
   closing date or a count), the invented closer a fast run reached for. The calibration lines stay clean.
-- **Tests:** 125 offline tests.
+- **A page left in Times gets a warning:** when the brand fonts do not load, every line falls back to the
+  browser's default and nothing else flags it (Times is installed); a fast run lost a render round to it.
+- **A draft's photo plate** is waited for before the render (and runs in the foreground under `claude -p`).
+- **Tests:** 126 offline tests.
 
 ## 2026.09.24.5 · shorter waits, fewer failed runs, and songs judged as songs
 

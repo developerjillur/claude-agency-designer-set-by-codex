@@ -1494,6 +1494,13 @@ def review(qa: dict, bg_png: bytes | None, c: dict, copy: list | None = None, sl
         Image = need_pillow()
         import io
         bg = Image.open(io.BytesIO(bg_png)).convert("RGB")
+    default_face = [it for it in qa["items"] if (it.get("font") or "").strip().lower() in ("times", "times new roman")]
+    if default_face:
+        # Times is the browser's default: a page whose font variables did not load looks like this, and nothing
+        # else flags it because Times is installed
+        warnings.append(f"{len(default_face)} text item{'' if len(default_face) == 1 else 's'} in Times, the browser's "
+                        f"default ('{default_face[0]['text'][:30]}'): the page's fonts did not load; keep the pattern's "
+                        f"stylesheet links and set --font-display and --font-text on :root")
     for i, it in enumerate(qa["items"]):
         tag = f"text {i + 1} '{it['text'][:40]}' ({it['sel']})"
         for iss in it["issues"]:

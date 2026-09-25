@@ -5,8 +5,10 @@ The version is `SKILL_VERSION` in `scripts/codex_image.py`; `doctor` reports it.
 
 ## 2026.09.24.2 · a fast path for drafts
 
-- SKILL.md opens with the draft path: brief, `generate --no-judge` in the background (about 50 s instead of 90), look
-  at it yourself, deliver; several images in one `batch --no-judge`. Anything shipped keeps the judge. No code change.
+- SKILL.md opens with the draft path: brief, `generate --no-judge` in the foreground (about 50 s instead of 90; a
+  background job ended with a `claude -p` session before the image was saved), look at it yourself, deliver;
+  several images in one `batch --no-judge` in the background. Anything shipped keeps the judge. No code change.
+  Measured on real tasks: a draft hero photo in 58 s, a Bangla post in 37 s, a 3-slide carousel in 44 s.
 
 ## 2026.09.24.1 · no more half-hour waits, and batches that keep their work
 

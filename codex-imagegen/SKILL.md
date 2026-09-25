@@ -10,11 +10,12 @@ Claude plans and writes the briefs, then verifies and delivers the results. The 
 
 ## Fast path (every draft: do exactly this)
 
-A draft image (a placeholder, a mockup, a quick look at an idea, a first version): write the brief with
-the labelled lines, start `generate --prompt-file b.txt --aspect 4:5 --no-judge` in the background (about 50 s
-instead of 90), look at the image yourself with Read and deliver it; several images go in one `batch --no-judge`.
-Anything shipped, published or client-facing keeps the judge (the default) and every step below. Never run `doctor`
-or read the script unless a command fails: `references/cli.md` has every flag.
+A draft image (a placeholder, a mockup, a first version): write the brief with the labelled lines, run
+`generate --prompt-file b.txt --aspect 4:5 --no-judge` in the foreground with a Bash timeout of 600000 ms (about
+50 s, not 90), look at it with Read and deliver it. Several images: one `batch --no-judge` with `run_in_background`,
+and wait for its notification before you answer (in `claude -p`, run it in the foreground). Anything shipped or
+client-facing keeps the judge (the default) and every step below. Run `doctor` or read the script only when a
+command fails: `references/cli.md` has every flag.
 
 ## 0. Preflight
 

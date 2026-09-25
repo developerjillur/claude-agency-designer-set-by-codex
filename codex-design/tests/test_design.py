@@ -2076,6 +2076,11 @@ class RenderProduction(unittest.TestCase):
             d.cmd_render(ns)
         self.assertEqual(len(json.loads(out.getvalue())["text"]), 2)
 
+    def test_a_page_left_in_times_gets_a_warning(self):
+        """Found in a fast run: the brand fonts did not load, every line fell back to Times, and nothing said so."""
+        rep = self.run_html(page("<h1 style='margin:40px;font:48px Times'>Weekend sale</h1>"), size="600x400")
+        self.assertTrue(any("Times, the browser's default" in w for w in rep["checks"]["warnings"]))
+
     def test_render_lints_the_copy_in_the_same_call(self):
         """The fast path: one render gives the picture's checks and the copy's (a dash is an error, --strict fails)."""
         p = self.tmp / "c.html"

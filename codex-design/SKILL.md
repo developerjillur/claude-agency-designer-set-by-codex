@@ -39,7 +39,7 @@ it in four steps and about five tool calls, with no judge:
 4. **Look** at the PNG once with Read, then deliver it. Offer the art-director judge in one line.
 
 A photo in a draft: one codex-imagegen `generate --no-judge` for the plate (about 50 s), started in the background
-while you write the HTML. Never run `doctor`, read cli.md or open design.py unless a command fails.
+while you write the HTML; wait for it to finish before you render (in a `claude -p` run, run it in the foreground). Never run `doctor`, read cli.md or open design.py unless a command fails.
 
 **Client work** (the client's final files, anything published under a client's name, or the user asks for the best
 or final version): add the gates below: the ledger, judged plates, the design judge (one run while iterating,
