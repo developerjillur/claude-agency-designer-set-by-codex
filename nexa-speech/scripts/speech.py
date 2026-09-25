@@ -50,7 +50,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gemini_api as G  # noqa: E402  (shared by the nexa skills: never edit it here)
 import elevenlabs_api as EL  # noqa: E402  (shared by the nexa skills: never edit it here)
 
-SKILL_VERSION = "2026.09.25.4"
+SKILL_VERSION = "2026.09.25.5"
 PRICES_AS_OF = "2026-09-25"
 ANALYSIS_VERSION = "2026.09.25.1"   # bump when what analyse_audio() returns changes
 SCRIPTS = Path(__file__).resolve().parent
@@ -2362,7 +2362,10 @@ def render_project(plan: dict, project: Path, command: str, budget: float, min_t
     write_qa(project, plan, state, metrics, refs, asr_results)
     missing = [c["id"] for c in plan["chunks"] if not state["chunks"][c["base_key"]]["takes"]]
     flagged = [c["id"] for c in chunks if state["chunks"][c["base_key"]].get("result") == "fail"]
+    # how many takes each flagged chunk has: --takes N asks for N in all, so a new take needs more than this
+    have = {c["id"]: len(state["chunks"][c["base_key"]]["takes"]) for c in chunks if c["id"] in flagged}
     return {"chunks": len(plan["chunks"]), "rendered": len(chunks), "calls": calls, "est_usd": round(spent, 5),
+            "flagged_takes": have,
             "rerolls": [{"chunk": ch["id"], "take": t, "why": why[0]} for ch, t, why in rerolls
                         if (ch, t) in allowed],
             "reroll_notes": reroll_notes, "failures": fails, "stopped": explain(stopped) if stopped else None,
@@ -4037,8 +4040,12 @@ def render_summary_lines(project: Path, plan: dict, res: dict) -> list:
     if res["missing"]:
         lines.append("missing (no audio yet): " + ", ".join(res["missing"]))
     if res["flagged"]:
-        lines.append("still failing after the re-roll (listen; `pick DIR CHUNK TAKE` or render --only ID --takes N): "
-                     + ", ".join(res["flagged"]))
+        have = res.get("flagged_takes") or {}
+        lines.append("still failing after the re-roll (listen; `pick DIR CHUNK TAKE`, or render --only ID --takes N, "
+                     "where N counts the takes already made): "
+                     + ", ".join("%s (%d take%s; --takes %d for 2 more)" % (c, have.get(c, 1), "" if have.get(c, 1) == 1
+                                                                          else "s", have.get(c, 1) + 2)
+                                 for c in res["flagged"]))
     return lines
 
 

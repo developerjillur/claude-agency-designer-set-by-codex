@@ -157,6 +157,7 @@ class FakeGemini:
         self.by_hash = {}
         self.last_words = []
         self.transcript_override = None
+        self.fa_timeless = None             # the index of a forced-alignment word that comes back without times
         self.voice_n = 0
         self.httpd = QuickServer(("127.0.0.1", 0), self._handler())
         self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}"
@@ -264,9 +265,11 @@ class FakeGemini:
                 step = dur / max(1, len(words))
                 with fake.lock:
                     fake.log.append({"kind": "fa", "text": text})
-                return self.send(200, {"characters": [], "loss": 0.07, "words": [
-                    {"text": t, "start": round(i * step, 3), "end": round((i + 0.9) * step, 3),
-                     "loss": 0.9 if t == "ferry" else 0.05} for i, t in enumerate(words)]})
+                out = [{"text": t, "start": round(i * step, 3), "end": round((i + 0.9) * step, 3),
+                        "loss": 0.9 if t == "ferry" else 0.05} for i, t in enumerate(words)]
+                if fake.fa_timeless is not None and fake.fa_timeless < len(out):
+                    out[fake.fa_timeless] = {"text": out[fake.fa_timeless]["text"], "loss": 0.05}
+                return self.send(200, {"characters": [], "loss": 0.07, "words": out})
 
             def speak(self, body):
                 inp = body.get("input")
@@ -855,6 +858,15 @@ class AlignMatchTests(unittest.TestCase):
         self.assertNotEqual(S.match_key("কাল"), S.match_key("কাজ"))
 
 
+class RenderSummaryTests(unittest.TestCase):
+    def test_a_failing_chunk_says_how_to_ask_for_new_takes(self):
+        res = {"rendered": 1, "chunks": 11, "calls": 2, "est_usd": 0.003, "budget": 0.05, "rerolls": [],
+               "reroll_notes": [], "failures": [], "stopped": None, "stop_kind": None, "missing": [],
+               "flagged": ["c011"], "flagged_takes": {"c011": 2}}
+        text = "\n".join(S.render_summary_lines(Path("/tmp/p"), {}, res))
+        self.assertIn("c011 (2 takes; --takes 4 for 2 more)", text)      # --takes counts the takes already made
+
+
 class AsrCheckTests(unittest.TestCase):
     def chunk(self, spoken, style="calm documentary narration", terms=None):
         return {"spoken": spoken, "style": style, "tags": [], "lexicon_terms": terms or []}
@@ -1226,6 +1238,20 @@ class EndToEndTests(unittest.TestCase):
         self.assertIn("ferry", info["suspect_words"])                          # a high per-word loss is flagged
         got = json.loads((self.main / "words.json").read_text())
         self.assertEqual([w["w"] for w in got], [w["w"] for w in words])      # the display words come back
+        self.assertTrue(all(a["start"] <= b["start"] for a, b in zip(got, got[1:])))
+        self.cli("align", self.main, "--engine", "pauses")                     # leave words.json as it was made
+
+    def test_align_elevenlabs_skips_a_word_without_times(self):
+        words = json.loads((self.main / "words.json").read_text())
+        self.fake.fa_timeless = 2
+        try:
+            r = self.cli("align", self.main, "--engine", "elevenlabs", "--json")
+        finally:
+            self.fake.fa_timeless = None
+        info = self.js(r)["info"]
+        self.assertLess(info["matched_share"], 1.0)                             # that word is placed, not matched
+        got = json.loads((self.main / "words.json").read_text())
+        self.assertEqual([w["w"] for w in got], [w["w"] for w in words])
         self.assertTrue(all(a["start"] <= b["start"] for a, b in zip(got, got[1:])))
         self.cli("align", self.main, "--engine", "pauses")                     # leave words.json as it was made
 

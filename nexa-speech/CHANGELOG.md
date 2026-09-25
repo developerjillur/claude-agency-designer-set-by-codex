@@ -4,6 +4,13 @@ The version is `SKILL_VERSION` in `scripts/speech.py`. Run the offline tests aft
 `python3 -m unittest discover -s ~/.claude/skills/nexa-speech/tests`, and run `plan`, `render`, `master` and `align`
 once by hand (against the real API only when a key and a budget are agreed).
 
+## 2026.09.25.5
+
+- A chunk still failing after its re-roll now says how many takes it has and what to ask for: `--takes N` counts the
+  takes already made, so `--takes 2` on a chunk with two takes made no call (seen on a live Bangla voice-over, where
+  `--takes 4` then gave a take inside the pace window).
+- A test covers forced alignment skipping a word that comes back without times.
+
 ## 2026.09.25.4
 
 - `align --engine elevenlabs` skips a word that comes back without a start or an end instead of stopping after the
