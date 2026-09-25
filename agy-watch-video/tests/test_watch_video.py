@@ -222,7 +222,20 @@ class RenderLessonsTests(unittest.TestCase):
         self.assertAlmostEqual(w.last_frame_time({"duration": 10.048, "video": {"fps": 30.0, "frames": 300}}),
                                298.5 / 30)
         self.assertAlmostEqual(w.last_frame_time({"duration": 5.0, "video": {"fps": 25.0}}), 5.0 - 1.5 / 25)
-        self.assertAlmostEqual(w.last_frame_time({"duration": 5.0}), 4.9)
+        self.assertAlmostEqual(w.last_frame_time({"duration": 5.0}), 4.95)
+        p = w.plan_watch({"duration": 10.048, "video": {"width": 1920, "height": 1080, "fps": 30.0, "frames": 300}},
+                         {}, "standard", "motion", None, True)
+        self.assertLessEqual(max(p["detail_times"]), 298.5 / 30)      # the sheet and the text check use these times
+
+    def test_approved_lines_are_found_inside_a_frames_reading(self):
+        """Seven of nine approved lines on a render came back "not found": each was compared with the whole reading."""
+        found = lambda line, text: w.expect_match(line, text) >= 0.95
+        self.assertTrue(found("JUST FOR FUN", "JUST FOR FUN / RACE DAY / 27"))
+        self.assertTrue(found("REC", "REC 00:00:13:08"))
+        self.assertTrue(found("Get 1% better every day", "Get 1% better / every day / 37.8x"))
+        self.assertTrue(found("If your skills aren't paying you yet,", "If your skills aren't paying / you yet,"))
+        self.assertTrue(found("37.8x", "Get 1% better / every day / 37.8x / better after one year"))
+        self.assertFalse(found("Get 2% better every day", "Get 1% better / every day"))
 
     def test_two_readers_agree_on_the_words_in_any_order(self):
         """Pro and Flash listed a stat card's labels in different orders, and four frames came back unverified."""

@@ -30,7 +30,7 @@ import time
 import unicodedata
 from pathlib import Path
 
-SKILL_VERSION = "2026.09.25.2"
+SKILL_VERSION = "2026.09.25.3"
 CACHE_VERSION = "2026.09.24.4"   # keys the cache: bump it only when what a pass or a measurement returns changes
 SKILL_DIR = Path(__file__).resolve().parent.parent
 CACHE = Path(os.environ.get("AGY_WATCH_CACHE") or (Path.home() / ".cache" / "agy-watch-video"))
@@ -1062,7 +1062,7 @@ def last_frame_time(pr: dict) -> float:
     fps, frames, dur = vid.get("fps") or 0, vid.get("frames") or 0, pr.get("duration") or 0
     if fps and frames:
         return max(0.0, (frames - 1.5) / fps)
-    return max(0.0, dur - (1.5 / fps if fps else 0.1))
+    return max(0.0, dur - (1.5 / fps if fps else 0.05))
 
 
 def extract_frames(v: Video, times: list, max_side: int = 1920) -> list:
@@ -1996,7 +1996,7 @@ def plan_watch(pr: dict, meas: dict, depth: str, goal: str, window: tuple | None
     if max_frames is not None and fps:
         cap = max(2, min(cap, max_frames))
     ch = vid.get("change")
-    last = max(a, b - 0.05)
+    last = max(a, min(b - 0.05, last_frame_time(pr)))  # the same last frame extract_frames takes (sheet, text check)
     times: list = []
     anchors: list = []
     sampling = "none"
@@ -2417,7 +2417,8 @@ def pass_text(v: Video, frames: list, fresh: bool, expect: list | None = None) -
                       "verified": how != "unverified", "how": how})
     expected = []
     for line in expect or []:
-        best = max(((similar(line, i.get("text") or ""), i) for i in items), default=(0.0, None), key=lambda x: x[0])
+        best = max(((expect_match(line, i.get("text") or ""), i) for i in items), default=(0.0, None),
+                   key=lambda x: x[0])
         seen = best[1]
         expected.append({"expected": line, "match": round(best[0], 2),
                          "status": "found" if best[0] >= 0.95 else ("different" if best[0] >= 0.6 else "not found"),
@@ -2431,6 +2432,26 @@ def spread_pick_pairs(pairs: list, k: int) -> list:
     if len(pairs) <= k:
         return list(pairs)
     return [pairs[round(i * (len(pairs) - 1) / (k - 1))] for i in range(k)] if k > 1 else pairs[:1]
+
+
+def expect_match(line: str, text: str) -> float:
+    """How well an approved line matches one frame's reading: the whole reading, each line of it and each run of up to
+    four lines in a row (a headline breaks over two). A line whose words all appear, in order, in one of them matches
+    fully ("REC" in "REC 00:00:13:08"). The whole multi-line reading used to be compared with each short line, and
+    seven of nine approved lines on a render came back "not found" (2026-09-25)."""
+    parts = [x.strip() for x in (text or "").split(" / ") if x.strip()]
+    cands = [text or ""] + [" ".join(parts[i:j]) for i in range(len(parts)) for j in range(i + 1, min(len(parts), i + 4) + 1)]
+    want, best = tokens(line), 0.0
+    nums = [x for x in want if any(ch.isdigit() for ch in x)]
+    for c in cands:
+        got = tokens(c)
+        if want and any(got[k:k + len(want)] == want for k in range(len(got) - len(want) + 1)):
+            return 1.0
+        s = similar(line, c)
+        if nums != [x for x in got if any(ch.isdigit() for ch in x)]:
+            s = min(s, 0.9)  # a changed number is never the approved line ("2%" read as "1%" scored 0.96)
+        best = max(best, s)
+    return best
 
 
 def same_words(a: str, b: str) -> bool:

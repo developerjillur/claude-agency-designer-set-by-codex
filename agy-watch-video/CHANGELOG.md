@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026.09.25.3
+
+A live rerun of the same 10 s review with 2026.09.25.2 took 289 s instead of 422 s (the text check's second reader:
+23 s instead of 200 s; 11 of 11 readings verified instead of 8 of 13), and showed two more problems, fixed here.
+
+- **The plan stops at the same last frame the frames are taken at.** The plan still asked for 9.998 s, so the contact
+  sheet and the text check looked for a frame file that was never written (the labelled sheet fell back to ffmpeg,
+  and the caption's last frame went unread).
+- **Approved lines are found inside a frame's reading.** `--expect` compared each short line with the whole multi-line
+  reading of a frame, so on that render seven of nine approved lines came back "not found" in both runs. A line now
+  matches the reading, each of its lines, or up to four lines in a row, and its words in order inside one of them
+  count as found: on the rerun's readings 8 of 9 are found (the ninth is the caption's unread last frame). A line whose
+  numbers differ is never "found" ("Get 2% better" scored 0.96 against "Get 1% better").
+- **Tests:** 105 offline tests.
+
 ## 2026.09.25.2
 
 Found in the logs of a real Remotion session (a 10 s and a 60 s motion-graphics render, reviewed with `watch --goal
