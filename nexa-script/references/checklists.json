@@ -1,0 +1,343 @@
+{
+  "schema": "nexa.checklists/1",
+  "note": "Binary judge items with evidence, per format (research notes R1, R2, R3, R4, R10 and V2 to V6, 2026-09-26). Each item is asked as a yes or no question about the draft; the majority of six votes decides. Hard fails stop delivery whatever the other items say.",
+  "formats": {
+    "youtube-long": {
+      "medium": "video",
+      "items": [
+        {
+          "id": "brief",
+          "question": "Does it serve the brief's stated goal with the matching call to action (said aloud as well as shown, for video), answer every audience objection the brief lists, and add no detail (a prop, place, time, motive or number) that the brief or the research does not hold?"
+        },
+        {
+          "id": "promise",
+          "question": "Do the title, the thumbnail idea, the first 30 seconds and the payoff make one promise, and does the payoff deliver it (at least as big as the package)?"
+        },
+        {
+          "id": "hook",
+          "question": "Does the opening confirm the topic within about 25 words and give a specific stake or a turn (but, except, yet) within about 20 seconds, with no greeting, logo, subscribe ask or sponsor in the first 30 seconds?"
+        },
+        {
+          "id": "engine",
+          "question": "Are the beats chained by but or therefore (cause and consequence), not by and-then, with every opened question paid off later?"
+        },
+        {
+          "id": "midpoint",
+          "question": "Is there a turn that reframes the question around 40 to 55 percent of the runtime, and a re-engagement at least every 3 to 4 minutes after that?"
+        },
+        {
+          "id": "misconception",
+          "question": "For an explainer: is the common misconception stated and then refuted (not only the correct explanation given)? Answer pass when the piece is not an explainer."
+        },
+        {
+          "id": "stakes",
+          "question": "Are the stakes concrete (who loses or gains what) and stated before the midpoint?"
+        },
+        {
+          "id": "specific",
+          "question": "Does every section carry concrete detail (a number, name, date, place or object), with the key facts sourced, not vague 'experts say'?"
+        },
+        {
+          "id": "ear",
+          "question": "Does it read aloud cleanly at speaking pace: short spoken sentences, varied rhythm, numbers said the way people say them?"
+        },
+        {
+          "id": "visual",
+          "question": "Does every one to three sentences have a concrete visual to show (not generic 'b-roll'), shown before it is told where possible?"
+        },
+        {
+          "id": "voice",
+          "question": "Does it sound like one real creator with a point of view, with none of the machine tells (template openers, 'let's dive in', stock phrases, a moral at the end, named emotions, rule-of-three tics)?"
+        },
+        {
+          "id": "ending",
+          "question": "Does it end on the payoff and one call to action tied to a next video, without a recap, a stated moral or a wind-down that signals the end early?"
+        },
+        {
+          "id": "length",
+          "question": "Does every section earn its minutes (no padding, no point made twice)?"
+        },
+        {
+          "id": "turns",
+          "question": "Is there a first turning point (the event that flips the starting situation) in roughly the first quarter and a second turn around 75 to 85 percent of the runtime, each clearly caused rather than sudden?"
+        },
+        {
+          "id": "scene",
+          "question": "Is there at least one moment the viewer can see, slowed down at the turn, with concrete detail (the place, an action, an exact spoken line or thought), rather than a summary?"
+        },
+        {
+          "id": "bridges",
+          "question": "Does every section end on a forward pull (an open question, a contrast or a tease that is later paid), so the viewer always knows the next step?"
+        },
+        {
+          "id": "continuity",
+          "question": "Do names, places, amounts, products and ages stay the same from start to end (no drift)?"
+        },
+        {
+          "id": "fit",
+          "question": "Do the references, units, money, register, address form and humour feel native to the audience in the brief, and respectful of elders, faith, gender and the people shown?"
+        },
+        {
+          "id": "truth",
+          "question": "Is every factual claim, number, quote, date and place either sourced or given in the brief, with reconstructions and composites marked, and free of pop-science claims (dopamine hits, oxytocin, 22 times more memorable, goldfish attention)?"
+        }
+      ],
+      "hard_fails": [
+        "the package and the payoff do not match",
+        "an unsourced or invented key fact",
+        "a banned phrase in the first 30 seconds",
+        "the title's question is never answered",
+        "a continuity error (a name, place, amount or product changes midway)",
+        "an invented event, quote or person presented as real",
+        "a hook the body contradicts"
+      ]
+    },
+    "short": {
+      "medium": "video",
+      "items": [
+        {
+          "id": "brief",
+          "question": "Does it serve the brief's stated goal with the matching call to action (said aloud as well as shown, for video), answer every audience objection the brief lists, and add no detail (a prop, place, time, motive or number) that the brief or the research does not hold?"
+        },
+        {
+          "id": "stop",
+          "question": "Would a stranger stop within the first second with the sound off: action in the first frame, first word by half a second, the promise clear by 3 seconds, an overlay of 7 words or fewer?"
+        },
+        {
+          "id": "payoff",
+          "question": "Does the body pay off the hook within 5 to 8 seconds and keep one idea to the end?"
+        },
+        {
+          "id": "turns",
+          "question": "Is it a chain of expectation breaks (each but opening a gap, each so cashing it), not a list of facts?"
+        },
+        {
+          "id": "loop",
+          "question": "Does the ending answer the hook exactly, and (for loop formats) connect back to the first line?"
+        },
+        {
+          "id": "specific",
+          "question": "Is there at least one concrete, checkable detail (a number, name, place or object) and one real surprise that was set up fairly?"
+        },
+        {
+          "id": "voice",
+          "question": "Does it sound like a real creator on this platform, free of machine tells and greetings?"
+        },
+        {
+          "id": "sound",
+          "question": "Does the story work with the sound off (on-screen text carries it) and with the sound on?"
+        },
+        {
+          "id": "platform",
+          "question": "Does the length, pace and format fit the platform (native look, captions in short chunks)?"
+        },
+        {
+          "id": "turn",
+          "question": "Does one event flip the situation by about a third of the runtime, after only the setup the viewer needs to feel it?"
+        },
+        {
+          "id": "continuity",
+          "question": "Do names, places, amounts, products and ages stay the same from start to end (no drift)?"
+        },
+        {
+          "id": "fit",
+          "question": "Do the references, units, money, register, address form and humour feel native to the audience in the brief, and respectful of elders, faith, gender and the people shown?"
+        },
+        {
+          "id": "truth",
+          "question": "Is every factual claim, number, quote, date and place either sourced or given in the brief, with reconstructions and composites marked, and free of pop-science claims (dopamine hits, oxytocin, 22 times more memorable, goldfish attention)?"
+        }
+      ],
+      "hard_fails": [
+        "an invented statistic, review or testimonial",
+        "a callout of the viewer's sensitive personal trait",
+        "realistic synthetic people or events with no AI label",
+        "a hook the body contradicts",
+        "an invented event or quote presented as real"
+      ]
+    },
+    "ad": {
+      "medium": "video",
+      "items": [
+        {
+          "id": "brief",
+          "question": "Does it serve the brief's stated goal with the matching call to action (said aloud as well as shown, for video), answer every audience objection the brief lists, and add no detail (a prop, place, time, motive or number) that the brief or the research does not hold?"
+        },
+        {
+          "id": "stop",
+          "question": "Stop power: would a stranger stop within one second, sound off, and is the opening specific to this product and buyer?"
+        },
+        {
+          "id": "payoff",
+          "question": "Does the body pay off the hook within 5 to 8 seconds, with one message only?"
+        },
+        {
+          "id": "proof",
+          "question": "Is the product shown working, with a concrete, provable detail, and does the proof come before the call to action?"
+        },
+        {
+          "id": "brand",
+          "question": "Is the product or brand cue visible within 3 to 5 seconds without a logo slate, and does entertainment or information come before the sell?"
+        },
+        {
+          "id": "voice",
+          "question": "Does it sound like a real creator or founder on this platform, free of machine tells and hype?"
+        },
+        {
+          "id": "sound",
+          "question": "Does it work with the sound off and with the sound on?"
+        },
+        {
+          "id": "cta",
+          "question": "Is the call to action spoken and shown, as a verb plus an object plus a reason to act now?"
+        },
+        {
+          "id": "compliance",
+          "question": "Are all claims supportable, with no personal-attribute callouts, no cure, guaranteed-result or quick-money claims, and disclosures where needed?"
+        },
+        {
+          "id": "producible",
+          "question": "Can every visual be shot with the stated budget, people and locations?"
+        },
+        {
+          "id": "pack",
+          "question": "When several hooks or variants are given: do they differ in concept or hook type, not just wording? Answer pass for a single script."
+        },
+        {
+          "id": "fit",
+          "question": "Do the references, units, money, register, address form and humour feel native to the audience in the brief, and respectful of elders, faith, gender and the people shown?"
+        },
+        {
+          "id": "continuity",
+          "question": "Do names, places, amounts, products and ages stay the same from start to end (no drift)?"
+        }
+      ],
+      "hard_fails": [
+        "an invented statistic, review or testimonial",
+        "a callout of a viewer's sensitive trait",
+        "a cure, guaranteed-result or quick-money claim",
+        "a paid creator with no disclosure",
+        "unlicensed music",
+        "realistic synthetic people or events with no AI label",
+        "a hook the body contradicts"
+      ]
+    },
+    "talk": {
+      "medium": "listen",
+      "items": [
+        {
+          "id": "brief",
+          "question": "Does it serve the brief's stated goal with the matching call to action (said aloud as well as shown, for video), answer every audience objection the brief lists, and add no detail (a prop, place, time, motive or number) that the brief or the research does not hold?"
+        },
+        {
+          "id": "open",
+          "question": "Does it open inside a story or a sharp question, not with thanks, an agenda or a definition?"
+        },
+        {
+          "id": "contrast",
+          "question": "Does it move between what is and what could be (contrast), with a clear single idea?"
+        },
+        {
+          "id": "loops",
+          "question": "Are the stories nested and closed in order (the first opened is closed last)?"
+        },
+        {
+          "id": "specific",
+          "question": "Is it concrete (people, places, numbers, one sensory detail per scene) rather than abstract advice?"
+        },
+        {
+          "id": "moment",
+          "question": "Is there one moment people will remember and repeat, placed at an emotional peak?"
+        },
+        {
+          "id": "ear",
+          "question": "Is it written for the ear: short sentences, pauses, speakable numbers?"
+        },
+        {
+          "id": "ending",
+          "question": "Does it end on shown change and the ask, not a stated moral?"
+        },
+        {
+          "id": "scene",
+          "question": "Is the key moment told as a scene (place, action, the exact words or thought of that second), with the key line staged by an expectation before it and a pause after it?"
+        },
+        {
+          "id": "fit",
+          "question": "Do the references, units, money, register, address form and humour feel native to the audience in the brief, and respectful of elders, faith, gender and the people shown?"
+        },
+        {
+          "id": "truth",
+          "question": "Is every factual claim, number, quote, date and place either sourced or given in the brief, with reconstructions and composites marked, and free of pop-science claims (dopamine hits, oxytocin, 22 times more memorable, goldfish attention)?"
+        }
+      ],
+      "hard_fails": [
+        "an invented story presented as true",
+        "an invented quote or statistic",
+        "a stated moral in place of shown change, in a factual story"
+      ]
+    },
+    "blog": {
+      "medium": "read",
+      "items": [
+        {
+          "id": "brief",
+          "question": "Does it serve the brief's stated goal with the matching call to action (said aloud as well as shown, for video), answer every audience objection the brief lists, and add no detail (a prop, place, time, motive or number) that the brief or the research does not hold?"
+        },
+        {
+          "id": "intent",
+          "question": "Does it match the search intent and format, with the answer or payoff in the first 100 words (no scene-setting filler)?"
+        },
+        {
+          "id": "gain",
+          "question": "Is there at least one useful thing the usual top results lack (original data, a first-hand test, expert input, a worked example or a decision framework)?"
+        },
+        {
+          "id": "evidence",
+          "question": "Are the first-hand details concrete and every statistic sourced by name, link and date, with no 'studies show'?"
+        },
+        {
+          "id": "structure",
+          "question": "Do the headings alone tell the story, front-loaded and descriptive, with short paragraphs and lists or tables where they help?"
+        },
+        {
+          "id": "voice",
+          "question": "Is it specific, varied and human, with none of the machine tells (in today's digital landscape, delve, it's important to note, a recap conclusion)?"
+        },
+        {
+          "id": "trust",
+          "question": "Is the title honest and specific, and are dates, byline and disclosures in place?"
+        },
+        {
+          "id": "conversion",
+          "question": "Does the next step feel like help, with the product appearing only where it does a step of the job?"
+        },
+        {
+          "id": "fit",
+          "question": "Do the references, units, money, register, address form and humour feel native to the audience in the brief, and respectful of elders, faith, gender and the people shown?"
+        }
+      ],
+      "hard_fails": [
+        "a fabricated fact, figure, quote, persona or experience",
+        "an unsourced statistic",
+        "a misleading title",
+        "an undisclosed affiliate relationship",
+        "an em or en dash"
+      ]
+    }
+  },
+  "aliases": {
+    "explainer": "youtube-long",
+    "documentary": "youtube-long",
+    "tutorial": "youtube-long",
+    "commentary": "youtube-long",
+    "video-essay": "youtube-long",
+    "reel": "short",
+    "tiktok": "short",
+    "shorts": "short",
+    "ugc-ad": "ad",
+    "vsl": "ad",
+    "podcast": "talk",
+    "article": "blog",
+    "newsletter": "blog"
+  }
+}

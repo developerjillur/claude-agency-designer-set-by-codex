@@ -1,0 +1,59 @@
+{
+  "schema": "nexa.trigger-eval/1",
+  "skill": "nexa-script",
+  "note": "20 queries: should load this skill, or should route elsewhere (R9: trigger evals for descriptions). Run each in a fresh session at the user's effort setting and record which skill loaded.",
+  "should_trigger": [
+    "Write a 10-minute YouTube explainer script on why Dhaka's buses race each other",
+    "reels script banao amader bakery-r jonno, 30 second",
+    "Draft a YouTube Shorts script about the one-oven bakery that sells out by 9",
+    "script likho: ekta documentary style video, Bangladesh-er garments shilpo niye",
+    "I need a 45-second UGC ad script for our pet-hair remover, with 5 hooks",
+    "Write a blog post: how to choose a rice cooker for a family of four",
+    "Give me a TED-style talk script about failing my first startup",
+    "Turn this research into a video essay script with a strong hook",
+    "Rewrite the hook and first 30 seconds of this YouTube script so viewers stay",
+    "blog likhe dao amader travel agency-r website-er jonno, Sajek trip niye"
+  ],
+  "should_not_trigger": [
+    {
+      "query": "Write an Instagram caption for our new coffee",
+      "route_to": "natural-text"
+    },
+    {
+      "query": "Write 3 Meta ad variants for our bookkeeping app",
+      "route_to": "nexa-copy"
+    },
+    {
+      "query": "Write a cold email to a Shopify store owner",
+      "route_to": "nexa-copy"
+    },
+    {
+      "query": "Research the history of Dhaka's bus contracts and verify every number",
+      "route_to": "nexa-research"
+    },
+    {
+      "query": "Make the thumbnail for this video",
+      "route_to": "codex-design"
+    },
+    {
+      "query": "Voice this script in Bangla",
+      "route_to": "nexa-speech"
+    },
+    {
+      "query": "Edit my footage into a 60-second reel",
+      "route_to": "nexa-video-creator"
+    },
+    {
+      "query": "Watch this video and tell me what the hook is",
+      "route_to": "agy-watch-video"
+    },
+    {
+      "query": "Write an Amazon product title for these earbuds",
+      "route_to": "nexa-copy"
+    },
+    {
+      "query": "reply dao ei comment-e",
+      "route_to": "natural-text"
+    }
+  ]
+}

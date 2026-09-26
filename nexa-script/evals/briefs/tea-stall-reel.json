@@ -1,0 +1,12 @@
+{"schema": "nexa.brief/1", "channel_or_brand": "a Chattogram street-food Instagram channel",
+ "topic": "why a tea stall near the port still charges 10 taka a cup",
+ "goal": "watch to the end and save the video for the next trip to Chattogram", "platform": "instagram reels", "format": "short",
+ "target_seconds": 30, "lang": "en",
+ "audience": {"who": "students and young travellers in Bangladesh aged 18 to 30", "knows": "the famous Chattogram food spots",
+              "wants": "cheap places that are worth the trip",
+              "objections": ["10 taka tea must taste like water", "the price has probably gone up by now"]},
+ "facts_given": ["the stall opened in 1987", "a cup of milk tea costs 10 taka",
+                 "the owner, Karim, boils the milk for about 40 minutes before he pours the first cup",
+                 "he sells about 600 cups a day", "the stall opens at 6 a.m.",
+                 "he has raised the price once, from 8 to 10 taka in 2022, when milk prices went up"],
+ "mode": "nonfiction", "must_avoid": ["invented details beyond the facts", "hygiene or health claims"]}

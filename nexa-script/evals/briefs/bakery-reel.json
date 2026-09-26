@@ -1,0 +1,6 @@
+{"schema": "nexa.brief/1", "channel_or_brand": "a Dhaka street-food Instagram channel", "topic": "why a small bakery sells out by 9 a.m. every day",
+ "goal": "watch to the end and follow the channel", "platform": "instagram reels", "format": "short", "target_seconds": 35, "lang": "en",
+ "audience": {"who": "food lovers in Dhaka aged 18 to 30", "knows": "the popular bakeries", "wants": "the story behind a food spot", "objections": ["another hype video"]},
+ "facts_given": ["the bakery has one oven", "it bakes 200 loaves a day", "they sell out by 9 a.m.", "people start queueing at 7 a.m.",
+                 "last spring the owner doubled the batch and the bread came out pale, so he went back to 200"],
+ "mode": "nonfiction", "must_avoid": ["invented details beyond the facts"]}
