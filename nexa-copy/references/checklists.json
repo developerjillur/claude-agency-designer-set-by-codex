@@ -1,0 +1,309 @@
+{
+  "schema": "nexa.checklists/1",
+  "note": "Binary judge items with evidence, per copy family (research notes R5 §11.4, R6 §11, R7 §10, R10 §5.1, 2026-09-26). Each item is a yes or no question about the copy; the majority of six votes decides. Hard fails stop delivery whatever the other items say.",
+  "formats": {
+    "ad": {
+      "items": [
+        {
+          "id": "brief",
+          "question": "Does it answer every objection the brief lists in the reader's own terms, start from the reader's situation in the brief, ask for the brief's action, and add no fact that the brief or the research does not hold?"
+        },
+        {
+          "id": "clarity",
+          "question": "After five seconds, could a stranger say what it is, who it is for and what to do?"
+        },
+        {
+          "id": "awareness",
+          "question": "Does the first line match the reader's awareness in the brief (story or surprising fact for the unaware, their pain for the problem-aware, the mechanism for the solution-aware, proof against the main objection for the product-aware, the offer for the most aware)?"
+        },
+        {
+          "id": "fold",
+          "question": "Does the sale land inside the placement's fold (the first line of the primary text, the headline, the first three seconds)?"
+        },
+        {
+          "id": "specific",
+          "question": "Can the reader picture the key claim and could someone check it (a task, a time, a number, a place), with no vague benefit?"
+        },
+        {
+          "id": "distinct",
+          "question": "Would the copy stop working if a competitor's name replaced the brand's (the swap test)?"
+        },
+        {
+          "id": "voc",
+          "question": "Does it carry at least one real phrase or situation from the customer's own words in the brief or research?"
+        },
+        {
+          "id": "proof",
+          "question": "Is there proof beside the key claim, with results shown as typical or qualified?"
+        },
+        {
+          "id": "credible",
+          "question": "Does it read like one person talking to one person, with no hype and none of the machine tells?"
+        },
+        {
+          "id": "platform",
+          "question": "Is it native to the placement and inside its limits?"
+        },
+        {
+          "id": "action",
+          "question": "Is there one next step that names the value to the reader?"
+        },
+        {
+          "id": "compliance",
+          "question": "Is it free of fake urgency, unsupported claims, hidden incentives, personal-attribute callouts and unproven green, health or money claims, with disclosures in place?"
+        },
+        {
+          "id": "angles",
+          "question": "When several variants are given, do they differ in pain, desire or mechanism rather than in wording? Answer pass for a single variant."
+        }
+      ],
+      "hard_fails": [
+        "an invented number, review, customer, award or deadline",
+        "a disease, cure, guaranteed-result or quick-money claim",
+        "a personal-attribute callout",
+        "a paid endorsement with no disclosure"
+      ]
+    },
+    "post": {
+      "items": [
+        {
+          "id": "brief",
+          "question": "Does it answer every objection the brief lists in the reader's own terms, start from the reader's situation in the brief, ask for the brief's action, and add no fact that the brief or the research does not hold?"
+        },
+        {
+          "id": "hook",
+          "question": "Does the first line before the platform's 'more' give a reason to keep reading, specific to this brand and reader?"
+        },
+        {
+          "id": "one_idea",
+          "question": "Is it one idea you could say in a sentence without 'and'?"
+        },
+        {
+          "id": "specific",
+          "question": "Is there one thing the reader could check, taste, count or find (a time, a place, a price, a name)?"
+        },
+        {
+          "id": "voice",
+          "question": "Does it sound like someone from this audience talking to a friend, in their words and register, with no machine tells?"
+        },
+        {
+          "id": "distinct",
+          "question": "Would it stop working if another brand posted it unchanged?"
+        },
+        {
+          "id": "ask",
+          "question": "Is there at most one ask, and is any question one people can really answer?"
+        },
+        {
+          "id": "platform",
+          "question": "Does the length, hashtag count and format fit the platform?"
+        },
+        {
+          "id": "truth",
+          "question": "Is every fact from the brief or the research, with no invented people, reviews or results?"
+        }
+      ],
+      "hard_fails": [
+        "an invented fact, review or customer",
+        "a paid partnership with no disclosure"
+      ]
+    },
+    "email": {
+      "items": [
+        {
+          "id": "brief",
+          "question": "Does it answer every objection the brief lists in the reader's own terms, start from the reader's situation in the brief, ask for the brief's action, and add no fact that the brief or the research does not hold?"
+        },
+        {
+          "id": "subject",
+          "question": "Do the subject and preview work together, specific to this email, without a fake 'Re:' or bait?"
+        },
+        {
+          "id": "first_lines",
+          "question": "Could the reader restate the point and the ask from the first two lines on a phone?"
+        },
+        {
+          "id": "one_idea",
+          "question": "Is it one idea with one primary call to action that names the value?"
+        },
+        {
+          "id": "specific",
+          "question": "Is it concrete (the item, the date, the number that matters) rather than general praise?"
+        },
+        {
+          "id": "voice",
+          "question": "Does it read like a person the reader knows wrote it, with no machine tells or template phrases?"
+        },
+        {
+          "id": "fit",
+          "question": "Does it fit its type (welcome, cart, promo, newsletter) and its word budget?"
+        },
+        {
+          "id": "compliance",
+          "question": "Are the unsubscribe, the sender's identity and the postal address in place, and is every deadline real?"
+        }
+      ],
+      "hard_fails": [
+        "an invented fact or deadline",
+        "a deceptive subject line",
+        "a missing opt-out on marketing mail"
+      ]
+    },
+    "outbound": {
+      "items": [
+        {
+          "id": "brief",
+          "question": "Does it answer every objection the brief lists in the reader's own terms, start from the reader's situation in the brief, ask for the brief's action, and add no fact that the brief or the research does not hold?"
+        },
+        {
+          "id": "premise",
+          "question": "Is the opening premise specific, true and clearly about this reader now (why you, why now)? Fail if the email could be sent to 1,000 people unchanged."
+        },
+        {
+          "id": "relevance",
+          "question": "Is the problem one the reader would recognise in their own words?"
+        },
+        {
+          "id": "clarity",
+          "question": "Could the reader restate the point and the ask within five seconds from the first two lines on a phone?"
+        },
+        {
+          "id": "ask",
+          "question": "Does the ask fit the stage (an interest question when cold, a specific time only after interest), answerable in one word?"
+        },
+        {
+          "id": "proof",
+          "question": "Is the proof concrete, relevant to the reader and checkable, with no hype?"
+        },
+        {
+          "id": "voice",
+          "question": "Does it read like a busy, competent person wrote it, with no AI tells or template openers?"
+        },
+        {
+          "id": "fit",
+          "question": "Is it the right type and inside its budget (cold 50 to 90 words, follow-up 25 to 60, proposal 50 to 110)?"
+        },
+        {
+          "id": "compliance",
+          "question": "Are the legal and platform lines in place (sender, address, opt-out; no contact details in an Upwork proposal), with nothing deceptive?"
+        }
+      ],
+      "hard_fails": [
+        "an invented fact, client or result",
+        "a deceptive subject",
+        "contact details in an Upwork proposal",
+        "a merge-tag leftover"
+      ]
+    },
+    "product": {
+      "items": [
+        {
+          "id": "brief",
+          "question": "Does it answer every objection the brief lists in the reader's own terms, start from the reader's situation in the brief, ask for the brief's action, and add no fact that the brief or the research does not hold?"
+        },
+        {
+          "id": "compliance",
+          "question": "Is every field inside its platform's limits, with no banned words, symbols, prices, reviews, links or promo terms?"
+        },
+        {
+          "id": "truth",
+          "question": "Is every spec, number, certification, award, origin and test traceable to the brief?"
+        },
+        {
+          "id": "findable",
+          "question": "Do the product type and the deciding attribute come early, with searched phrases used once and no stuffing?"
+        },
+        {
+          "id": "sufficient",
+          "question": "Does it answer the category's top questions (fit, size, compatibility, materials, what is in the box) where relevant?"
+        },
+        {
+          "id": "specific",
+          "question": "Do most sentences carry a checkable detail rather than adjectives?"
+        },
+        {
+          "id": "honest",
+          "question": "Is a real limit stated where one exists (care, fit quirk, excluded models, what is not included)?"
+        },
+        {
+          "id": "voice",
+          "question": "Does it fit the category and read like a person, with fewer than two machine tells?"
+        },
+        {
+          "id": "scannable",
+          "question": "Is it in labelled chunks with grouped specs where the platform allows structure?"
+        }
+      ],
+      "hard_fails": [
+        "an invented spec, review, award or test",
+        "a disease or drug claim",
+        "a platform rule broken",
+        "a hidden known limit"
+      ]
+    },
+    "landing": {
+      "items": [
+        {
+          "id": "brief",
+          "question": "Does it answer every objection the brief lists in the reader's own terms, start from the reader's situation in the brief, ask for the brief's action, and add no fact that the brief or the research does not hold?"
+        },
+        {
+          "id": "h1",
+          "question": "Does the H1 say what it is, for whom and the outcome, rather than a slogan?"
+        },
+        {
+          "id": "subhead",
+          "question": "Does the subhead say how it works and why the claim is believable?"
+        },
+        {
+          "id": "proof",
+          "question": "Is there real proof near the top (numbers with their base, named customers, a demo)?"
+        },
+        {
+          "id": "objections",
+          "question": "Does each feature block answer an objection the research found, in the customer's words?"
+        },
+        {
+          "id": "cta",
+          "question": "Is there one call to action, repeated, that names the result?"
+        },
+        {
+          "id": "plain",
+          "question": "Is it plain, concise and objective (no marketese), readable at about grade 5 to 7?"
+        },
+        {
+          "id": "compliance",
+          "question": "Are all claims supported and every urgency, 'free' and guarantee real?"
+        }
+      ],
+      "hard_fails": [
+        "an invented number, review or customer",
+        "fake urgency or a resetting timer"
+      ]
+    },
+    "message": {
+      "items": [
+        {
+          "id": "brief",
+          "question": "Does it answer every objection the brief lists in the reader's own terms, start from the reader's situation in the brief, ask for the brief's action, and add no fact that the brief or the research does not hold?"
+        },
+        {
+          "id": "point",
+          "question": "Is the point or answer first, in the reader's words?"
+        },
+        {
+          "id": "short",
+          "question": "Is it as short as a person would write, with the fact, the link or code, and what happens next?"
+        },
+        {
+          "id": "voice",
+          "question": "Does it sound like a real person, not a broadcast?"
+        }
+      ],
+      "hard_fails": [
+        "an invented fact"
+      ]
+    }
+  },
+  "aliases": {}
+}

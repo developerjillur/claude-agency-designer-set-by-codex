@@ -1,0 +1,13 @@
+{"schema": "nexa.copy-brief/1", "brand": "Chamra Ghor (a small Dhaka leather workshop)", "product": "a handmade cow-leather wallet",
+ "reader": {"who": "young office workers in Dhaka buying a wallet for themselves or as a gift", "situation": "scrolling Facebook after work",
+            "job": "buy a wallet that lasts", "objections": ["আসল চামড়া তো, নাকি রেক্সিন?", "ছবির মতো আসবে তো?"]},
+ "awareness": "product", "offer": "none; the regular price", "placement": "Facebook shop post (Bangladesh f-commerce)",
+ "action": "order by inbox",
+ "facts_given": ["cow leather from a tannery in Savar", "hand-stitched with waxed thread", "6 card slots and 2 note pockets",
+                 "11.5 x 9.5 cm when folded", "two colours: dark brown and black",
+                 "the colour darkens a little with use, which is normal for real leather",
+                 "if a stitch comes loose within 6 months, the workshop repairs it free",
+                 "price ৳1,450", "delivery ৳70 inside Dhaka, ৳130 outside Dhaka", "cash on delivery"],
+ "voice": "everyday Bangla (চলিত), warm and honest, আপনি",
+ "must_avoid": ["100% genuine or best quality boasts", "comparisons with other sellers", "invented details beyond the facts"],
+ "lang": "bn", "locale": "BD"}

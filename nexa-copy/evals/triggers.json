@@ -1,0 +1,59 @@
+{
+  "schema": "nexa.trigger-eval/1",
+  "skill": "nexa-copy",
+  "note": "20 queries: should load this skill, or should route elsewhere (R9: trigger evals for descriptions). Run each in a fresh session at the user's effort setting and record which skill loaded.",
+  "should_trigger": [
+    "Write Meta ads for our bookkeeping app, three angles",
+    "ad copy banao amader honey-r jonno, Facebook-e run korbo",
+    "Write a cold email to agency owners about our QA service",
+    "Upwork proposal likhe dao ei job-er jonno",
+    "Write the Amazon title, bullets and description for these earbuds",
+    "product description banao Daraz-er jonno, cotton panjabi",
+    "Write a 3-email abandoned cart sequence",
+    "Google search ads for invoice software for freelancers",
+    "Write a LinkedIn connection note and first DM for CFOs",
+    "Landing page hero for our clinic scheduling tool"
+  ],
+  "should_not_trigger": [
+    {
+      "query": "Write a YouTube script about our product",
+      "route_to": "nexa-script"
+    },
+    {
+      "query": "Just write a caption for this photo",
+      "route_to": "natural-text"
+    },
+    {
+      "query": "Research what our customers complain about in reviews",
+      "route_to": "nexa-research"
+    },
+    {
+      "query": "Design the ad image with the headline on it",
+      "route_to": "codex-design"
+    },
+    {
+      "query": "Write a blog post about invoicing tips",
+      "route_to": "nexa-script"
+    },
+    {
+      "query": "Make a jingle for our shop",
+      "route_to": "natural-text"
+    },
+    {
+      "query": "Generate a product photo on a white background",
+      "route_to": "codex-imagegen"
+    },
+    {
+      "query": "Record a voice-over for this ad",
+      "route_to": "nexa-speech"
+    },
+    {
+      "query": "Write a reply to this angry comment",
+      "route_to": "natural-text"
+    },
+    {
+      "query": "Check whether this statistic is true",
+      "route_to": "nexa-research"
+    }
+  ]
+}

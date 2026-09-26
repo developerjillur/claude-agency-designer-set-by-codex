@@ -1,0 +1,10 @@
+{"schema": "nexa.copy-brief/1", "brand": "Modhubon (a small Dhaka honey seller)", "product": "raw khalisha honey from the Sundarbans",
+ "reader": {"who": "Dhaka families who buy honey for tea and for their children", "situation": "scrolling Facebook in the evening",
+            "job": "buy honey they can trust", "objections": ["is it real or mixed with sugar?", "why does raw honey crystallize?"]},
+ "awareness": "product", "offer": "none; the regular price", "placement": "Facebook shop post (Bangladesh f-commerce)",
+ "action": "order by inbox or comment",
+ "facts_given": ["raw khalisha flower honey from the Sundarbans", "500 g glass jar", "collected in April 2026", "strained, never heated",
+                 "it can crystallize in cold weather, which is normal for raw honey; standing the jar in warm water makes it liquid again",
+                 "price ৳650", "delivery ৳60 inside Dhaka, ৳120 outside Dhaka", "cash on delivery"],
+ "voice": "everyday Bangla (চলিত), warm and honest, আপনি", "must_avoid": ["health or disease claims", "100% pure or best quality boasts"],
+ "lang": "bn", "locale": "BD"}
