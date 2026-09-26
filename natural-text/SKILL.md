@@ -1,10 +1,10 @@
 ---
-name: natural-copy
+name: natural-text
 description: "Writes, rewrites and checks any text an audience reads or hears (social posts, captions, ad copy, banner and poster lines, product descriptions, website and app text, emails, WhatsApp and SMS, reel and video scripts, comment replies) so it sounds like a real person from that audience wrote it: casual, easy everyday words, the way people talk to friends and the brands they like talk online. No AI tone, templates or cliches; no bookish, poetic, old, sadhu or stiff 'shuddho' style; no translation feel. Bangla and Banglish for Bangladesh first-class, plus English and 18 more languages. Use it whenever you write or fix copy for a brand, a client or the user's own posts, in any language, Banglish asks included ('caption likhe dao', 'post likho', 'ad copy banao', 'reply dao'). It learns the audience's own words first, picks the register, writes, then checks with copylint and a native-reader copyjudge. Song lyrics, jingles and poems get their own lyric rules and a lyricist's judge. Pairs with codex-design for text on graphics."
 allowed-tools: Bash(python3 ~/.claude/skills/codex-design/scripts/design.py:*), Read, Write, Edit
 ---
 
-# Natural copy
+# Natural text
 
 Every word an audience reads or hears should sound like a person from that audience wrote it for them today: casual,
 simple, specific, in their own words. Not a chatbot, a textbook, a poem, a government notice or a translation.

@@ -1,6 +1,6 @@
 ---
 name: agy-watch-video
-description: Gives Claude eyes and ears for video. Watches, analyses, debugs and answers questions about any video or audio file through Gemini (the Antigravity CLI, or the Gemini API key when agy cannot) and ffmpeg: summaries, shot lists, frame-by-frame reports at full resolution, timestamped transcripts and subtitles in any language (Bengali included), on-screen text, people and object tracking, zoomed answers about small details, measured QA (cuts, black and frozen frames, flicker, blur, loudness, platform specs and safe zones) and before/after comparisons. Use automatically whenever the user shares, names or asks about a video, reel, short, ad, promo, screen recording, bug recording, tutorial, lecture, drone or camera footage, AI-generated clip, motion-graphics or HyperFrames/Remotion render, or an audio recording ("what happens in this video", "check this reel", "transcribe", "why does my app break at 0:12", "compare v1 and v2"). Also the video judge for the codex-design, codex-imagegen and natural-copy skills.
+description: Gives Claude eyes and ears for video. Watches, analyses, debugs and answers questions about any video or audio file through Gemini (the Antigravity CLI, or the Gemini API key when agy cannot) and ffmpeg: summaries, shot lists, frame-by-frame reports at full resolution, timestamped transcripts and subtitles in any language (Bengali included), on-screen text, people and object tracking, zoomed answers about small details, measured QA (cuts, black and frozen frames, flicker, blur, loudness, platform specs and safe zones) and before/after comparisons. Use automatically whenever the user shares, names or asks about a video, reel, short, ad, promo, screen recording, bug recording, tutorial, lecture, drone or camera footage, AI-generated clip, motion-graphics or HyperFrames/Remotion render, or an audio recording ("what happens in this video", "check this reel", "transcribe", "why does my app break at 0:12", "compare v1 and v2"). Also the video judge for the codex-design, codex-imagegen and natural-text skills.
 allowed-tools: Bash(python3 ~/.claude/skills/agy-watch-video/scripts/watch_video.py:*), Read
 ---
 
@@ -193,7 +193,7 @@ quickly, then go deep on the parts that matter with `--from/--to` or `ask`.
   `qa --platform ... --strict` and `watch --goal motion --expect copy.txt` (or `--goal promo`) before delivery, and fix
   what fails.
 - **codex-imagegen**: pull reference stills or thumbnail candidates with `frames --at` or `frames --scenes --sheet`.
-- **natural-copy**: `transcribe` a voiceover, reel or ad, then lint and judge the spoken copy. `ask` whether the
+- **natural-text**: `transcribe` a voiceover, reel or ad, then lint and judge the spoken copy. `ask` whether the
   captions match the speech.
 - **HyperFrames, Remotion and other video builds**: use `watch --goal motion --platform ...` on the rendered MP4 as the
   final gate instead of reading a few snapshots.

@@ -16,7 +16,7 @@ at the second speed. Command prefix: `python3 ~/.claude/skills/remotion-broll/sc
    at once (the same Remotion version is checked).
 2. **Make it this product's:** every word on screen is in `src/copy.ts`, the charts' numbers in its `GROWTH`, the
    font and colours in `src/theme.ts`, scene lengths in `src/Part2.tsx` and `src/BrollDemo.tsx`. Write the words with
-   the natural-copy skill: short lines, the audience's own words, no invented claims.
+   the natural-text skill: short lines, the audience's own words, no invented claims.
 3. **Check:** `broll.py check DIR`: the typecheck, then every line on screen through codex-design's copy lint (it
    writes `copy/onscreen.json`). Fix every error and warning.
 4. **Look once:** `broll.py stills DIR`: 16 frames across the minute and one contact sheet in about 5 s. Read the

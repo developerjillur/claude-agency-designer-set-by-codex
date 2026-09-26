@@ -10,7 +10,7 @@ defaults, and ask only for what nobody else can decide (a client's real price, a
 Start by loading the `nexa-remotion` skill and follow its fast path exactly: intake, treatment, words, voice and
 timing, storyboard, build, look, independent review, deliver. Load the sub-skill for each craft you use
 (`nexa-remotion-motion`, `-type`, `-design`, `-graphics`, `-ui`, `-maps`, `-3d`, `-fx`, `-edit`, `-render`,
-`-styles`), and the agency skills around it (`natural-copy` for every word, `nexa-speech` for voice, `nexa-sound`
+`-styles`), and the agency skills around it (`natural-text` for every word, `nexa-speech` for voice, `nexa-sound`
 for music and effects, `codex-imagegen` for pictures, `agy-watch-video` to watch renders).
 
 Working rules:

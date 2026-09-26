@@ -993,7 +993,7 @@ def cmd_brief(args):
               % (cap.get("style"), "" if cap.get("burn") else " as a subtitle file (set captions.burn to burn in)"),
               "- B-roll 1.5 to 6 s, starting on the word it shows; stay on the face for emotion and credibility.",
               "- Every number on screen must be in the grounded quote (else it is flagged for review); every line "
-              "on screen goes through natural-copy first.",
+              "on screen goes through natural-text first.",
               "- Layouts: camFull, screenFull, screenPip, split, stack (9:16), brollFull, voiceOnly. Vertical "
               "targets turn screenPip and split into stack.",
               "- Overlays: hook{text}, keyword{text}, stat{value,label,source?}, list{items[],title?}, "

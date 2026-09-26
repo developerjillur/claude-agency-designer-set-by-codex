@@ -37,7 +37,7 @@ visible and listed in the delivery note.
 
 ## 3. Words
 
-On-screen copy and the script go through `natural-copy` (copylint at least; copyjudge for client finals). For the
+On-screen copy and the script go through `natural-text` (copylint at least; copyjudge for client finals). For the
 ear: 8 to 14 words a breath, about 2.5 words a second, numbers as they are said, the brand and the ask said twice.
 On screen: key words and numbers, never the sentence being said (captions are the exception).
 

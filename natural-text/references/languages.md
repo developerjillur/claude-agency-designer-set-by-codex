@@ -1,4 +1,4 @@
-# Natural copy in 18 more languages
+# Natural text in 18 more languages
 
 Hindi, Urdu, Nepali, Arabic, Turkish, Spanish, Portuguese, French, German, Indonesian, Malay, Filipino (Taglish),
 Chinese, Japanese, Korean, Thai, Vietnamese and Tamil. Bangla is in `bangla.md`, English in `voice.md`.

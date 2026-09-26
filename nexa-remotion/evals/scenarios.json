@@ -48,7 +48,7 @@
    "id": "bangla-explainer",
    "brief": "A 40 second Bangla explainer for Bangladeshi small shop owners about keeping a daily sales record on a phone. Friendly, bright, illustrated. Bangla voice-over and Bangla on-screen words.",
    "skills": ["nexa-remotion", "nexa-remotion-type", "nexa-remotion-design", "nexa-speech"],
-   "done_when": ["Bangla shaped correctly everywhere (conjuncts and vowel signs intact)", "Bengali digits in Bangla copy", "copy passes natural-copy lint for BD", "voice and on-screen words in sync"]
+   "done_when": ["Bangla shaped correctly everywhere (conjuncts and vowel signs intact)", "Bengali digits in Bangla copy", "copy passes natural-text lint for BD", "voice and on-screen words in sync"]
   },
   {
    "id": "trailer",

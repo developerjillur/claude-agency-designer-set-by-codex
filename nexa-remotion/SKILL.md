@@ -21,7 +21,7 @@ Command prefix: `python3 ~/.claude/skills/nexa-remotion/scripts/nrk.py`
 2. **Treatment.** Pick the look from `nexa-remotion-styles` (a theme plus grounds, type, motion character and sound)
    and name one signature move that repeats two or three times. For client work write three directions that differ
    on at least four dials (energy, density, ground, depth, camera, type, texture, colour), then keep one.
-3. **Words.** On-screen text and the voice-over script with the `natural-copy` skill (for the ear: one idea per
+3. **Words.** On-screen text and the voice-over script with the `natural-text` skill (for the ear: one idea per
    breath, numbers as people say them). Only the client's facts; every number on screen is said or sourced.
 4. **Voice first.** Record or synthesise the voice (`nexa-speech`), get word timings (`nexa-video-creator`'s
    `nvc.py transcribe`: Gemini for every language but English, whisper for English), and write the cue table:
@@ -59,7 +59,7 @@ Command prefix: `python3 ~/.claude/skills/nexa-remotion/scripts/nrk.py`
 | Caricature character B-roll | `remotion-broll` |
 | Voice-over (TTS, Bangla included), music and sound effects | `nexa-speech`, `nexa-sound` |
 | Images to animate (products, scenes, cut-outs) | `codex-imagegen` |
-| Words on screen and scripts | `natural-copy` |
+| Words on screen and scripts | `natural-text` |
 | Watching and measuring the render | `agy-watch-video` |
 | Raw Remotion API detail beyond our references | the official `remotion-best-practices` family, then `references/kb/` |
 

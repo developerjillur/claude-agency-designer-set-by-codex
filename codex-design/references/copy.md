@@ -9,7 +9,7 @@ the fold. This file is the writing half of the design:
 - how `copylint` and `copyjudge` rate the copy before it goes on a design.
 
 For the voice itself (learning the audience's own words, the register ladder, casual that is not fake casual, replies,
-scripts for the ear, 18 more languages) use the `natural-copy` skill: it writes, and this file and the lint check.
+scripts for the ear, 18 more languages) use the `natural-text` skill: it writes, and this file and the lint check.
 
 Research behind it (24 September 2026): four research passes covered
 - AI-writing studies and humanizer repositories (`references/research/copy-ai-tells.md`);
@@ -226,7 +226,7 @@ what you see to the lists in `scripts/copyrules.py`.
 Readers in Bangladesh scroll in everyday চলিত Bengali, mixed with the English words they really use. Copy that reads
 like a textbook, a government notice, a Kolkata paper or a machine translation loses them in the first line. Prothom
 Alo (2025) calls AI Bengali grammatical but absent from everyday talk. `copylint` carries these rules and the voice
-research's (`references/research/voice-bangla.md`, `natural-copy/references/bangla.md`). One Bengali natural-writing
+research's (`references/research/voice-bangla.md`, `natural-text/references/bangla.md`). One Bengali natural-writing
 skill exists on GitHub (opuu/bangla-writer, MIT, August 2026, not yet evaluated by its own rubric); its tested checks
 are in the lint.
 
@@ -483,7 +483,7 @@ Sources for §3:
 ## 4. Other languages: transcreate, never translate
 
 The voice craft for these languages and six more (Nepali, Filipino, Korean, Thai, Vietnamese, and each variant) is in
-`natural-copy/references/languages.md`: the English moves calqued in every language, translated structure, the
+`natural-text/references/languages.md`: the English moves calqued in every language, translated structure, the
 spoken particles natural copy has, template lines, address and code-mixing, swaps and tells. `copylint --lang <code>`
 runs each language's rules (Russian, Italian, Finnish and Hebrew have rules too).
 

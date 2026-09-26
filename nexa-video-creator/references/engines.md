@@ -34,7 +34,7 @@ for 16:9 and 9:16 and for Bangla. They render with the edit itself: no project t
 The kit draws rigged 2D characters (a guitarist, a runner), a stat card and bar chart from one growth rate, step
 cards, a timeline editor, a finish line and more (`remotion-broll/references/scenes.md`).
 
-1. `broll.py new ~/videos/JOB-broll` (or reuse a kit project), change `src/copy.ts` with natural-copy, `check`,
+1. `broll.py new ~/videos/JOB-broll` (or reuse a kit project), change `src/copy.ts` with natural-text, `check`,
    `stills`.
 2. `nvc.py segment broll ~/videos/JOB-broll --comp BrollDemo --job JOB` renders it into the job as a `segment`.
 3. Place it: `{"type": "segment", "words": [...], "quote": "...", "source": "broll-jobbroll", "in": 0}`.

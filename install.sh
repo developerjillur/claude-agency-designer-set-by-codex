@@ -28,7 +28,7 @@ if sys.version_info < (3, 9):
 PY
 
 mkdir -p "$dest"
-for skill in codex-imagegen codex-design natural-copy agy-watch-video remotion-broll nexa-video-creator nexa-sound nexa-speech \
+for skill in codex-imagegen codex-design natural-text agy-watch-video remotion-broll nexa-video-creator nexa-sound nexa-speech \
     nexa-remotion nexa-remotion-motion nexa-remotion-type nexa-remotion-design nexa-remotion-graphics nexa-remotion-ui \
     nexa-remotion-maps nexa-remotion-3d nexa-remotion-fx nexa-remotion-edit nexa-remotion-render nexa-remotion-styles; do
   target="$dest/$skill"

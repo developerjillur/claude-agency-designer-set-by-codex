@@ -10,7 +10,7 @@ explainer B-roll from a ready kit, and watch, transcribe and check videos with G
 | Skill | What it does |
 |---|---|
 | [`codex-design`](codex-design/SKILL.md) | Designs social posts, stories, carousels, thumbnails, covers, banners, ads, posters, flyers, brochures, book covers, certificates, invitations, signs and more: 526 researched formats, and a method for any size or kind it has never seen. Real type in HTML and CSS over generated plates, rendered by headless Chrome and measured (contrast on real pixels, safe zones, text sizes, folds), then judged by an independent senior-art-director review and gated before delivery. |
-| [`natural-copy`](natural-copy/SKILL.md) | Writes and fixes any text an audience reads or hears (captions, ads, banner lines, product and web text, emails, WhatsApp and SMS, scripts, replies) so it sounds like a person from that audience: casual everyday words, no AI tone, no bookish, poetic or translated feel. English, Bangla and Banglish for Bangladesh first-class, and 18 more languages. Song lyrics, jingles and poems get their own rules and a lyricist's judge. |
+| [`natural-text`](natural-text/SKILL.md) | Writes and fixes any text an audience reads or hears (captions, ads, banner lines, product and web text, emails, WhatsApp and SMS, scripts, replies) so it sounds like a person from that audience: casual everyday words, no AI tone, no bookish, poetic or translated feel. English, Bangla and Banglish for Bangladesh first-class, and 18 more languages. Song lyrics, jingles and poems get their own rules and a lyricist's judge. |
 | [`agy-watch-video`](agy-watch-video/SKILL.md) | Gives Claude eyes and ears for video: summaries, shot lists, frame-by-frame reports at full resolution, timestamped transcripts and subtitles (Bengali included), on-screen text, zoomed answers about any moment or detail, measured QA (cuts, black and frozen frames, flicker, loudness, platform specs and safe zones) and version comparisons. ffmpeg prepares and measures; Gemini 3.1 Pro and 3.8 Flash look and listen through the Antigravity CLI; two models are compared and Claude checks the evidence frames. |
 | [`remotion-broll`](remotion-broll/SKILL.md) | Explainer-video B-roll in Remotion from a ready kit: code-drawn 2D caricature characters (a guitarist and a runner, rigged), split screens, a round presenter picture-in-picture, a timeline editor, a stat card and bar chart that compute from one growth rate, kinetic captions, step cards, a finish line and a subscribe end card, with sound effects. Every word on screen lives in one file; a minute renders in about 45 s and is checked by the video skill. |
 | [`nexa-video-creator`](nexa-video-creator/SKILL.md) | Edits real footage and makes finished videos like a professional editor: YouTube long-form, Shorts, Reels, TikTok, feed and Stories, ads, promos, tutorials, talking-head and faceless explainers. Syncs a separately recorded camera and screen by their sound (offset and drift), transcribes with word timings (Bangla included), cuts pauses, fillers and retakes on the frame grid, and places layouts, zooms, punch-ins, hook titles, stat and list cards, b-roll, 2D explainer animation, captions, music and effects. Claude writes the edit as a plan grounded to the transcript's words; a compiler checks it against the editing rules; Remotion renders it; the video skill checks the result. |
@@ -33,7 +33,7 @@ that:
 
 ```markdown
 ## Our skills: use them for these jobs, every time
-- Any copy people will read, in any language: load `natural-copy` first and follow its fast path.
+- Any copy people will read, in any language: load `natural-text` first and follow its fast path.
 - Any graphic with text or layout: load `codex-design` first and follow its fast path.
 - Any image to generate or edit: `codex-imagegen`. Any video or audio: `agy-watch-video`.
 - Animated explainer B-roll or motion graphics: `remotion-broll`.
@@ -163,7 +163,7 @@ The last one renders the whole pattern library (26 patterns on their presets) an
 ```
 codex-design/     the design skill: scripts/ (design.py, copyrules.py, presets.json, voice_rules.json), templates/
                   (26 patterns, the kit, a sample brand), references/ (craft, copy, formats, research notes), tests/
-natural-copy/     the voice skill: SKILL.md and references/ (English, Bangla, 18 more languages)
+natural-text/     the voice skill: SKILL.md and references/ (English, Bangla, 18 more languages)
 codex-imagegen/   the image skill: scripts/codex_image.py, references/, tests/
 agy-watch-video/  the video skill: scripts/watch_video.py (and ocr.swift), references/ (engine, cli, playbooks,
                   platforms, research notes), tests/

@@ -280,7 +280,7 @@ middle is fine), stack layout for screen parts, word captions with one emphasis 
 
 ### Faceless explainer (nexa-speech voice-over)
 
-1. Script with natural-copy; voice with nexa-speech (`render`, `master`, `align`).
+1. Script with natural-text; voice with nexa-speech (`render`, `master`, `align`).
 2. `nvc.py add JOB vo_48k.wav --role voice`: the `words.json` that nexa-speech's `align` wrote next to it becomes
    the transcript (ids w0001...), so no transcription is needed. Without it, run `transcribe`.
 3. Segments in `voiceOnly` (the paper backdrop) or `brollFull`; the picture is carried by scenes, one per sentence
@@ -302,7 +302,7 @@ middle is fine), stack layout for screen parts, word captions with one emphasis 
 
 ### Vox-style explainer (faceless, pictures on paper)
 
-1. Script with natural-copy (one idea per sentence, lines that point at what is shown); voice with nexa-speech;
+1. Script with natural-text (one idea per sentence, lines that point at what is shown); voice with nexa-speech;
    `nvc.py add JOB vo_48k.wav --role voice`.
 2. `nvc.py brief JOB --style vox`: the storyboard of beats. For each beat pick the anchor picture and what follows
    on which words; find the pictures with `nvc.py stock`, then `nvc.py cutout` (people halftone with the marker
@@ -326,7 +326,7 @@ Add the music with `--role music` (it becomes the master clock), images and clip
 ### Day and occasion videos
 
 5 to 15 s story or 15 to 30 s reel: the occasion visual and greeting in the first second, the brand message, a 2 s
-sign-off. Dates and customs from the client's market; natural-copy's occasion rules for the words.
+sign-off. Dates and customs from the client's market; natural-text's occasion rules for the words.
 
 ## What the compiler checks
 

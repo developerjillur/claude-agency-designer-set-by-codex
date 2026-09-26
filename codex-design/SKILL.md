@@ -132,7 +132,7 @@ copy.json. `deliver --design out/<name>-strip.jpg` ships the five slides.
    Ask once, at most four short questions, only for real gaps; otherwise decide and say what you assumed. For client
    and hero work, fan out 2-3 background research agents (market and references, occasion and culture, brand and
    competitors) and one fact-checker.
-2. **Copy (`copy.md`)**, before the design, in the reader's everyday language, written with the `natural-copy`
+2. **Copy (`copy.md`)**, before the design, in the reader's everyday language, written with the `natural-text`
    skill (the audience's own words, the register, casual without fake casual):
    - the copy rules under Non-negotiables (§5 below);
    - the market's register, address form, loanwords, spelling and digits;

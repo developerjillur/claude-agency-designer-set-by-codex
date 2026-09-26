@@ -245,7 +245,7 @@ modules come from `./kit`, and parts marked fx, maps or three come from `./kit/f
 - **Theme** `dhaka` (or any theme with its Bangla font).
 - **Type** Anek Bangla 800 headlines; Hind Siliguri 500 body; Bengali digits (০ to ৯) in Bangla copy.
 - **Motion** 16-frame rises; words (never letters) reveal; counters in Bengali digits.
-- **Copy** `natural-copy` with the BD locale; voice from `nexa-speech`.
+- **Copy** `natural-text` with the BD locale; voice from `nexa-speech`.
 - **Kit parts** `KineticTitle` (word split), `Counter` with Bengali digits and lakh grouping, `TikTokCaptions` in Bangla.
 - **Avoid** splitting Bangla into characters, West Bengal spellings in Bangladeshi copy, flag clichés.
 

@@ -16,7 +16,7 @@ the director skill is `nexa-remotion`, the kit lives in `~/.claude/skills/nexa-r
 1. **Say what the text does**, then pick the part (table below): a title (`KineticTitle`), a line that arrives
    (`SplitText`), a number (`Counter`, `BigStatement`), emphasis inside a sentence (`Marker`, `Annotate`), speech on
    screen (`TikTokCaptions`, `BoxedCaptions`), a quotation (`Quote`), a label (`Kicker`, `Label`).
-2. **Write the words with the `natural-copy` skill** and lint them (`copylint --copy onscreen.json`). One idea per
+2. **Write the words with the `natural-text` skill** and lint them (`copylint --copy onscreen.json`). One idea per
    line, one emphasised word per headline, every number said or sourced.
 3. **Place it in the theme**: inside `<SafeArea>`, sizes in px at 1080, fonts through the theme roles (`display`,
    `body`, `mono`, `serif`, `hand`, `bangla`). Never name a font in CSS alone.

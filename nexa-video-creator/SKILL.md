@@ -23,7 +23,7 @@ Command prefix: `python3 ~/.claude/skills/nexa-video-creator/scripts/nvc.py`.
    script; agy without a key). The house rule since 2026-09-26: never rely on whisper for Bangla or other languages.
 4. **Read** `nvc.py brief JOB` → `edit-brief.md`: the transcript with word ids, fillers, retakes, numbers said, long
    pauses, the target's rules and a plan example.
-5. **Edit:** write `JOB/plan.json` (below and `references/plan.md`). All on-screen words go through natural-copy
+5. **Edit:** write `JOB/plan.json` (below and `references/plan.md`). All on-screen words go through natural-text
    first. Then `nvc.py compile JOB`. Errors come back with the transcript's real words: fix and compile again.
    Confirm every `?` review item (a number on screen the speaker did not say) or add its source.
 6. **Sound and picture:** `nvc.py audio JOB` (dialogue cut on the frame grid, music fitted and ducked, effects,
@@ -125,7 +125,7 @@ B-roll for a slot (a common, real-world shot: hands typing, a city street, coffe
 - Never change or delete the user's original files. Proxies, audio and renders live in the job folder.
 - A plan with errors does not compile, and a video with open QA items is not delivered without `--force` and a
   reason given to the user. Look at the stills before every full render.
-- On-screen copy through natural-copy; thumbnails through codex-design; generated images through codex-imagegen.
+- On-screen copy through natural-text; thumbnails through codex-design; generated images through codex-imagegen.
 - A synthetic voice, a generated person or generated music is disclosed where the platform asks (the delivery notes
   say where). Never present a generated person as a real customer or expert.
 - Music must be licensed for the platform (Meta ads: no licensed commercial music; TikTok business: the Commercial

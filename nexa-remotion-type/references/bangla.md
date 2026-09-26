@@ -79,7 +79,7 @@ with ০ to ৯: only Hind Siliguri got one wrong ("তেল, ১ লিটা�
 
 ## 7. Writing Bangla copy
 
-Use the `natural-copy` skill (Bangladeshi register, casual everyday words, no sadhu or bookish style) and lint every
+Use the `natural-text` skill (Bangladeshi register, casual everyday words, no sadhu or bookish style) and lint every
 on-screen line (`copylint --copy onscreen.json --locale BD`). Short natural lines read best in motion:
 "মিটিং কম, কাজ বেশি", "চলুন, শুরু করা যাক।", "আসল কাজটা হয় ক্যামেরার পেছনে".
 

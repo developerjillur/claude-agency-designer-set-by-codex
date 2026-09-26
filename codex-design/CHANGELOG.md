@@ -4,6 +4,13 @@ The version is `SKILL_VERSION` in `scripts/design.py`; `doctor` reports it. Afte
 `python3 -m unittest discover -s ~/.claude/skills/codex-design/tests`, and render the pattern library (every pattern
 on its presets must stay free of errors and warnings; `templates/README.md` lists them).
 
+## 2026.09.26.1 · natural-copy is now natural-text
+
+- **The voice skill is renamed `natural-text`** (its folder, its `name:` and so `/natural-text`): it is the voice
+  layer of every text the agency writes, not only short copy. `SKILL.md` and `references/copy.md` here, and every
+  other skill, point to `natural-text`; the entries below keep the old name, which it had then. `copylint` and
+  `copyjudge` are unchanged.
+
 ## 2026.09.25.6 · copylint --save takes a copy.json
 
 - **`copylint --save FILE.json`** now checks the JSON and lints it as a copy.json deck (one string per line, each with

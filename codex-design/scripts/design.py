@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # no __pycache__ inside the skill folder
 import copyrules  # noqa: E402  (copy that reads human: references/copy.md)
 
-SKILL_VERSION = "2026.09.25.6"
+SKILL_VERSION = "2026.09.26.1"
 SKILL_DIR = Path(__file__).resolve().parent.parent
 PRESETS_FILE = SKILL_DIR / "scripts" / "presets.json"
 
