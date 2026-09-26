@@ -1,6 +1,6 @@
 ---
 name: natural-text
-description: "Writes, rewrites and checks any text an audience reads or hears (social posts, captions, ad copy, banner and poster lines, product descriptions, website and app text, emails, WhatsApp and SMS, reel and video scripts, comment replies) so it sounds like a real person from that audience wrote it: casual, easy everyday words, the way people talk to friends and the brands they like talk online. No AI tone, templates or cliches; no bookish, poetic, old, sadhu or stiff 'shuddho' style; no translation feel. Bangla and Banglish for Bangladesh first-class, plus English and 18 more languages. Use it whenever you write or fix copy for a brand, a client or the user's own posts, in any language, Banglish asks included ('caption likhe dao', 'post likho', 'ad copy banao', 'reply dao'). It learns the audience's own words first, picks the register, writes, then checks with copylint and a native-reader copyjudge. Song lyrics, jingles and poems get their own lyric rules and a lyricist's judge. Pairs with codex-design for text on graphics."
+description: "Writes, rewrites and checks any text an audience reads or hears (social posts, captions, ad copy, banner and poster lines, product descriptions, website and app text, emails, WhatsApp and SMS, reel and video scripts, comment replies) so it sounds like a real person from that audience wrote it: casual, easy everyday words, the way people talk to friends and the brands they like talk online. No AI tone, templates or cliches; no bookish, poetic, old, sadhu or stiff 'shuddho' style; no translation feel. Bangla and Banglish for Bangladesh first-class, plus English and 18 more languages. Use it whenever you write or fix copy for a brand, a client or the user's own posts, in any language, Banglish asks included ('caption likhe dao', 'post likho', 'ad copy banao', 'reply dao'). It learns the audience's own words first, picks the register, writes, then checks with copylint and a native-reader copyjudge. Song lyrics, jingles and poems get their own lyric rules and a lyricist's judge. It is the family's voice backbone: nexa-script (video scripts, articles) and nexa-copy (campaigns, email, outbound, listings) run its checks on every word; use them for whole jobs. Pairs with codex-design for text on graphics."
 allowed-tools: Bash(python3 ~/.claude/skills/codex-design/scripts/design.py:*), Read, Write, Edit
 ---
 
@@ -146,13 +146,13 @@ in `scripts/voice_rules.json` (932 tested rules in 24 languages).
 | Format | What changes |
 |---|---|
 | Caption | the hook in the first line (before the platform's "more"), short lines, 0 to 3 hashtags, emoji within the platform's range, a real question or none |
-| Ad | one benefit, the proof, the price or date as a fact, one CTA; urgency only with a real date or count |
+| Ad | one benefit, the proof, the price or date as a fact, one CTA; urgency only with a real date or count (a campaign with angles, platform limits and a test plan: nexa-copy) |
 | Banner, poster, thumbnail line | 2 to 8 words, the CTA 2 to 4 words (6 in Bengali): design it with codex-design |
-| Product description | what it is, who it suits, the specs people ask about, the honest limit; no "elevate your" |
+| Product description | what it is, who it suits, the specs people ask about, the honest limit; no "elevate your" (marketplace listings with each platform's limits: nexa-copy) |
 | Website and app text | plain labels, the verb on the button, errors that say what to do |
-| Email | a subject a friend could send, the preheader as the second line, one ask |
+| Email | a subject a friend could send, the preheader as the second line, one ask (lifecycle email, cold outbound and proposals: nexa-copy) |
 | WhatsApp and SMS | like a message from a person: short, the fact, the link or code, no hashtags; Bengali SMS is 70 characters a part |
-| Reel, ad read, explainer script | for the ear: one idea per breath (8 to 14 words), numbers as people say them, no brackets, symbols or links, the brand and the ask said twice; about 2.5 words a second (`references/voice.md` §7) |
+| Reel, ad read, explainer script | for the ear: one idea per breath (8 to 14 words), numbers as people say them, no brackets, symbols or links, the brand and the ask said twice; about 2.5 words a second (`references/voice.md` §7); a whole script with story, hook, retention and review: nexa-script |
 | Replies and DMs | answer first in their words, their name, what happens next and by when, one owned apology, no emoji on complaints, never the same reply three times (`references/voice.md` §8) |
 | Blog, newsletter, long post | start with the point, no roadmap line, real examples, end on the last new fact, not a restated conclusion |
 | Festival and solemn days | follow `codex-design/references/occasions.md`: no selling on solemn days, no jokes on tragedy |
@@ -243,6 +243,14 @@ python3 ~/.claude/skills/codex-design/scripts/design.py copyjudge --caption post
   person who signs them.
 - **Do not lead with "AI"** in consumer copy ("AI-powered"): it lowers trust and purchase intent, most in finance,
   health and costly products (WSU 2024). Say what it does.
+
+## The family
+
+natural-text is the voice backbone: every word the family writes passes its rules. nexa-research finds and verifies
+facts and the audience's own words; nexa-script builds whole video scripts and articles (story, hook, retention, a
+review loop with judges and an audience panel) and runs this skill's lint on the narration (`script.py lint --voice`);
+nexa-copy writes ad campaigns, email and outbound, landing pages and product listings and runs this skill's lint on
+every field by default. A single caption, post, reply, banner line or message stays here.
 
 ## 9. References
 

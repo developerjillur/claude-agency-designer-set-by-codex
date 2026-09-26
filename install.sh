@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the twenty skills and two agents for Claude Code: link them into ~/.claude/skills and ~/.claude/agents (so
+# Install the twenty-three skills and two agents for Claude Code: link them into ~/.claude/skills and ~/.claude/agents (so
 # `git pull` updates them), set up each skill's Python environment, and check the machine. Nothing is deleted or overwritten: an existing folder with the
 # same name stops the install.
 #
@@ -30,7 +30,8 @@ PY
 mkdir -p "$dest"
 for skill in codex-imagegen codex-design natural-text agy-watch-video remotion-broll nexa-video-creator nexa-sound nexa-speech \
     nexa-remotion nexa-remotion-motion nexa-remotion-type nexa-remotion-design nexa-remotion-graphics nexa-remotion-ui \
-    nexa-remotion-maps nexa-remotion-3d nexa-remotion-fx nexa-remotion-edit nexa-remotion-render nexa-remotion-styles; do
+    nexa-remotion-maps nexa-remotion-3d nexa-remotion-fx nexa-remotion-edit nexa-remotion-render nexa-remotion-styles \
+    nexa-research nexa-script nexa-copy; do
   target="$dest/$skill"
   if [ -L "$target" ]; then
     if [ "$(cd "$target" && pwd -P)" = "$(cd "$here/$skill" && pwd -P)" ]; then
@@ -89,6 +90,13 @@ python3 "$dest/agy-watch-video/scripts/watch_video.py" doctor --setup || \
 python3 "$dest/nexa-video-creator/scripts/nvc.py" doctor --setup || \
   echo "note    nexa-video-creator is set up; its doctor lists what is still missing above (the renderer: nvc.py doctor --setup --link-modules PATH or --npm)"
 
+python3 "$dest/nexa-research/scripts/research.py" doctor >/dev/null || \
+  echo "note    nexa-research: run research.py doctor to see which sources answer (yt-dlp, the scholarly APIs)"
+python3 "$dest/nexa-script/scripts/script.py" doctor >/dev/null || \
+  echo "note    nexa-script: run script.py doctor (its judges and panel need the Codex CLI or a Gemini API key)"
+python3 "$dest/nexa-copy/scripts/copywriter.py" doctor >/dev/null || \
+  echo "note    nexa-copy: run copywriter.py doctor (its judges and panel need the Codex CLI or a Gemini API key)"
+
 python3 "$dest/nexa-remotion/scripts/nrk.py" doctor || \
   echo "note    nexa-remotion needs its Remotion modules once: nrk.py setup (installs them) or nrk.py doctor --link-modules PATH"
 
@@ -119,5 +127,8 @@ if [ "$run_tests" = 1 ]; then
   python3 -m unittest discover -s "$dest/nexa-sound/tests"
   python3 -m unittest discover -s "$dest/nexa-speech/tests"
   python3 -m unittest discover -s "$dest/nexa-remotion/tests"
+  python3 -m unittest discover -s "$dest/nexa-research/tests"
+  python3 -m unittest discover -s "$dest/nexa-script/tests"
+  python3 -m unittest discover -s "$dest/nexa-copy/tests"
 fi
 echo "done: restart Claude Code so it picks up the skills"

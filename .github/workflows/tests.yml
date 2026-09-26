@@ -32,5 +32,11 @@ jobs:
         run: python3 -m unittest discover -s ~/.claude/skills/nexa-sound/tests
       - name: nexa-speech tests
         run: python3 -m unittest discover -s ~/.claude/skills/nexa-speech/tests
+      - name: nexa-research tests
+        run: python3 -m unittest discover -s ~/.claude/skills/nexa-research/tests
+      - name: nexa-script tests
+        run: python3 -m unittest discover -s ~/.claude/skills/nexa-script/tests
+      - name: nexa-copy tests
+        run: python3 -m unittest discover -s ~/.claude/skills/nexa-copy/tests
       - name: Pattern library renders clean
         run: CODEX_DESIGN_PATTERNS=1 python3 -m unittest discover -s ~/.claude/skills/codex-design/tests -p "test_patterns.py"

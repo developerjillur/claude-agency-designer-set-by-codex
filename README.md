@@ -1,7 +1,9 @@
 # claude-agency-designer-set-by-codex
 
-Twenty Claude Code skills and two agents that work as a small design and video agency: they design finished graphics
-at each platform's exact size with real typography, write copy that sounds like the audience instead of a machine,
+Twenty-three Claude Code skills and two agents that work as a small design, writing and video agency: they design
+finished graphics at each platform's exact size with real typography, research any topic with every fact verified,
+write scripts, articles and conversion copy that pass judges and a simulated audience, write copy that sounds like the
+audience instead of a machine,
 make and check the images with the Codex CLI on a ChatGPT plan, edit real footage into finished videos for every
 platform with Remotion, make any motion graphics video in code with a Remotion skill family (a director, eleven craft
 skills and a tested component kit), voice scripts with Gemini text-to-speech, score them with Google Lyria, animate
@@ -11,6 +13,9 @@ explainer B-roll from a ready kit, and watch, transcribe and check videos with G
 |---|---|
 | [`codex-design`](codex-design/SKILL.md) | Designs social posts, stories, carousels, thumbnails, covers, banners, ads, posters, flyers, brochures, book covers, certificates, invitations, signs and more: 526 researched formats, and a method for any size or kind it has never seen. Real type in HTML and CSS over generated plates, rendered by headless Chrome and measured (contrast on real pixels, safe zones, text sizes, folds), then judged by an independent senior-art-director review and gated before delivery. |
 | [`natural-text`](natural-text/SKILL.md) | Writes and fixes any text an audience reads or hears (captions, ads, banner lines, product and web text, emails, WhatsApp and SMS, scripts, replies) so it sounds like a person from that audience: casual everyday words, no AI tone, no bookish, poetic or translated feel. English, Bangla and Banglish for Bangladesh first-class, and 18 more languages. Song lyrics, jingles and poems get their own rules and a lyricist's judge. |
+| [`nexa-research`](nexa-research/SKILL.md) | Deep, verified research that makes Claude's web search several times stronger: a question grid, parallel subagents from every angle (timeline, parallel factors, why-chains, counter-evidence), sources a search engine does not show (YouTube numbers, comments and captions, OpenAlex, Crossref, arXiv, Wikipedia, Hacker News, the Wayback Machine), and a claim ledger where every fact carries the exact quote that supports it, matched in the source's raw text, with grades, independence and dates. Gates block anything unverified; a research pack (facts, story bank, the audience's own words, competitors) feeds the writing skills. |
+| [`nexa-script`](nexa-script/SKILL.md) | Complete scripts and articles like a senior head writer: YouTube long-form, Shorts, Reels, TikTok, video ads and UGC briefs, talks, podcasts and blog posts, in English, Bangla, Banglish and Hindi. It studies the channel, picks the topic, researches through nexa-research, finds the story (a caused change, turning points, real stakes), builds the hook with the package, drafts an A/V script with a loop ledger and a tension map, then runs about a hundred research-based lint checks, judges from other model families, a 100-persona panel grounded in real comments, retell tests and fix-and-rescore rounds with a guard against blandness. |
+| [`nexa-copy`](nexa-copy/SKILL.md) | Conversion copy like a senior direct-response copywriter: ads for Meta, Google, TikTok, LinkedIn and YouTube, posts, landing pages, lifecycle email, cold outbound, Upwork proposals, LinkedIn notes and product listings for Amazon, Google Merchant, Shopify, eBay, Walmart, Etsy, Daraz and Facebook shops. Customer words first, the reader's awareness, 3 to 5 angles; every field checked against the platform's dated limits, every claim against the research pack and the law, every word against natural-text; judges, a panel, a tournament of the angles and an A/B test plan with the right sample size. |
 | [`agy-watch-video`](agy-watch-video/SKILL.md) | Gives Claude eyes and ears for video: summaries, shot lists, frame-by-frame reports at full resolution, timestamped transcripts and subtitles (Bengali included), on-screen text, zoomed answers about any moment or detail, measured QA (cuts, black and frozen frames, flicker, loudness, platform specs and safe zones) and version comparisons. ffmpeg prepares and measures; Gemini 3.1 Pro and 3.8 Flash look and listen through the Antigravity CLI; two models are compared and Claude checks the evidence frames. |
 | [`remotion-broll`](remotion-broll/SKILL.md) | Explainer-video B-roll in Remotion from a ready kit: code-drawn 2D caricature characters (a guitarist and a runner, rigged), split screens, a round presenter picture-in-picture, a timeline editor, a stat card and bar chart that compute from one growth rate, kinetic captions, step cards, a finish line and a subscribe end card, with sound effects. Every word on screen lives in one file; a minute renders in about 45 s and is checked by the video skill. |
 | [`nexa-video-creator`](nexa-video-creator/SKILL.md) | Edits real footage and makes finished videos like a professional editor: YouTube long-form, Shorts, Reels, TikTok, feed and Stories, ads, promos, tutorials, talking-head and faceless explainers. Syncs a separately recorded camera and screen by their sound (offset and drift), transcribes with word timings (Bangla included), cuts pauses, fillers and retakes on the frame grid, and places layouts, zooms, punch-ins, hook titles, stat and list cards, b-roll, 2D explainer animation, captions, music and effects. Claude writes the edit as a plan grounded to the transcript's words; a compiler checks it against the editing rules; Remotion renders it; the video skill checks the result. |
@@ -34,6 +39,8 @@ that:
 ```markdown
 ## Our skills: use them for these jobs, every time
 - Any copy people will read, in any language: load `natural-text` first and follow its fast path.
+- Any research, fact-check or competitor study: `nexa-research`. Any video script, blog post or article:
+  `nexa-script`. Ads, email, outbound, proposals and product listings: `nexa-copy`.
 - Any graphic with text or layout: load `codex-design` first and follow its fast path.
 - Any image to generate or edit: `codex-imagegen`. Any video or audio: `agy-watch-video`.
 - Animated explainer B-roll or motion graphics: `remotion-broll`.
@@ -147,6 +154,9 @@ python3 -m unittest discover -s ~/.claude/skills/nexa-video-creator/tests
 python3 -m unittest discover -s ~/.claude/skills/nexa-sound/tests
 python3 -m unittest discover -s ~/.claude/skills/nexa-speech/tests
 python3 -m unittest discover -s ~/.claude/skills/nexa-remotion/tests
+python3 -m unittest discover -s ~/.claude/skills/nexa-research/tests
+python3 -m unittest discover -s ~/.claude/skills/nexa-script/tests
+python3 -m unittest discover -s ~/.claude/skills/nexa-copy/tests
 CODEX_DESIGN_PATTERNS=1 python3 -m unittest discover -s ~/.claude/skills/codex-design/tests -p "test_patterns.py"
 ```
 
@@ -177,6 +187,14 @@ nexa-remotion/    the Remotion director: scripts/nrk.py, kit/ (the component lib
                   README each, src/demos/, generated demo media in public/), agents/ (director and reviewer),
                   references/ (process, quality, platforms, core, prompting, kb/ research), evals/, tests/
 nexa-remotion-*/  the eleven craft skills: SKILL.md and references/ each
+nexa-research/    research: scripts/research.py (sources, ledger, verify, gates, banks, pack), references/ (protocol,
+                  search, verify, sources, outputs, research notes), tests/
+nexa-script/      scripts and articles: scripts/script.py (CLI), script_core.py, script_lint.py, nexa_review.py and
+                  nexa_llm.py (the shared review engine and model layer), references/ (hooks, story, formats, retention,
+                  ear, blog, review, research-to-script, south-asia, checklists, research notes), tests/
+nexa-copy/        conversion copy: scripts/copywriter.py (CLI), copy_lint.py, the same review engine, references/
+                  (craft, ads and social, email, outbound, product, compliance, platforms.json, checklists, research
+                  notes), tests/
 ```
 
 ## Notes
