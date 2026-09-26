@@ -24,8 +24,8 @@ the director skill is `nexa-remotion`, the kit lives in `~/.claude/skills/nexa-r
    at least `readingFrames(text, fps)`. Temporary text gets `out` so it is gone by the Sequence end.
 5. **Captions**: transcribe once with word timings: Gemini 3.5 Transcribe for every language but English
    (`watch_video.py transcribe FILE --words --lang bn`, or `nvc.py transcribe`), whisper for English with Gemini as
-   soon as it looks unsure (never whisper for Bangla: on a 22 s voice-over it misheard four correct words and passed
-   a real slip). Then `toCaptions(json)`, `remapCaptions()` if the clip was cut or sped, `<TikTokCaptions>` for
+   soon as it looks unsure (never whisper for Bangla: on a 22 s voice-over its errors on correct words hid a real
+   slip). Then `toCaptions(json)`, `remapCaptions()` if the clip was cut or sped, `<TikTokCaptions>` for
    shorts or `<BoxedCaptions>` for YouTube, plus `<SubtitleFile>` to emit the SRT.
 6. **Look**: `nrk.py stills PROJECT --frames` at each entrance, mid-hold and the last frame; a full-size
    `nrk.py still` for masks, Bangla shaping and caption position; `copylint` again after any text change.

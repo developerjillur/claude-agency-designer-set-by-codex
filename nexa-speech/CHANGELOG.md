@@ -6,7 +6,7 @@ once by hand (against the real API only when a key and a budget are agreed).
 
 ## 2026.09.26.1 · the transcript gate hears Bangla by sound
 
-Found while fixing a 24 s Bangla short, where whisper had passed a line Gemini heard wrong:
+Found while fixing a 24 s Bangla short, where a real slip had been lost among whisper's errors on correct words:
 - **Spelling no longer fails a good take.** The gate compared the transcript with the spoken text only, so a
   respelling steer (`{হিসাব|হিশাব}`, the transcript writes হিসাব) and a spelling variant (এখনও, এখনো) failed a take
   that said every word right (8.3%). It now compares with the displayed text too, and folds Bangla letters that spell

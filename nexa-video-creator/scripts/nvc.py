@@ -673,9 +673,9 @@ WHISPER_TOKEN_P = []   # the token probabilities of the last whisper run, for wh
 
 def pick_transcriber(lang, has_key, whisper_ready):
     """The auto engine, by the house rule (2026-09-26): Gemini 3.5 Transcribe for every language but English (on a
-    22 s Bangla voice-over whisper misheard four correct words and passed a real slip; Gemini caught both real
-    slips); English starts on whisper when it is installed and moves to Gemini when the result looks unsure
-    (whisper_doubt). agy (Gemini through agy-watch-video) when there is no key."""
+    22 s Bangla voice-over whisper garbled correct words all through and a real slip was lost among its errors;
+    Gemini's clean transcript showed it); English starts on whisper when it is installed and moves to Gemini when
+    the result looks unsure (whisper_doubt). agy (Gemini through agy-watch-video) when there is no key."""
     if (lang or "").lower().startswith("en") and whisper_ready:
         return "whisper"
     return "gemini" if has_key else "agy"

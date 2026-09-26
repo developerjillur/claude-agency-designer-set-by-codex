@@ -52,8 +52,9 @@ Everything below was measured on those renders; each item cost a render cycle to
 - Split Bangla by words or graphemes only; the kit's type module does, and every conjunct rendered correctly.
 - Gemini word timings come in steps of about 0.1 s: fine for captions and cuts. When a hit must land on a syllable,
   snap the word edges to the measured speech (nvc's transcribe does); never switch Bangla to whisper for it: on this
-  short's 22 s voice whisper misheard four correct words and passed a real slip (ফোনেই said "ফোনি"); Gemini heard
-  both slips (হিসাব said "হিসেব" too). nexa-speech's `qa --asr` now names such a word; fix it with another take or a
+  short's 22 s voice whisper garbled correct words all through (সহোজ, তিন্টা, আখনো), and its reading of a real slip
+  (ফোনেই said "ফনিই") was lost among them: two reviews read past it. Gemini's clean transcript showed both slips at
+  once (হিসাব said "হিসেব" too). nexa-speech's `qa --asr` now names such a word; fix it with another take or a
   `{হিসাব|হিশাব}` respelling.
 - **After a voice fix, re-time from the new words:** each cue is its word's start, each cut 3 frames before its
   phrase, and every effect moves by exactly the frames of the picture event it belongs to (a pop with its card, a

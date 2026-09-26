@@ -103,7 +103,8 @@ Square brackets on 3.8 are not a direction mechanism; `plan` warns about them.
 - Check the result with `qa --asr`: Gemini transcribes each chosen take (code-switched lines without a language code,
   so it follows both languages), the gate compares by sound, not spelling, and names every word heard differently
   (`ফোনেই heard as ফনি`). Listen to what it names, or ask Gemini Pro about the line. Never judge Bangla with whisper:
-  on a 22 s voice it misheard four correct words and missed ফোনেই said as ফোনি, which Gemini caught.
+  on a 22 s voice it garbled correct words all through, and ফোনেই said as ফোনি was lost among them until Gemini's
+  clean transcript showed it.
 - Grade letters and abbreviations go to Bangla words; `খ্রি.` and `হি.` are said in full by the tool.
 
 ## 7. One voice across fifty chunks
