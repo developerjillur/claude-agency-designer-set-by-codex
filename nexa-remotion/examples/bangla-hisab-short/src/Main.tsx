@@ -8,8 +8,9 @@ import {EndCard} from './scenes/EndCard';
 import {Notebook} from './scenes/Notebook';
 import {PhoneStage, StepBadge} from './scenes/Phone';
 
-// captions from the second sentence on: the hook's question is the big title on frame 0
-const CAPTIONS = toCaptions(WORDS.filter((w) => w.start >= 3));
+// captions from the second sentence on: the hook's question (its first "?") is the big title on frame 0
+const HOOK_END = WORDS.find((w) => w.text.endsWith('?'))?.end ?? 0;
+const CAPTIONS = toCaptions(WORDS.filter((w) => w.start > HOOK_END));
 
 const BottomFade: React.FC = () => {
 	const t = useTheme();

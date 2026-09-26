@@ -50,7 +50,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gemini_api as G  # noqa: E402  (shared by the nexa skills: never edit it here)
 import elevenlabs_api as EL  # noqa: E402  (shared by the nexa skills: never edit it here)
 
-SKILL_VERSION = "2026.09.25.6"
+SKILL_VERSION = "2026.09.26.1"
 PRICES_AS_OF = "2026-09-25"
 ANALYSIS_VERSION = "2026.09.25.1"   # bump when what analyse_audio() returns changes
 SCRIPTS = Path(__file__).resolve().parent
@@ -653,10 +653,30 @@ INVISIBLE_RX = re.compile("[\u200b\u200e\u200f\u202a-\u202e\u2060\u2066-\u2069\u
 TAG_RX = re.compile(r"<([a-z][a-z \-]{0,30})>")
 INLINE_RX = re.compile(r"\{([^{}|]*)\|([^{}]*)\}|\{([^{}|]+)\}")
 VIRAMA = "\u09cd"
+# Letters Bangla spells differently for one sound. A transcript cannot show which one the voice "said", so gate 4
+# folds them before it compares: শ ষ স, ন ণ, ি ী, ই ঈ, ু ূ, উ ঊ, ং ঙ, and a closing ও after a consonant (এখনও, এখনো).
+BN_SOUND_FOLD = str.maketrans({"\u09b7": "\u09b6", "\u09b8": "\u09b6", "\u09a3": "\u09a8", "\u09c0": "\u09bf",
+                               "\u0988": "\u0987", "\u09c2": "\u09c1", "\u098a": "\u0989", "\u0999": "\u0982"})
+BN_FINAL_O_RX = re.compile("(?<=[\u0995-\u09b9\u09bc\u09ce\u09dc\u09dd\u09df])\u0993$")
 
 
 def is_bn(text: str) -> bool:
     return bool(BN_LETTER_RX.search(text or ""))
+
+
+def bn_fold(token: str) -> str:
+    """One Bangla word with its same-sound letters folded (BN_SOUND_FOLD), for comparing what was heard."""
+    return BN_FINAL_O_RX.sub("ো", token).translate(BN_SOUND_FOLD)
+
+
+def is_respelling(display: str, spoken: str) -> bool:
+    """An inline {display|spoken} pair that only changes how words sound: letters on both sides, no digits or
+    symbols. Gate 4 then checks that one of the two forms was heard, like a lexicon term."""
+    def letters(x: str) -> bool:
+        x = x.strip()
+        return bool(x) and all(c.isalpha() or unicodedata.category(c).startswith("M") or c in " -'’‌‍"
+                               for c in x)
+    return display.strip() != spoken.strip() and letters(display) and letters(spoken)
 
 
 def _bn_consonant(ch: str) -> bool:
@@ -999,13 +1019,15 @@ def normalise(raw: str, family: str, lexicon: list, numbers: str, lex_rx=None) -
         tags.append(name)
         return ("", f"<{name}>" if family == "speech_metadata" else f"[{name}]")
     segs = replace_in_text(segs, TAG_RX, tag_fn, "tag")
+    terms = []
 
     def inline_fn(m):
         if m.group(3) is not None:
             return (m.group(3), m.group(3))
+        if is_respelling(m.group(1), m.group(2)):
+            terms.append([m.group(1).strip(), m.group(2).strip()])
         return (m.group(1), m.group(2))
     segs = replace_in_text(segs, INLINE_RX, inline_fn, "inline")
-    terms = []
     cs_rx, ci_rx, table = lex_rx if lex_rx is not None else lexicon_rx(lexicon)
 
     def lex_fn(m):
@@ -2129,12 +2151,13 @@ def evaluate(ch: dict, rec: dict, m: dict, ref: dict, asr: dict = None) -> dict:
         else:
             gates["6"] = "pass"
     if asr is not None:
+        flags += ["gate 4: " + x for x in asr.get("flags") or []]
         if asr.get("fails"):
             fails += ["gate 4: " + x for x in asr["fails"]]
             why.add("asr")
             gates["4"] = "fail"
         else:
-            gates["4"] = "pass"
+            gates["4"] = "flag" if asr.get("flags") else "pass"
         score += (asr.get("error_rate") or 0) * 20
     else:
         gates["4"] = "skip (run with --asr)"
@@ -2173,22 +2196,61 @@ def edit_distance(a: list, b: list) -> int:
     return prev[-1]
 
 
+def bn_heard_differently(ref_words: list, hyp_words: list) -> list:
+    """[(said, heard)]: Bangla words of the script the transcript has differently even with same-sound letters folded
+    and spaces ignored (a transcript may write পরপরই as পর পরই), in script order."""
+    def spread(words):
+        text, owner = "", []
+        for i, w in enumerate(words):
+            f = bn_fold(w)
+            text += f
+            owner += [i] * len(f)
+        return text, owner
+    a, a_own = spread(ref_words)
+    b, b_own = spread(hyp_words)
+    if not a_own:
+        return []
+    hits = {}
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(a=a, b=b, autojunk=False).get_opcodes():
+        if op == "equal":
+            continue
+        said = set(a_own[i1:i2]) or {a_own[min(max(i1 - 1, 0), len(a_own) - 1)]}   # an insertion joins the word before
+        heard = set(b_own[j1:j2]) or ({b_own[min(max(j1 - 1, 0), len(b_own) - 1)]} if b_own else set())
+        for r in said:
+            hits.setdefault(r, set()).update(heard)
+    return [(ref_words[r], " ".join(hyp_words[h] for h in sorted(hits[r])) or "nothing") for r in sorted(hits)]
+
+
 def asr_check(ch: dict, transcript: str) -> dict:
     """Gate 4 from a transcript: WER (English, 3%) or CER (Bangla, 5%), words missing or extra at the end,
-    direction words heard, lexicon terms not heard."""
+    direction words heard, lexicon terms not heard. A transcript comes back in the usual spelling, so the script is
+    compared as spoken and as displayed (a {display|spoken} respelling), and Bangla is compared by sound (bn_fold)."""
     bn = is_bn(ch["spoken"])
-    ref = norm_tokens(ch["spoken"], bn)
-    hyp = norm_tokens(transcript, bn)
-    fails = []
-    if bn:
-        a, b = list("".join(ref)), list("".join(hyp))
-        rate = edit_distance(a, b) / max(1, len(a))
-        if rate > 0.05:
-            fails.append(f"character error rate {rate * 100:.1f}% (5% allowed)")
-    else:
-        rate = edit_distance(ref, hyp) / max(1, len(ref))
-        if rate > 0.03:
-            fails.append(f"word error rate {rate * 100:.1f}% (3% allowed)")
+    fold = bn_fold if bn else (lambda t: t)
+    hyp_words = norm_tokens(transcript, bn)
+    hyp = [fold(t) for t in hyp_words]
+    best = None
+    for text in dict.fromkeys([ch["spoken"], ch.get("display") or ch["spoken"]]):
+        words = norm_tokens(text, bn)
+        ref = [fold(t) for t in words]
+        if bn:
+            a = "".join(ref)
+            r = edit_distance(list(a), list("".join(hyp))) / max(1, len(a))
+        else:
+            r = edit_distance(ref, hyp) / max(1, len(ref))
+        if best is None or r < best[0]:
+            best = (r, ref, words)
+    rate, ref, ref_words = best
+    fails, flags = [], []
+    # one wrong vowel in a short Bangla line stays under 5%, so every word heard differently is named: in the
+    # failure when the rate fails, as a flag for a listen when it passes
+    heard = "; ".join(f"{s} heard as {h}" for s, h in bn_heard_differently(ref_words, hyp_words)[:4]) if bn else ""
+    if bn and rate > 0.05:
+        fails.append(f"character error rate {rate * 100:.1f}% (5% allowed)" + (f": {heard}" if heard else ""))
+    elif not bn and rate > 0.03:
+        fails.append(f"word error rate {rate * 100:.1f}% (3% allowed)")
+    elif heard:
+        flags.append(f"heard differently (listen): {heard}")
     sm = difflib.SequenceMatcher(a=ref, b=hyp, autojunk=False)
     blocks = [bk for bk in sm.get_matching_blocks() if bk.size]
     if blocks:
@@ -2196,9 +2258,9 @@ def asr_check(ch: dict, transcript: str) -> dict:
         missing = len(ref) - (last.a + last.size)
         extra = len(hyp) - (last.b + last.size)
         if missing > 0:
-            fails.append(f"{missing} word(s) missing at the end: {' '.join(ref[-missing:])}")
+            fails.append(f"{missing} word(s) missing at the end: {' '.join(ref_words[-missing:])}")
         if extra > 0:
-            fails.append(f"{extra} extra word(s) at the end: {' '.join(hyp[-extra:])}")
+            fails.append(f"{extra} extra word(s) at the end: {' '.join(hyp_words[-extra:])}")
     elif ref:
         fails.append("nothing of the script was heard")
     leak_words = set()
@@ -2207,16 +2269,17 @@ def asr_check(ch: dict, transcript: str) -> dict:
     for t in ch.get("tags") or []:
         leak_words.update(t.split())
     leak_words.update({"style", "transcript", "performance", "synthesize", "narration", "director"})
-    leak_words -= set(ref)
-    heard = sorted(w for w in leak_words if w in hyp)
+    leak_words -= set(norm_tokens(ch["spoken"], bn)) | set(norm_tokens(ch.get("display") or "", bn))
+    heard = sorted(w for w in leak_words if w in hyp_words)
     if heard:
         fails.append("direction words spoken: " + ", ".join(heard))
-    compact_h = re.sub(r"[\W_]+", "", " ".join(hyp))
+    # tokens are already free of punctuation; joining them keeps the Bangla vowel signs a \W pattern would drop
+    compact_h = "".join(hyp)
     for display, spoken in ch.get("lexicon_terms") or []:
-        forms = [re.sub(r"[\W_]+", "", " ".join(norm_tokens(x, bn))) for x in (spoken, display)]
+        forms = ["".join(fold(t) for t in norm_tokens(x, bn)) for x in (spoken, display)]
         if not any(f and f in compact_h for f in forms):
             fails.append(f"lexicon term not heard: {display} ({spoken})")
-    return {"fails": fails, "error_rate": round(rate, 4), "metric": "cer" if bn else "wer"}
+    return {"fails": fails, "flags": flags, "error_rate": round(rate, 4), "metric": "cer" if bn else "wer"}
 
 
 def transcribe_cached(path: Path, key: str, bangla: bool, lang: str, project: Path, command: str,
@@ -2461,6 +2524,18 @@ class BudgetError(Exception):
         super().__init__(f"the estimate ${est:.4f} for {calls} call(s) is over the budget ${shown}: raise it "
                          f"with --budget {math.ceil(est * 100) / 100:.2f} (nothing was called)")
         self.est, self.budget, self.calls = est, budget, calls
+
+
+def cached_asr(ch: dict, entry: dict) -> dict:
+    """{master_key: asr_check result} for the takes of one chunk that already have a transcript; never paid."""
+    out = {}
+    for rec in (entry.get("takes") or {}).values():
+        got = read_json(cache_dir() / f"{rec['key']}.asr.json")
+        if isinstance(got, dict) and got.get("model") == TRANSCRIBE_MODEL:
+            res = asr_check(ch, got.get("text") or "")
+            res["transcript"] = got.get("text") or ""
+            out[rec["key"]] = res
+    return out
 
 
 def run_asr(plan: dict, state: dict, project: Path, command: str, chunks: list, chosen_only: bool = False,
@@ -3567,9 +3642,16 @@ def cmd_pick(args) -> None:
         die(f"{args.chunk} has no take {args.take}; it has: {', '.join(sorted(entry.get('takes', {}))) or 'none'}")
     entry["chosen"] = int(args.take)
     entry["chosen_by"] = "pick"
+    # master reads the gates of the chosen take, so they run again on the pick (a transcript on file is reused)
+    need_filters()
+    metrics = gather(plan, state, project)
+    choose(ch, entry, metrics, references(plan, state, metrics, calibration(project)), cached_asr(ch, entry))
     save_state(project, state)
-    emit(args, {"ok": True, "chunk": args.chunk, "take": int(args.take)},
-         [f"{args.chunk}: take {args.take} chosen by hand; run master again"])
+    why = "; ".join(entry.get("fails") or entry.get("flags") or [])
+    emit(args, {"ok": True, "chunk": args.chunk, "take": int(args.take), "result": entry.get("result"),
+                "fails": entry.get("fails", []), "flags": entry.get("flags", [])},
+         [f"{args.chunk}: take {args.take} chosen by hand ({entry.get('result')}{': ' + why if why else ''}); "
+          "run master again"])
 
 
 def cmd_qa(args) -> None:

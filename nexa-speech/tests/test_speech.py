@@ -907,6 +907,40 @@ class AsrCheckTests(unittest.TestCase):
         self.assertEqual(S.asr_check(bn, nfc("আমরা আজ নদীর গল্প শুনব।"))["metric"], "cer")
         self.assertTrue(S.asr_check(bn, nfc("আমরা কাল পাহাড়ের কথা বলব।"))["fails"])
 
+    def test_a_respelled_bangla_word_is_judged_by_sound_not_spelling(self):
+        # a real take: the voice said হিসাব right, the transcript spelt it হিসাব (not the steer হিশাব) and এখনো
+        nm = S.normalise(nfc("দোকানের {হিসাব|হিশাব} কি এখনও খাতায়?"), "speech_metadata", [], "words")
+        self.assertEqual(nm["terms"], [[nfc("হিসাব"), nfc("হিশাব")]])
+        ch = dict(self.chunk(nm["spoken"], terms=nm["terms"]), display=nm["display"])
+        res = S.asr_check(ch, nfc("দোকানের হিসাব কি এখনো খাতায়?"))
+        self.assertEqual(res["fails"], [])
+        self.assertEqual(res["error_rate"], 0.0)
+        # the slip the steer is there to stop is still caught: a vowel is a sound, not a spelling
+        res = S.asr_check(ch, nfc("দোকানের হিসেব কি এখনো খাতায়?"))
+        self.assertTrue(any("lexicon term not heard" in f for f in res["fails"]))
+
+    def test_a_bangla_word_heard_differently_is_named(self):
+        ch = self.chunk(nfc("এক, প্রতিটা বিক্রির পরপরই লিখে ফেলুন।"))
+        res = S.asr_check(ch, nfc("এক প্রতিটা বিক্রির পর পরই লিখে ফেলুন।"))   # a split word is not a slip
+        self.assertEqual((res["fails"], res["flags"]), ([], []))
+        # one wrong vowel stays under the 5% rate, so it is named for a listen instead
+        ch = self.chunk(nfc("দোকানের হিসাব কি এখনও খাতায়?"))
+        res = S.asr_check(ch, nfc("দোকানের হিসেব কি এখনো খাতায়?"))
+        self.assertEqual(res["fails"], [])
+        self.assertEqual(res["flags"], [nfc("heard differently (listen): হিসাব heard as হিসেব")])
+        ev = S.evaluate(dict(ch, n_words=5, graphemes=20, est_s=2.0), {"key": "k"}, None,
+                        {"wps": 2.7, "wps_source": "preset", "calibrated": False}, res)
+        self.assertIn("gate 4: " + res["flags"][0], ev["flags"])
+        self.assertEqual(ev["gates"]["4"], "flag")
+        # a swallowed word fails on the rate, and the failure says which word
+        ch = self.chunk(nfc("ফোনেই রাখুন, তিনটা সহজ নিয়মে।"))
+        res = S.asr_check(ch, nfc("ফনি রাখুন তিনটা সহজ নিয়মে"))
+        self.assertTrue(any(nfc("ফোনেই heard as ফনি") in f for f in res["fails"]))
+
+    def test_only_letter_pairs_become_terms(self):
+        nm = S.normalise(nfc("দাম {৳৫০০|পাঁচশো টাকা}, আর {Nexa|নেক্সা} আছে।"), "speech_metadata", [], "words")
+        self.assertEqual(nm["terms"], [["Nexa", nfc("নেক্সা")]])
+
 
 class FitTests(unittest.TestCase):
     def manifest(self):
@@ -1348,6 +1382,40 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(state["chunks"][hero["base_key"]]["chosen_by"], "pick")
         r = self.cli("pick", self.main, hero["id"], "9", ok=False)
         self.assertNotEqual(r.returncode, 0)
+
+    def test_pick_runs_the_gates_on_the_take_it_picks(self):
+        # a pick used to keep the gate result of the take chosen before it, so master flagged a good pick
+        plan = json.loads((self.main / "plan.json").read_text())
+        hero = next(c for c in plan["chunks"] if c["hero"])
+        takes = json.loads((self.main / "takes.json").read_text())["chunks"][hero["base_key"]]["takes"]
+        self.assertIn("2", takes)
+        cache = self.tmp / "home" / "cache"
+        cache.mkdir(parents=True, exist_ok=True)
+        heard = {takes["2"]["key"]: "Something else entirely was said here.", takes["1"]["key"]: hero["spoken"]}
+        saved = {k: (cache / f"{k}.asr.json").read_bytes() if (cache / f"{k}.asr.json").exists() else None
+                 for k in heard}
+        for k, text in heard.items():                       # transcripts on file: a pick never pays for one
+            (cache / f"{k}.asr.json").write_text(json.dumps({"model": "gemini-3.5-transcribe", "text": text,
+                                                             "words": []}))
+        calls = len(self.fake.log)
+        state_before = (self.main / "takes.json").read_bytes()
+        try:
+            self.cli("pick", self.main, hero["id"], "2")
+            entry = json.loads((self.main / "takes.json").read_text())["chunks"][hero["base_key"]]
+            self.assertEqual(entry["result"], "fail")
+            self.assertEqual(entry["gates"]["4"], "fail")
+            self.cli("pick", self.main, hero["id"], "1")
+            entry = json.loads((self.main / "takes.json").read_text())["chunks"][hero["base_key"]]
+            self.assertEqual(entry["gates"]["4"], "pass")
+            self.assertFalse(any(f.startswith("gate 4") for f in entry["fails"]))
+            self.assertEqual(len(self.fake.log), calls)
+        finally:
+            (self.main / "takes.json").write_bytes(state_before)
+            for k, raw in saved.items():
+                if raw is None:
+                    (cache / f"{k}.asr.json").unlink(missing_ok=True)
+                else:
+                    (cache / f"{k}.asr.json").write_bytes(raw)
 
     def test_a_paid_take_is_in_the_ledger_even_when_saving_fails(self):
         plan = json.loads((self.main / "plan.json").read_text())

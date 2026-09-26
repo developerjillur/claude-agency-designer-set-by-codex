@@ -4,6 +4,20 @@ The version is `SKILL_VERSION` in `scripts/speech.py`. Run the offline tests aft
 `python3 -m unittest discover -s ~/.claude/skills/nexa-speech/tests`, and run `plan`, `render`, `master` and `align`
 once by hand (against the real API only when a key and a budget are agreed).
 
+## 2026.09.26.1 · the transcript gate hears Bangla by sound
+
+Found while fixing a 24 s Bangla short, where whisper had passed a line Gemini heard wrong:
+- **Spelling no longer fails a good take.** The gate compared the transcript with the spoken text only, so a
+  respelling steer (`{হিসাব|হিশাব}`, the transcript writes হিসাব) and a spelling variant (এখনও, এখনো) failed a take
+  that said every word right (8.3%). It now compares with the displayed text too, and folds Bangla letters that spell
+  one sound (শ ষ স, ন ণ, ি ী, ই ঈ, ু ূ, উ ঊ, ং ঙ, a closing ও).
+- **A respelled word is checked by itself.** A letters-only `{display|spoken}` pair counts as a lexicon term, and the
+  term check keeps the Bangla vowel signs (it used to drop them, so হিসাব and হিসেব looked the same).
+- **The word is named.** A Bangla word heard differently is in the failure (`ফোনেই heard as ফনি`), or, when one wrong
+  vowel keeps the line under 5%, a flag for a listen (`হিসাব heard as হিসেব`).
+- **`pick` runs the gates on the take it picks**, with its transcript on file (never paid). It kept the result of the
+  take chosen before, so `master` flagged a good pick.
+
 ## 2026.09.25.6 · numbers as they are read, dates, a master that lands
 
 Found while voicing a 59 s explainer (a documentary voice, a date, a year, prices):

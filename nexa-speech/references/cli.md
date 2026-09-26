@@ -208,8 +208,9 @@ what is missing.
 
 ### pick
 
-`pick DIR CHUNK TAKE`: chooses that take (it stays chosen until the chunk's text or voice changes). Run `master`
-again.
+`pick DIR CHUNK TAKE`: chooses that take (it stays chosen until the chunk's text or voice changes) and runs the gates
+on it again, with its transcript when one is on file (never a paid call), so `master` reports that take. Run
+`master` again.
 
 ### say
 
@@ -296,7 +297,7 @@ token counts, and requests per day (Pacific, when the daily quota resets).
 | 1 | audio present; finish reason STOP or none and status completed or none (`OTHER`, `MAX_TOKENS` and the like count as truncated); no WAV inside the WAV | re-roll (a refusal: reported, no re-roll) |
 | 2 | voiced seconds (between the first and last sound, less pauses of 150 ms or more) against words at the reference pace: 0.80 to 1.25 passes once the pace is measured (3 chunks of this project, `calibration.json` or the profile), 0.65 to 1.50 against a preset's guess; skipped under 4 words | re-roll |
 | 3 | lead-in under 20 ms; a click (the first 5 ms peak over 4x the next 50 ms); noise after the last word (the last 300 ms steady, above -50 dBFS, median spectral flatness 0.4 or more) | flag, fixed in `master` |
-| 4 | `--asr` only: WER over 3% (English) or CER over 5% (Bangla); words missing or extra at the end; style or tag words heard that the script does not have; a lexicon term not heard | re-roll |
+| 4 | `--asr` only (Gemini 3.5 Transcribe): WER over 3% (English) or CER over 5% (Bangla), against the spoken and the displayed text, Bangla by sound (শ ষ স, ন ণ, ি ী, ই ঈ, ু ূ, উ ঊ, ং ঙ and a closing ও fold together, spaces are ignored); words missing or extra at the end; style or tag words heard that the script does not have; a lexicon term or a letters-only `{display\|spoken}` respelling heard in neither form. A Bangla word heard differently while the rate passes is named as a flag: `heard differently (listen): হিসাব heard as হিসেব` | re-roll; the named word: flag |
 | 5 | from 5 chunks of the same profile with 3 s or more of voice: speaking rate beyond 12% of the median, loudness beyond 4 LU of the median (up to that it is only gain-matched), spectral centroid beyond 2 SD of the mean (the SD taken as at least 5% of the mean) | re-roll |
 | 6 | clipping: peak at -0.1 dBFS or above, reached 3 times or more (astats peak count) | flag |
 

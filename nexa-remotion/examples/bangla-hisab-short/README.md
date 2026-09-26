@@ -11,8 +11,11 @@ cp -R examples/bangla-hisab-short/src/* my-bangla-hisab-short/src/
 
 Then make the sound (the files are not in the repository) and put the mastered track at `public/audio/mix.wav`:
 
-1. Voice: `speech.py render vo/script.txt --profile PROFILE --out vo`, `master vo`, `align vo --engine gemini`
-   (nexa-speech); the word timings used by the scenes come from `vo/words.json`.
+1. Voice: `speech.py render vo/script.txt --profile PROFILE --out vo --asr`, then `master vo` and
+   `align vo --engine gemini` (nexa-speech); the word timings used by the scenes come from `vo/words.json`. The
+   `--asr` gate has Gemini transcribe every take and names a word heard differently: here হিসাব came out as হিসেব
+   (the script now steers it with `{হিসাব|হিশাব}`) and ফোনেই as ফনি in 3 of 6 takes; `pick vo c002 3` chose a
+   clean one. Never check the Bangla with whisper.
 
 2. Music: a `nexa-sound` brief and `generate`, then `fit` to the length (`fit TRACK --target 24`).
 3. Effects: `sound.py sfx place sfx/cues.json --duration 24 --out sfx/sfx.wav --offline`.

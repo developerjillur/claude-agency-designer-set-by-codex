@@ -86,7 +86,8 @@ Square brackets on 3.8 are not a direction mechanism; `plan` warns about them.
    lexicon so every chunk says it the same way.
 5. **Bengali words inside English narration:** try a Latin respelling and Bengali script, and keep the better one;
    mixed scripts may switch the accent (unverified).
-6. **Check every name:** `qa --asr` fails a chunk when a lexicon term is not heard.
+6. **Check every name:** `qa --asr` fails a chunk when a lexicon term, or a word respelled with letters only
+   (`{হিসাব|হিশাব}`), is heard in neither form.
 7. **When dozens of exact pronunciations matter** (a software tutorial, pharma), Cloud Chirp 3 HD takes IPA or X-SAMPA
    pronunciations and SSML `<phoneme>`, at the cost of plainer delivery.
 
@@ -99,8 +100,10 @@ Square brackets on 3.8 are not a direction mechanism; `plan` warns about them.
   (brand and app names, "video editing"); `plan` knows a short list of such words and warns about the rest.
 - Never send Romanized Bangla ("ami tomake bhalobashi"): it will likely be read with an English or Hindi accent.
   Convert it to Bengali script first.
-- Check the result with a native listener and `qa --asr` (character error rate). Code-switched lines are transcribed
-  without a language code so the recogniser can follow both languages.
+- Check the result with `qa --asr`: Gemini transcribes each chosen take (code-switched lines without a language code,
+  so it follows both languages), the gate compares by sound, not spelling, and names every word heard differently
+  (`ফোনেই heard as ফনি`). Listen to what it names, or ask Gemini Pro about the line. Never judge Bangla with whisper:
+  on a 22 s voice it misheard four correct words and missed ফোনেই said as ফোনি, which Gemini caught.
 - Grade letters and abbreviations go to Bangla words; `খ্রি.` and `হি.` are said in full by the tool.
 
 ## 7. One voice across fifty chunks

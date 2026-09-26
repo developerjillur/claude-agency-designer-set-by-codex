@@ -50,7 +50,14 @@ Everything below was measured on those renders; each item cost a render cycle to
 
 - `Counter` in `bn-BD` puts ৳ after the number; for Bangladeshi price style use `prefix="৳"` with `digits="bangla"`.
 - Split Bangla by words or graphemes only; the kit's type module does, and every conjunct rendered correctly.
-- Gemini word timings are 0.1 s coarse: fine for captions and cuts; use whisper when a hit must land on a syllable.
+- Gemini word timings come in steps of about 0.1 s: fine for captions and cuts. When a hit must land on a syllable,
+  snap the word edges to the measured speech (nvc's transcribe does); never switch Bangla to whisper for it: on this
+  short's 22 s voice whisper misheard four correct words and passed a real slip (ফোনেই said "ফোনি"); Gemini heard
+  both slips (হিসাব said "হিসেব" too). nexa-speech's `qa --asr` now names such a word; fix it with another take or a
+  `{হিসাব|হিশাব}` respelling.
+- **After a voice fix, re-time from the new words:** each cue is its word's start, each cut 3 frames before its
+  phrase, and every effect moves by exactly the frames of the picture event it belongs to (a pop with its card, a
+  click with its press), not by the audio's shift.
 - **Hind Siliguri draws the digit ১ as a small hook** that reads as ৲ ("তেল, ১ লিটার ৳১৯০" read as ৳৯০). The dhaka
   and corporate themes now use Noto Sans Bengali for text; Anek Bangla, Noto Serif Bengali, Tiro Bangla, Baloo Da
   2, Atma and Galada draw it right. Never set prices or dates in Hind Siliguri.

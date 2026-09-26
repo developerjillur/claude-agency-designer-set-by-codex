@@ -38,8 +38,9 @@ skill does not make.
 6. **Captions:** `align DIR` gives `words.json`, `sentences.json`, `vo.srt` and `vo.vtt` (free from the pauses; with
    a key, `--engine gemini` adds word timestamps for about $0.005 a minute; `--engine elevenlabs` times the known
    script instead, $0.22 an hour, and flags words the voice may not have said).
-7. **Client final:** `qa DIR --asr` (a transcript check of every chunk), listen to anything flagged, then
-   `pick DIR CHUNK TAKE` or `render ... --only c007 --takes 3`, and `master` again.
+7. **Client final:** `qa DIR --asr` (Gemini transcribes every chunk; a Bangla word heard differently is named), listen
+   to anything flagged, then `pick DIR CHUNK TAKE` (the gates run again on the pick) or
+   `render ... --only c007 --takes 3`, and `master` again.
 8. **Scene lengths from the edit:** `fit DIR --scenes scenes.json`, then `--apply`.
 
 A single line (a hook, an outro, a sting): `say "TEXT" --profile NAME --out line.wav`, cached and mastered.
@@ -85,8 +86,9 @@ A single line (a hook, an outro, a sting): `say "TEXT" --profile NAME --out line
 2. Voiced duration against the words at the voice's pace: outside 0.80 to 1.25 fails once the pace is measured (3
    chunks), outside 0.65 to 1.50 before (3.8 Flash speaks up to 39 % faster than a preset guesses).
 3. Lead-in under 20 ms, a click at the start, noise after the last word: flagged and fixed in `master`.
-4. `--asr`: WER over 3% (English) or CER over 5% (Bangla), words missing or extra at the end, direction words heard,
-   a lexicon term not heard: fails.
+4. `--asr`: WER over 3% (English) or CER over 5% (Bangla, compared by sound, not spelling), words missing or extra at
+   the end, direction words heard, a lexicon term or `{display|spoken}` respelling not heard: fails. A Bangla word
+   heard differently under the 5% (one wrong vowel) is named as a flag.
 5. Drift, from 5 chunks: speaking rate beyond 12% of the median, loudness beyond 4 LU, spectral centroid beyond 2 SD:
    fails. Speaker similarity needs a speaker-embedding model and is not measured: listen to the hero chunks.
 6. Clipping: flagged.
