@@ -1,0 +1,59 @@
+{
+  "schema": "nexa.trigger-eval/1",
+  "skill": "nexa-research",
+  "note": "20 queries: should load this skill, or should route elsewhere (R9: trigger evals for descriptions). Run each in a fresh session at the user's effort setting and record which skill loaded.",
+  "should_trigger": [
+    "Research why Dhaka's bus drivers race and verify every number",
+    "details ber koro: Bangladesh-e remittance koto baro geche 2020 theke",
+    "Fact-check this script before we publish",
+    "competitor analysis koro amader niche-er top YouTube channel gulo",
+    "What do customers complain about in rice cooker reviews? Collect their words",
+    "Find the original study behind '22 times more memorable'",
+    "Is it true that Amazon titles are limited to 75 characters now?",
+    "Research the market for raw honey in Bangladesh for a campaign",
+    "Dig into the history of Sundarbans honey collection with sources",
+    "Find trending topics in personal finance for our Bangla channel"
+  ],
+  "should_not_trigger": [
+    {
+      "query": "Write the script from this research",
+      "route_to": "nexa-script"
+    },
+    {
+      "query": "Write the ads from this research",
+      "route_to": "nexa-copy"
+    },
+    {
+      "query": "Watch this competitor's video and list its shots",
+      "route_to": "agy-watch-video"
+    },
+    {
+      "query": "Write a caption",
+      "route_to": "natural-text"
+    },
+    {
+      "query": "Design a poster",
+      "route_to": "codex-design"
+    },
+    {
+      "query": "Make an explainer video in Remotion",
+      "route_to": "nexa-remotion"
+    },
+    {
+      "query": "Transcribe this Bangla interview",
+      "route_to": "agy-watch-video"
+    },
+    {
+      "query": "Write a cold email",
+      "route_to": "nexa-copy"
+    },
+    {
+      "query": "Write a blog post",
+      "route_to": "nexa-script"
+    },
+    {
+      "query": "Generate an image",
+      "route_to": "codex-imagegen"
+    }
+  ]
+}
