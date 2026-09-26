@@ -4,6 +4,16 @@ The version is `SKILL_VERSION` in `scripts/nvc.py`. Run the offline tests after 
 `python3 -m unittest discover -s ~/.claude/skills/nexa-video-creator/tests` (and with `NVC_RENDER_TESTS=1` once the
 renderer is set up).
 
+## 2026.09.26.1 · Gemini transcribes every language but English
+
+- **The house rule for `transcribe --engine auto`:** Gemini 3.5 Transcribe for every language but English (agy when
+  there is no key). On a 22 s Bangla voice-over whisper misheard four correct words and passed a real slip that
+  Gemini caught, so whisper no longer judges any non-English speech.
+- **English starts on whisper and moves to Gemini at the first doubt:** a mean token probability under 0.70, more
+  than 15% of tokens under 0.5, a phrase repeated three times in a row (whisper's loop on music and silence), or
+  letters outside the Latin script. With `--engine whisper` the doubt is logged; `words.json` keeps it as
+  `whisper_doubt`.
+
 ## 2026.09.25.8 · review fixes, and a real Vox explainer made end to end
 
 From an independent review of 2026.09.25.7:

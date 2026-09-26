@@ -67,7 +67,7 @@ own and a close-up.
 | One question about a moment, range or detail | `ask VIDEO "question" [--at 12.5 | --from 10 --to 20] [--region auto|x,y,w,h]` |
 | Is this claim true? (a defect, an action, a text, an order of events) | `verify VIDEO "claim" --at 12.5` (a neutral question that hides the claim, two models, a judge: supported, contradicted or unclear) |
 | A transcript, subtitles or captions | `transcribe VIDEO [--lang bn]` (JSON, TXT, SRT, VTT) |
-| What a voice really says, word by word (a mispronounced word, exact word times) | `transcribe VIDEO --words --lang bn` (Gemini 3.5 Transcribe through the API, verbatim, with word times; far better than whisper on Bangla) |
+| What a voice really says, word by word (a mispronounced word, exact word times) | `transcribe VIDEO --words --lang bn` (Gemini 3.5 Transcribe through the API, verbatim, with word times). The house rule: Gemini for every language but English, never whisper; English may start on whisper and moves to Gemini at the first doubt |
 | Technical checks, platform fit | `qa VIDEO --platform reels|tiktok|shorts|youtube|facebook` (no model, seconds; `--strict` exits 2 on any failed check, for delivery gates) |
 | Is the approved copy on screen, spelled right? | `watch VIDEO --expect approved.txt` (one line per text; each is reported found, different or not found) |
 | What changed between two versions | `compare A.mp4 B.mp4` |

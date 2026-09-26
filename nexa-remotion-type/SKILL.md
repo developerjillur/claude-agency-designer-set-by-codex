@@ -1,6 +1,6 @@
 ---
 name: nexa-remotion-type
-description: "Typography and captions for Remotion videos: kinetic titles and words that rise from masks, typewriters with key sounds, scramble decodes, word rotators, counters and odometers (currency, percent, compact, Bangla digits), text fitted to a box, marker sweeps and hand-drawn circles, underlines and strikes, caption plates, big statements, quotes and labels, and burned-in captions (TikTok pages with a gliding pill, karaoke or word pop; boxed YouTube subtitles; SRT files) from whisper or ElevenLabs word timings, with Bangla that never breaks. Use it for any text on screen in a Remotion video, Banglish included ('caption add koro', 'title animation banao', 'counter animation lagbe'). Part of the nexa-remotion family."
+description: "Typography and captions for Remotion videos: kinetic titles and words that rise from masks, typewriters with key sounds, scramble decodes, word rotators, counters and odometers (currency, percent, compact, Bangla digits), text fitted to a box, marker sweeps and hand-drawn circles, underlines and strikes, caption plates, big statements, quotes and labels, and burned-in captions (TikTok pages with a gliding pill, karaoke or word pop; boxed YouTube subtitles; SRT files) from Gemini (whisper only for English) or ElevenLabs word timings, with Bangla that never breaks. Use it for any text on screen in a Remotion video, Banglish included ('caption add koro', 'title animation banao', 'counter animation lagbe'). Part of the nexa-remotion family."
 ---
 
 # Type for Remotion
@@ -22,9 +22,11 @@ the director skill is `nexa-remotion`, the kit lives in `~/.claude/skills/nexa-r
    `body`, `mono`, `serif`, `hand`, `bangla`). Never name a font in CSS alone.
 4. **Time it to the voice**: `delay` on the frame of the cue word, entrance done before the next cue, then a hold of
    at least `readingFrames(text, fps)`. Temporary text gets `out` so it is gone by the Sequence end.
-5. **Captions**: transcribe once (whisper with word timings; `language: 'bn'` and a medium or larger model for
-   Bangla), `toCaptions(json)`, `remapCaptions()` if the clip was cut or sped, then `<TikTokCaptions>` for shorts or
-   `<BoxedCaptions>` for YouTube, plus `<SubtitleFile>` to emit the SRT.
+5. **Captions**: transcribe once with word timings: Gemini 3.5 Transcribe for every language but English
+   (`watch_video.py transcribe FILE --words --lang bn`, or `nvc.py transcribe`), whisper for English with Gemini as
+   soon as it looks unsure (never whisper for Bangla: on a 22 s voice-over it misheard four correct words and passed
+   a real slip). Then `toCaptions(json)`, `remapCaptions()` if the clip was cut or sped, `<TikTokCaptions>` for
+   shorts or `<BoxedCaptions>` for YouTube, plus `<SubtitleFile>` to emit the SRT.
 6. **Look**: `nrk.py stills PROJECT --frames` at each entrance, mid-hold and the last frame; a full-size
    `nrk.py still` for masks, Bangla shaping and caption position; `copylint` again after any text change.
 

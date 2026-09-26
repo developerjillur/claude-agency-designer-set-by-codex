@@ -73,8 +73,9 @@ that:
 - For `remotion-broll` and `nexa-video-creator`: [Node.js](https://nodejs.org) 22.6 or newer (npm installs Remotion
   4.0.528; `nvc.py doctor --setup --link-modules PATH` reuses an installed kit's packages instead).
 - For `nexa-video-creator`: [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`brew install whisper-cpp`) and a
-  large-v3-turbo model for English transcripts; numpy is installed into the skill's own environment by
-  `doctor --setup`.
+  large-v3-turbo model, for English transcripts only: every other language is transcribed with Gemini 3.5 Transcribe
+  on the API key, and English moves to Gemini too when whisper looks unsure. numpy is installed into the skill's own
+  environment by `doctor --setup`.
 - For `nexa-speech`, `nexa-sound` and Bangla transcripts: a Gemini API key from a Google Cloud project with billing
   turned on, in `GEMINI_API_KEY` or in the macOS keychain (`security add-generic-password -a "$USER" -s GEMINI_API_KEY -w`
   asks for it at a prompt). The skills never ask for a key, print it or write it to a file.

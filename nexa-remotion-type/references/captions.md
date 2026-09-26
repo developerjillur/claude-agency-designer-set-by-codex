@@ -6,6 +6,11 @@ time range contains the current time; mark the spoken word.
 
 ## 1. The data type
 
+House rule for where the words come from (2026-09-26): Gemini 3.5 Transcribe for every language but English
+(`agy-watch-video`'s `transcribe --words`, or `nvc.py transcribe`: verbatim words with their own times), whisper for
+English only, and Gemini as soon as an English whisper result looks unsure. The whisper tools in the table below
+are Remotion's own and still work; they are not the first choice here.
+
 `Caption` (`@remotion/captions`, 4.0.216): `{text, startMs, endMs, timestampMs: number | null, confidence: number |
 null, pageBreakAfter?: boolean}`.
 - `text` is whitespace sensitive: a space **before** each word (`"Most"`, `" teams"`, `" lose"`). Tokens without a

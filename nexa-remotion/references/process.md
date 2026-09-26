@@ -45,8 +45,10 @@ On screen: key words and numbers, never the sentence being said (captions are th
 
 1. Voice: `nexa-speech` (TTS, Bangla included) or the client's recording. One file per line or one take per
    argument.
-2. Word timings: `python3 ~/.claude/skills/nexa-video-creator/scripts/nvc.py transcribe JOB --engine whisper`, or
-   the TTS engine's own timestamps. Convert to frames once and keep the table in the scene file as constants.
+2. Word timings: `python3 ~/.claude/skills/nexa-video-creator/scripts/nvc.py transcribe JOB` (Gemini 3.5 Transcribe
+   for every language but English; English on whisper, moved to Gemini when whisper looks unsure), or
+   `watch_video.py transcribe FILE --words --lang CODE`, or the TTS engine's own timestamps. Convert to frames once
+   and keep the table in the scene file as constants.
 3. Scene lengths = measured voice + 0.2 to 0.5 s tail hold (+ transition overlap).
 4. Cue the meaning (the verb or the emphasis word): readable elements land 1 or 2 frames before their word, hits
    land exactly on it. One beat carries at most two cues; weight reveals to the back half of a shot.

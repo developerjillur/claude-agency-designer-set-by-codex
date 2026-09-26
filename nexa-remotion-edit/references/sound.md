@@ -82,8 +82,9 @@ across consecutive scenes, a crossfade when the track changes.
 ## 6. Voice first (word-locked timing)
 
 1. Script, then record or synthesise the voice (one file per line or per argument).
-2. Word timestamps: whisper.cpp (`tokenLevelTimestamps: true`, `splitOnWord: true`, an explicit `language`; a
-   multilingual `medium` or `large-v3-turbo` model for Bengali), ElevenLabs with `timestamps_granularity: 'word'`,
+2. Word timestamps: Gemini 3.5 Transcribe for every language but English (`watch_video.py transcribe FILE --words`
+   or `nvc.py transcribe`); whisper.cpp for English only (`tokenLevelTimestamps: true`, `splitOnWord: true`, an
+   explicit `language`), with Gemini as soon as it looks unsure; ElevenLabs with `timestamps_granularity: 'word'`,
    or forced alignment. Store `{text, startMs, endMs}` JSON in `public/`.
 3. Scene lengths = measured voice + 0.2 to 0.5 s of tail hold (+ transition overlap). Only then build.
 4. Write the cue table (word at seconds) above the scene. Cue the meaning word; lead readable elements by 1 to 2

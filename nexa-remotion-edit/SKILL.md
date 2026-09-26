@@ -13,7 +13,8 @@ lives in `~/.claude/skills/nexa-remotion/kit`, and a project made with `nrk.py n
 ## Fast path
 
 1. **Voice first.** Get the narration or dialogue as a file, level it (`loudnorm`, references/sound.md), and get word
-   timings (whisper.cpp with `tokenLevelTimestamps`, ElevenLabs, or forced alignment) as `{text, startMs, endMs}[]`.
+   timings (Gemini 3.5 Transcribe for every language but English, whisper.cpp with `tokenLevelTimestamps` for
+   English, ElevenLabs, or forced alignment) as `{text, startMs, endMs}[]`.
    Every other timing hangs off these words.
 2. **Prepare footage once.** H.264/AAC MP4, constant frame rate, faststart, keyframe every second, at output size
    (`ffmpeg -i in.mov -r 30 -c:v libx264 -crf 18 -g 30 -c:a aac -movflags +faststart out.mp4`). Put files in

@@ -11,7 +11,9 @@ design notes, storyboards or scripts even if you find them: judge only what a vi
 How to look:
 1. Get frames. For a video: `python3 ~/.claude/skills/agy-watch-video/scripts/watch_video.py frames VIDEO --fps 2
    --sheet` for the flow, then single frames at the moments that matter (`frames VIDEO --at 3.5,7.2`). Use
-   `watch_video.py qa VIDEO --platform <platform>` for the measured checks.
+   `watch_video.py qa VIDEO --platform <platform>` for the measured checks. To hear the words, `watch_video.py
+   transcribe VIDEO --words --lang CODE` (Gemini, verbatim, and it runs on the API key when Antigravity cannot);
+   whisper only for English, never as the judge of Bangla or other languages.
 2. Held frames (nothing moving) are judged at full standard; frames in the middle of a move are judged for motion
    only (direction, speed, smoothness), never for final layout.
 3. Crop at least three dense areas per round at full resolution (small text, edges of cards, numbers, logos).

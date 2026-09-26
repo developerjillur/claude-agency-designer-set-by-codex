@@ -44,7 +44,7 @@ import gemini_api  # noqa: E402
 import nvc_plan as P  # noqa: E402
 import pixabay_api as X  # noqa: E402
 
-SKILL_VERSION = "2026.09.25.8"
+SKILL_VERSION = "2026.09.26.1"
 REMOTION_VERSION = "4.0.528"
 SKILL_DIR = HERE.parent
 TEMPLATE = SKILL_DIR / "template"
@@ -668,11 +668,53 @@ DTW_PRESETS = (("large-v3-turbo", "large.v3.turbo"), ("large-v3", "large.v3"), (
                ("small", "small"), ("base.en", "base.en"), ("base", "base"), ("tiny.en", "tiny.en"), ("tiny", "tiny"))
 
 
+WHISPER_TOKEN_P = []   # the token probabilities of the last whisper run, for whisper_doubt()
+
+
+def pick_transcriber(lang, has_key, whisper_ready):
+    """The auto engine, by the house rule (2026-09-26): Gemini 3.5 Transcribe for every language but English (on a
+    22 s Bangla voice-over whisper misheard four correct words and passed a real slip; Gemini caught both real
+    slips); English starts on whisper when it is installed and moves to Gemini when the result looks unsure
+    (whisper_doubt). agy (Gemini through agy-watch-video) when there is no key."""
+    if (lang or "").lower().startswith("en") and whisper_ready:
+        return "whisper"
+    return "gemini" if has_key else "agy"
+
+
+def whisper_doubt(words, probs):
+    """Why an English whisper transcript should not be trusted, or None. The house rule (2026-09-26): transcripts come
+    from Gemini 3.5 Transcribe for every language but English; English may use whisper, and moves to Gemini as soon as
+    the whisper result looks unsure. Signals: low token confidence, a phrase repeated in a loop (whisper's
+    hallucination on music and silence), and letters outside the Latin script in an English transcript."""
+    if not words:
+        return "no words"
+    if probs:
+        mean_p = sum(probs) / len(probs)
+        low = sum(1 for x in probs if x < 0.5) / len(probs)
+        if mean_p < 0.70:
+            return "low confidence (mean token probability %.2f)" % mean_p
+        if low > 0.15:
+            return "low confidence (%d%% of tokens under 0.5)" % round(low * 100)
+    texts = [re.sub(r"[^\w']+", "", w["text"].lower()) for w in words]
+    for n in (3, 4, 5, 6):
+        for i in range(0, max(0, len(texts) - 3 * n + 1)):
+            gram = texts[i:i + n]
+            if all(gram) and texts[i + n:i + 2 * n] == gram and texts[i + 2 * n:i + 3 * n] == gram:
+                return "a phrase repeated in a loop (%s)" % " ".join(gram)
+    letters = "".join(w["text"] for w in words)
+    alpha = [ch for ch in letters if ch.isalpha()]
+    foreign = [ch for ch in alpha if not ("a" <= ch.lower() <= "z")]
+    if alpha and len(foreign) / len(alpha) > 0.02:
+        return "letters outside the Latin script in an English transcript"
+    return None
+
+
 def whisper_words(wav16, lang, model, tmpdir):
     """Words from whisper.cpp tokens. With a known model, DTW token times are used (-dtw, and -nfa because flash
     attention silently turns DTW off in whisper.cpp 1.8). Measured on the test pair (2026-09-25): the plain segment
     offsets put a word 1.5 s late, inside a pause; the DTW times matched the measured speech."""
     out_base = tmpdir / "whisper"
+    del WHISPER_TOKEN_P[:]
     cmd = ["whisper-cli", "-m", model, "-f", wav16, "-ojf", "-of", out_base, "-nfa", "-np",
            "-t", str(max(4, (os.cpu_count() or 8) // 2))]
     name = Path(model).name
@@ -694,6 +736,8 @@ def whisper_words(wav16, lang, model, tmpdir):
             t_dtw = tok.get("t_dtw", -1)
             t = t_dtw / 100.0 if isinstance(t_dtw, (int, float)) and t_dtw >= 0 else tok["offsets"]["from"] / 1000.0
             raw.append((text.encode("latin-1"), t, tok["offsets"]["to"] / 1000.0))
+            if isinstance(tok.get("p"), (int, float)):
+                WHISPER_TOKEN_P.append(float(tok["p"]))
     words, cur = [], None
     for data_bytes, t, t_end in raw:
         if cur is None or data_bytes[:1] == b" ":
@@ -786,11 +830,9 @@ def cmd_transcribe(args):
     has_key = bool(gemini_api.key_sources())
     model = args.model or whisper_model()
     bn = lang.startswith("bn")
+    doubt = None
     if engine == "auto":
-        if bn:
-            engine = "gemini" if has_key else "agy"
-        else:
-            engine = "whisper" if (model and shutil.which("whisper-cli")) else ("gemini" if has_key else "agy")
+        engine = pick_transcriber(lang, has_key, bool(model and shutil.which("whisper-cli")))
     audio = dialogue_audio(d, job)
     tmp = d / "analysis" / "tmp"
     tmp.mkdir(parents=True, exist_ok=True)
@@ -804,7 +846,13 @@ def cmd_transcribe(args):
             raise NvcError("no whisper model found: set NVC_WHISPER_MODEL to a ggml-large-v3-turbo file (see "
                            "`nvc.py doctor`), or use --engine gemini")
         raw_words = whisper_words(wav16, lang, model, tmp)
-    elif engine == "gemini":
+        doubt = whisper_doubt(raw_words, list(WHISPER_TOKEN_P))
+        if doubt and args.engine == "auto" and has_key:
+            log("whisper looked unsure (%s): transcribing with Gemini 3.5 Transcribe instead" % doubt)
+            engine = "gemini"
+        elif doubt:
+            log("whisper looked unsure (%s); run with --engine gemini to check it" % doubt)
+    if engine == "gemini":
         minutes = (job["sources"][job["dialogue"]].get("duration") or 0) / 60.0
         cost = round(minutes * 0.005, 3)
         log("Gemini 3.5 Transcribe: about $%.3f for %.1f min" % (cost, minutes))
@@ -824,7 +872,7 @@ def cmd_transcribe(args):
                           "est_usd": cost, "key": res["info"].get("key")})
     elif engine == "agy":
         raw_words = spread_words(agy_sentences(str(audio), lang))
-    else:
+    elif engine != "whisper":
         raise NvcError("unknown engine " + engine)
     if not raw_words:
         raise NvcError("no words came back: is there speech in %s?" % audio)
@@ -850,6 +898,8 @@ def cmd_transcribe(args):
         words.append(item)
     data = {"schema": "nvc-words/1", "source": job["dialogue"], "language": lang, "engine": engine,
             "snapping": note, "created": now(), "words": words}
+    if doubt:
+        data["whisper_doubt"] = doubt
     write_json(d / "analysis" / "words.json", data)
     (d / "analysis" / "transcript.txt").write_text("\n".join(P.pack_transcript(words)) + "\n", encoding="utf-8")
     mark(job, "transcribe", engine=engine, words=len(words), seconds=round(time.time() - t0, 1), est_usd=cost)

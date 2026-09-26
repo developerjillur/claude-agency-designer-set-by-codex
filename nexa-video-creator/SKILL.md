@@ -18,7 +18,9 @@ Command prefix: `python3 ~/.claude/skills/nexa-video-creator/scripts/nvc.py`.
    music, logos with their roles. Files are linked, never changed.
 3. **Measure:** `ingest` (proxies, audio, the best microphone as the master clock, face position), `sync` (every
    other recording against the dialogue: offset and drift), optional `clean` (nexa-sound voice clean-up), then
-   `transcribe` (whisper.cpp with DTW for English, Gemini 3.5 Transcribe for Bangla with a key, agy otherwise).
+   `transcribe` (Gemini 3.5 Transcribe for every language but English; English on whisper.cpp with DTW, moved to
+   Gemini by itself when whisper looks unsure: low token confidence, a looping phrase, letters outside the Latin
+   script; agy without a key). The house rule since 2026-09-26: never rely on whisper for Bangla or other languages.
 4. **Read** `nvc.py brief JOB` → `edit-brief.md`: the transcript with word ids, fillers, retakes, numbers said, long
    pauses, the target's rules and a plan example.
 5. **Edit:** write `JOB/plan.json` (below and `references/plan.md`). All on-screen words go through natural-copy

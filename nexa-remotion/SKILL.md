@@ -24,8 +24,9 @@ Command prefix: `python3 ~/.claude/skills/nexa-remotion/scripts/nrk.py`
 3. **Words.** On-screen text and the voice-over script with the `natural-copy` skill (for the ear: one idea per
    breath, numbers as people say them). Only the client's facts; every number on screen is said or sourced.
 4. **Voice first.** Record or synthesise the voice (`nexa-speech`), get word timings (`nexa-video-creator`'s
-   `nvc.py transcribe --engine whisper`), and write the cue table: which word triggers which element. Music from
-   `nexa-sound`; a beat grid only when the track is really rhythmic. Durations come from the audio, not guesses.
+   `nvc.py transcribe`: Gemini for every language but English, whisper for English), and write the cue table:
+   which word triggers which element. Music from `nexa-sound`; a beat grid only when the track is really rhythmic.
+   Durations come from the audio, not guesses.
 5. **Storyboard.** A shot list with frame arithmetic (`references/storyboard.md`): each scene's start frame, length,
    hero element, cue words, composition system and transition; the sum checked against the promised length.
 6. **Build.** `nrk.py new PROJECT --format youtube --seconds 30`, then one file per scene in `src/scenes/`, composed

@@ -1023,5 +1023,31 @@ class Pipeline(unittest.TestCase):
                 self.assertEqual(p.read_bytes(), mine, "%s differs from nexa-video-creator's copy" % p)
 
 
+class TranscriberRuleTests(unittest.TestCase):
+    """Gemini for every language but English; English whisper moves to Gemini when it looks unsure."""
+
+    @classmethod
+    def setUpClass(cls):
+        global nvc
+        import nvc  # noqa: F401  (imported here, like the other tests that need the CLI module)
+
+    def test_languages_route_to_gemini_except_english(self):
+        self.assertEqual(nvc.pick_transcriber("bn", True, True), "gemini")
+        self.assertEqual(nvc.pick_transcriber("hi", True, True), "gemini")
+        self.assertEqual(nvc.pick_transcriber("auto", True, True), "gemini")
+        self.assertEqual(nvc.pick_transcriber("en", True, True), "whisper")
+        self.assertEqual(nvc.pick_transcriber("en-US", True, False), "gemini")
+        self.assertEqual(nvc.pick_transcriber("bn", False, True), "agy")
+
+    def test_whisper_doubt_signals(self):
+        def words(text):
+            return [{"text": x, "start": i * 0.3, "end": i * 0.3 + 0.25} for i, x in enumerate(text.split())]
+        self.assertIsNone(nvc.whisper_doubt(words("so we cut the pauses and the retakes"), [0.92] * 12))
+        self.assertIn("low confidence", nvc.whisper_doubt(words("so we cut the pauses"), [0.41] * 8))
+        self.assertIn("loop", nvc.whisper_doubt(words("thank you for watching " * 3), [0.9] * 20))
+        self.assertIn("Latin", nvc.whisper_doubt(words("the দোকান is open"), [0.9] * 8))
+        self.assertEqual(nvc.whisper_doubt([], []), "no words")
+
+
 if __name__ == "__main__":
     unittest.main()
